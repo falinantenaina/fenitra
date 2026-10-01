@@ -72,7 +72,7 @@ Argent (propre / trosa sinoa / caisse)
 | **A10** | **Prix de vente vendeur en ligne** (80) ≠ prix public (30) : prix libre par ligne de vente, ou listes de prix par canal ? | UX saisie | v1 : `ProductVariant.sellingPrice` = prix par défaut + **prix libre modifiable sur chaque ligne de vente**. Listes de prix = évolution possible |
 | **A11** | **Retours, annulations, ajustements de stock** (casse/perte/vol) : non traités par le cahier des charges mais nécessaires pour ne jamais bloquer l'app. | Intégrité | Prévoir : `Sale.cancel()` (contre-passation), `StockMovement ADJUSTMENT/RETURN` — à valider |
 | **A12** | **Versement récurrent** (2/jour) : planificateur automatique ou saisie manuelle ? | UX | v1 : saisie manuelle + vue « historique par personne » (§38). Planificateur = évolution |
-| **A13** | **Timezone / bornes de période** | Filtres dashboard | `Africa/Antananarivo` (UTC+3), calculées côté serveur |
+| **A13** | **Timezone / bornes de période** | Filtres dashboard | `Indian/Antananarivo` (UTC+3), calculées côté serveur. *NB : `Africa/Antananarivo` est l'alias historique, rejeté par l'ICU récent de Node — on utilise le nom canonique* |
 | **A14** | **Rôles / RBAC** exacts | Sécurité | `ADMIN`, `MANAGER`, `CASHIER` — à ajuster |
 | **A15** | **Trosa sinoa** : doit-il apparaître dans « Dettes » du dashboard **et** dans une section séparée (§32) ? | Dashboard | Une seule table, deux vues (filtre par type) |
 
@@ -1103,7 +1103,7 @@ GET    /health
 | **A10** | `ProductVariant.sellingPrice` = prix par défaut, **prix libre modifiable sur chaque ligne de vente** (couvre le prix vendeur en ligne). Listes de prix = évolution |
 | **A11** | **Prévus** : `POST /sales/:id/cancel` (contre-passation, restaure les mêmes lots) et `POST /stock/adjustments` (casse/perte/vol) |
 | **A12** | Versement à la **saisie manuelle** en v1 + vue historique par personne (§38) |
-| **A13** | Timezone **`Africa/Antananarivo` (UTC+3)**, bornes de période calculées **côté serveur** |
+| **A13** | Timezone **`Indian/Antananarivo` (UTC+3)**, bornes de période calculées **côté serveur** |
 | **A14** | Rôles `ADMIN` / `MANAGER` / `CASHIER` |
 | **A15** | **Une seule table `Debt`** — vue dashboard (§6) + vue section séparée (§32) |
 

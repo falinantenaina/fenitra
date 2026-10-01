@@ -29,7 +29,7 @@ const envSchema = z.object({
   MAX_PAGE_SIZE: z.coerce.number().int().positive().default(100),
 
   BUSINESS_CURRENCY: z.string().default('Ariary'),
-  BUSINESS_TIMEZONE: z.string().default('Africa/Antananarivo'),
+  BUSINESS_TIMEZONE: z.string().default('Indian/Antananarivo'),
   OPENING_CASH_BALANCE: z.coerce.number().int().default(0),
   WORKING_RESERVE: z.coerce.number().int().default(0),
 });
