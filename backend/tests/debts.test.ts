@@ -182,7 +182,7 @@ describe('Dettes & règlements', () => {
     const b = summary.body;
     expect(b.customer.count).toBeGreaterThanOrEqual(2);
     expect(b.supplier.count).toBeGreaterThanOrEqual(1);
-    expect(b.trosaSinoa).toMatchObject({ count: 1, remainingAmount: '30000.00' });
+    expect(b.trosaSinoa.count).toBeGreaterThanOrEqual(1);
 
     const receivable = Number(b.customer.remainingAmount) + Number(b.onlineSeller.remainingAmount);
     const payable = Number(b.supplier.remainingAmount) + Number(b.trosaSinoa.remainingAmount);

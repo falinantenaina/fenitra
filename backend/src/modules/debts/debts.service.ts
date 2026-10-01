@@ -5,6 +5,7 @@ import { badRequest, businessRule, notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { nextReference } from '../../services/sequences';
+import { reverseEntries } from '../../services/ledger';
 import {
   PARTY_TYPE,
   PAYMENT_KIND,
@@ -389,29 +390,7 @@ export async function cancelDebt(debtId: string, reason: string, userId: string 
     }
 
     const now = new Date();
-    const entries = await tx.ledgerEntry.findMany({
-      where: { debtId: debt.id, amount: { gt: 0 } },
-    });
-
-    for (const e of entries) {
-      await tx.ledgerEntry.create({
-        data: {
-          date: now,
-          kind: e.kind,
-          amount: -e.amount,
-          cashDelta: -e.cashDelta,
-          description: `Annulation dette — ${reason}`,
-          reference: e.reference ? `ANNULATION ${e.reference}` : null,
-          refType: 'DEBT',
-          refId: debt.id,
-          debtId: debt.id,
-          paymentId: e.paymentId,
-          saleId: e.saleId,
-          arrivalId: e.arrivalId,
-          userId,
-        },
-      });
-    }
+    await reverseEntries(tx, 'DEBT', debt.id, `Annulation dette — ${reason}`, userId);
 
     await tx.debt.update({
       where: { id: debt.id },

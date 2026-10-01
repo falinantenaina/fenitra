@@ -8,12 +8,17 @@ import { arrivalsRouter } from '../modules/arrivals/arrivals.routes';
 import { stockRouter } from '../modules/stock/stock.routes';
 import { salesRouter } from '../modules/sales/sales.routes';
 import { debtsRouter, paymentsRouter } from '../modules/debts/debts.routes';
+import { expensesRouter } from '../modules/finances/expenses.routes';
+import { versementsRouter } from '../modules/finances/versements.routes';
+import { capitalRouter } from '../modules/finances/capital.routes';
+import { trosaRouter } from '../modules/finances/trosa.routes';
 
 /**
  * Registre des routes de l'API. Chaque module ajoute son Router ici.
  * Phase 5 : auth ✓, users ✓, catalog ✓, parties ✓, settings ✓,
- *           arrivals ✓, stock ✓, sales ✓, debts ✓, payments ✓, expenses,
- *           versements, personal-capital, trosa-sinoa, ledger, dashboard, reports.
+ *           arrivals ✓, stock ✓, sales ✓, debts ✓, payments ✓,
+ *           expenses ✓, versements ✓, personal-capital ✓, trosa-sinoa ✓,
+ *           ledger, dashboard, reports.
  */
 export const apiRouter = Router();
 
@@ -43,6 +48,10 @@ apiRouter.get('/', (_req, res) => {
       '/api/sales',
       '/api/debts',
       '/api/payments',
+      '/api/expenses',
+      '/api/versements',
+      '/api/personal-capital',
+      '/api/trosa-sinoa',
       '/api/health',
     ],
   });
@@ -61,4 +70,8 @@ apiRouter.use('/stock', stockRouter);
 apiRouter.use('/sales', salesRouter);
 apiRouter.use('/debts', debtsRouter);
 apiRouter.use('/payments', paymentsRouter);
+apiRouter.use('/expenses', expensesRouter);
+apiRouter.use('/versements', versementsRouter);
+apiRouter.use('/personal-capital', capitalRouter);
+apiRouter.use('/trosa-sinoa', trosaRouter);
 apiRouter.use('/', settingsRouter);
