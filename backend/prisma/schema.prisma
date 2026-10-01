@@ -360,7 +360,10 @@ model StockMovement {
   lot       StockLot?         @relation(fields: [lotId], references: [id])
   variantId String
   type      StockMovementType
-  quantity  Int
+  /// Variation SIGNÉE de `StockLot.remainingQty` :
+  ///   > 0 = entrée (IN, RETURN)   •   < 0 = sortie (OUT, ADJUSTMENT, REVERSAL)
+  /// `remainingQty` au instant T = Σ delta des mouvements datés < T.
+  delta     Int
   unitCost  Int?
   refType   String?
   refId     String?
@@ -371,6 +374,7 @@ model StockMovement {
   createdAt DateTime          @default(now())
 
   @@index([variantId, date])
+  @@index([lotId, date])
   @@index([refType, refId])
 }
 
