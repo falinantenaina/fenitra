@@ -541,7 +541,8 @@ model Debt {
   type            DebtType
   direction       DebtDirection
   origin          DebtOrigin
-  originId        String?                     // saleId / arrivalId
+  saleId          String?      @unique           // lien 1-1 vers la vente
+  arrivalId       String?      @unique           // lien 1-1 vers l'arrivage
   customerId      String?
   customer        Customer?    @relation(fields: [customerId], references: [id])
   onlineSellerId  String?
@@ -565,7 +566,8 @@ model Debt {
   @@index([customerId])
   @@index([onlineSellerId])
   @@index([supplierId])
-  @@index([originId])
+  @@index([saleId])
+  @@index([arrivalId])
   @@index([date])
 }
 

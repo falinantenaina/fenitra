@@ -209,9 +209,10 @@ model ProductVariant {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  lots         StockLot[]
-  saleItems    SaleItem[]
-  arrivalItems ArrivalItem[]
+    lots         StockLot[]
+    saleItems    SaleItem[]
+    arrivalItems ArrivalItem[]
+    movements    StockMovement[]
 
   @@unique([productId, sizeId])
   @@index([productId])
@@ -377,6 +378,7 @@ model StockMovement {
   lotId     String?
   lot       StockLot?         @relation(fields: [lotId], references: [id])
   variantId String
+  variant   ProductVariant    @relation(fields: [variantId], references: [id])
   type      StockMovementType
   /// Variation SIGNÉE de `StockLot.remainingQty` :
   ///   > 0 = entrée (IN, RETURN)   •   < 0 = sortie (OUT, ADJUSTMENT, REVERSAL)
@@ -488,8 +490,11 @@ model Debt {
   type            DebtType
   direction       DebtDirection
   origin          DebtOrigin
-  /// Au plus une dette par vente / par arrivage (unique pour autoriser les 1-1)
-  originId        String?        @unique
+  /// Au plus une dette par vente / par arrivage (unique pour autoriser les 1-1).
+  /// Deux colonnes distinctes : une seule `originId` commune forcerait la
+  /// valeur à exister à la fois dans `Sale` et dans `Arrival` (FK impossible).
+  saleId          String?        @unique
+  arrivalId       String?        @unique
   customerId      String?
   customer        Customer?       @relation(fields: [customerId], references: [id])
   onlineSellerId  String?
@@ -511,8 +516,8 @@ model Debt {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  sale     Sale?     @relation(fields: [originId], references: [id], onDelete: SetNull, map: "Debt_originId_sale_fkey")
-  arrival  Arrival?  @relation(fields: [originId], references: [id], onDelete: SetNull, map: "Debt_originId_arrival_fkey")
+  sale     Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull, map: "Debt_saleId_fkey")
+  arrival  Arrival?  @relation(fields: [arrivalId], references: [id], onDelete: SetNull, map: "Debt_arrivalId_fkey")
   payments Payment[]
   versements Versement[]
 
@@ -520,7 +525,8 @@ model Debt {
   @@index([customerId])
   @@index([onlineSellerId])
   @@index([supplierId])
-  @@index([originId])
+  @@index([saleId])
+  @@index([arrivalId])
   @@index([date])
   @@index([partyName])
 }
