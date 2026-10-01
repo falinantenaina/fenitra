@@ -1,7 +1,7 @@
 # ANALYSE DU PROJET — Application de gestion commerciale, stock & finances (vente de chaussures)
 
 > **Phase 1 → Phase 4** du plan de développement.
-> Ce document **précède tout code**. Il doit être validé avant l'implémentation (§70 du cahier des charges).
+> **Statut : VALIDÉ par l'utilisateur** (voir §14 — décisions A1 → A15). Le code peut démarrer par la Phase 2.
 
 ---
 
@@ -56,19 +56,19 @@ Argent (propre / trosa sinoa / caisse)
 
 ---
 
-## 2. Ambiguïtés identifiées (à trancher AVANT le code)
+## 2. Ambiguïtés identifiées (tranchées — voir §14)
 
 | # | Ambiguïté | Impact | Proposition retenue (à valider) |
 |---|---|---|---|
-| **A1** | **Sens de « trosa sinoa »** : argent que je **dois** (dette) ou argent qu'on **me doit** (créance) ? Le cahier des charges le range dans « Dettes » (§6) mais le sépare des dettes clients/vendeurs/fournisseurs (§32). | Identité financière, dashboard | Modèle `Debt` avec `type = TROSA_SINOA` **+ `direction = RECEIVABLE | PAYABLE`** → les deux sens sont supportés, l'utilisateur choisit à la saisie |
-| **A2** | **Traitement comptable du versement** (ex. « Mr Kely 2 Ar/jour ») : est-ce une **charge** (réduit le bénéfice) ou un **règlement de dette** (réduit un passif, ne réduit pas le bénéfice) ? §45 interdit de déduire sans règle définie. | Bénéfice net, identité comptable | Champ `Versement.treatment = CHARGE | DEBT_SETTLEMENT` (défaut : `DEBT_SETTLEMENT` si une dette ouverte existe pour cette personne, sinon `CHARGE`). Seuls les `CHARGE` réduisent le bénéfice net |
-| **A3** | **Formule exacte du bénéfice mangeable** (§7) : cumulée ou sur période ? y a-t-il une **réserve de rotation** (argent à garder pour renouveler le stock) ? | Question centrale du dashboard | Proposition §9 — réserve paramétrable, défaut `0` |
-| **A4** | **Définition exacte du vola miodina** (§7 liste 4 éléments) : totaux ou sous-ensemble ? | Dashboard | Proposition §10 : `caisse + stock + créances − dettes fournisseurs` |
-| **A5** | **Que devient l'argent propre quand je sors de la caisse ?** Récupération de capital (§34) ou prise de bénéfice ? Une seule opération `PERSONAL_CAPITAL_OUT` ne peut pas signifier les deux. | Argent propre, bénéfice mangeable | **Deux opérations distinctes** : `PERSONAL_CAPITAL_OUT` (récupère mon capital, diminue `K`) et `PROFIT_DRAWING` (je sors du bénéfice, ne touche pas `K`). Le §33-34 ne couvre que la première → à valider |
-| **A6** | **Recettes** (§42) : inclut-on les règlements de dettes antérieures (paiement client d'une vente du mois dernier) ? | Indicateur « recettes » | Oui — `Recettes = tous les encaissements issus des ventes (du moment + règlements)`. On affiche aussi `ventes encaissées du moment` en sous-indicateur |
+| **A1** ✅ | **Sens de « trosa sinoa »** : argent que je **dois** (dette) ou argent qu'on **me doit** (créance) ? | Identité financière, dashboard | **VALIDÉ : argent que JE DOIS → `direction = PAYABLE` (imposé pour ce type).** C'est une dette **manuelle**, distincte des dettes fournisseurs générées automatiquement par un arrivage. Elle entre dans **ARGENT À PAYER** |
+| **A2** ✅ | **Traitement comptable du versement** (ex. « Mr Kely 2 Ar/jour ») : charge ou règlement de dette ? | Bénéfice net, identité comptable | **VALIDÉ : `DEBT_SETTLEMENT` par défaut.** Si la personne a une **dette payable ouverte** (type `TROSA_SINOA`), le versement la réduit et n'affecte pas le bénéfice. Sinon `CHARGE` (réduit le bénéfice net). Champ `Versement.treatment`, modifiable à la saisie |
+| **A3** ✅ | **Formule exacte du bénéfice mangeable** (§7) : cumulée ou sur période ? réserve de rotation ? | Question centrale du dashboard | **VALIDÉ (§9)** : `max(0, min(net cumulé, caisse − à payer − argent propre engagé − réserve))`, cumulé à date, réserve paramétrable défaut `0` |
+| **A4** ✅ | **Définition exacte du vola miodina** (§7 liste 4 éléments) : totaux ou sous-ensemble ? | Dashboard | **VALIDÉ (§10)** : `caisse + stock + créances − passifs` = `argent propre engagé + bénéfice net cumulé` |
+| **A5** ✅ | **Que devient l'argent propre quand je sors de la caisse ?** Récupération de capital ou prise de bénéfice ? | Argent propre, bénéfice mangeable | **VALIDÉ : deux opérations distinctes.** `PERSONAL_CAPITAL_OUT` (récupère mon capital, `K` diminue) et `PROFIT_DRAWING` (je sors du bénéfice, `K` inchangé) |
+| **A6** ✅ | **Recettes** (§42) : inclut-on les règlements de dettes antérieures ? | Indicateur « recettes » | **Retenu : oui** — `Recettes = tous les encaissements issus des ventes (du moment + règlements)`. Sous-indicateur `ventes encaissées du moment` affiché à côté |
 | **A7** | **Financement mixte** (§35) : comment relier « injection d'argent propre » → « arrivage » sans compter deux fois l'argent ? | Traçabilité §33 | Les **flux de caisse** restent la référence ; `FundingAllocation` est une **étiquette de reporting** sur l'arrivage. Si l'argent arrive directement de ma poche, on crée une `PersonalCapitalMovement` liée à l'arrivage **et** le paiement sort de la caisse (entrée + sortie, solde net nul, traçabilité complète) |
 | **A8** | **Dépenses non payées** (achats à crédit) ? | Dettes | Non prévues par le §36 → **hors périmètre v1** ; une dépense est toujours réglée (sortie de caisse). À confirmer |
-| **A9** | **Précision monétaire** : l'ariary admet-il des décimales ? | `Decimal(18,2)` vs `Decimal(18,0)` | `Decimal(18,2)` par défaut (sûr). Si l'activité n'utilise que des entiers, `18,0` |
+| **A9** ✅ | **Précision monétaire** : l'ariary admet-il des décimales ? | `Decimal(18,2)` vs `Decimal(18,0)` | **VALIDÉ : `Decimal(18,0)` — entiers uniquement.** Tous les montants sont des entiers ; validation Zod `int()` ; affichage formaté `2 000 Ar` |
 | **A10** | **Prix de vente vendeur en ligne** (80) ≠ prix public (30) : prix libre par ligne de vente, ou listes de prix par canal ? | UX saisie | v1 : `ProductVariant.sellingPrice` = prix par défaut + **prix libre modifiable sur chaque ligne de vente**. Listes de prix = évolution possible |
 | **A11** | **Retours, annulations, ajustements de stock** (casse/perte/vol) : non traités par le cahier des charges mais nécessaires pour ne jamais bloquer l'app. | Intégrité | Prévoir : `Sale.cancel()` (contre-passation), `StockMovement ADJUSTMENT/RETURN` — à valider |
 | **A12** | **Versement récurrent** (2/jour) : planificateur automatique ou saisie manuelle ? | UX | v1 : saisie manuelle + vue « historique par personne » (§38). Planificateur = évolution |
@@ -235,7 +235,7 @@ enum LedgerKind {
   PERSONAL_CAPITAL_IN
   PERSONAL_CAPITAL_OUT
   PROFIT_DRAWING
-  TROSA_LEND
+  TROSA_BORROW
   TROSA_REPAY
   OTHER
   REVERSAL
@@ -294,7 +294,7 @@ model ProductVariant {
   sizeId       String
   size         Size         @relation(fields: [sizeId], references: [id])
   sku          String?      @unique
-  sellingPrice Decimal      @db.Decimal(18, 2)   // prix de VENTE actuel (modifiable)
+  sellingPrice Decimal      @db.Decimal(18, 0)   // prix de VENTE actuel (modifiable)
   active       Boolean      @default(true)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -368,9 +368,9 @@ model Arrival {
   date         DateTime            @default(now())
   notes        String?
   status       ArrivalStatus       @default(RECEIVED)
-  totalCost    Decimal             @db.Decimal(18, 2)
-  paidAmount   Decimal             @default(0) @db.Decimal(18, 2)
-  unpaidAmount Decimal             @default(0) @db.Decimal(18, 2)
+  totalCost    Decimal             @db.Decimal(18, 0)
+  paidAmount   Decimal             @default(0) @db.Decimal(18, 0)
+  unpaidAmount Decimal             @default(0) @db.Decimal(18, 0)
   createdById  String?
   cancelledAt  DateTime?
   cancelReason String?
@@ -392,7 +392,7 @@ model ArrivalCarton {
   arrival    Arrival       @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
   date       DateTime      @default(now())
   notes      String?
-  totalCost  Decimal       @default(0) @db.Decimal(18, 2)
+  totalCost  Decimal       @default(0) @db.Decimal(18, 0)
   totalQty   Int           @default(0)
   createdAt  DateTime      @default(now())
   items      ArrivalItem[]
@@ -407,8 +407,8 @@ model ArrivalItem {
   variantId    String
   variant      ProductVariant @relation(fields: [variantId], references: [id])
   quantity     Int
-  unitCost     Decimal        @db.Decimal(18, 2)   // prix d'achat de CETTE ligne
-  lineTotal    Decimal        @db.Decimal(18, 2)   // quantity × unitCost
+  unitCost     Decimal        @db.Decimal(18, 0)   // prix d'achat de CETTE ligne
+  lineTotal    Decimal        @db.Decimal(18, 0)   // quantity × unitCost
   createdAt    DateTime       @default(now())
   stockLots    StockLot[]
   @@index([cartonId])
@@ -430,8 +430,8 @@ model StockLot {
   sizeId       String
   initialQty   Int
   remainingQty Int
-  unitCost     Decimal        @db.Decimal(18, 2)   // ← IMMUABLE (§14, §66)
-  totalCost    Decimal        @db.Decimal(18, 2)   // initialQty × unitCost
+  unitCost     Decimal        @db.Decimal(18, 0)   // ← IMMUABLE (§14, §66)
+  totalCost    Decimal        @db.Decimal(18, 0)   // initialQty × unitCost
   entryDate    DateTime
   status       String         @default("OPEN")     // OPEN | DEPLETED | CANCELLED
   createdAt    DateTime       @default(now())
@@ -449,7 +449,7 @@ model StockMovement {
   variantId String
   type      StockMovementType
   quantity  Int               // toujours > 0 ; le signe est porté par type
-  unitCost  Decimal?          @db.Decimal(18, 2)
+  unitCost  Decimal?          @db.Decimal(18, 0)
   refType   String?           // SALE | ARRIVAL | ADJUSTMENT | CANCEL
   refId     String?
   date      DateTime          @default(now())
@@ -465,7 +465,7 @@ model FundingAllocation {
   arrivalId String
   arrival   Arrival       @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
   source    FundingSource
-  amount    Decimal       @db.Decimal(18, 2)
+  amount    Decimal       @db.Decimal(18, 0)
   notes     String?
   createdAt DateTime      @default(now())
   @@index([arrivalId])
@@ -483,11 +483,11 @@ model Sale {
   onlineSellerId  String?
   onlineSeller    OnlineSeller?   @relation(fields: [onlineSellerId], references: [id])
   status          SaleStatus      @default(UNPAID)
-  totalAmount     Decimal         @db.Decimal(18, 2)
-  paidAmount      Decimal         @default(0) @db.Decimal(18, 2)
-  remainingAmount Decimal         @default(0) @db.Decimal(18, 2)
-  cogs            Decimal         @default(0) @db.Decimal(18, 2)
-  margin          Decimal         @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal         @db.Decimal(18, 0)
+  paidAmount      Decimal         @default(0) @db.Decimal(18, 0)
+  remainingAmount Decimal         @default(0) @db.Decimal(18, 0)
+  cogs            Decimal         @default(0) @db.Decimal(18, 0)
+  margin          Decimal         @default(0) @db.Decimal(18, 0)
   paymentMethod   String?
   notes           String?
   createdById     String?
@@ -513,10 +513,10 @@ model SaleItem {
   variant    ProductVariant @relation(fields: [variantId], references: [id])
   sizeId     String
   quantity   Int
-  unitPrice  Decimal        @db.Decimal(18, 2)   // prix de VENTE figé (§19)
-  lineTotal  Decimal        @db.Decimal(18, 2)
-  unitCost   Decimal?       @db.Decimal(18, 2)   // coût moyen résolu (reporting)
-  cogs       Decimal        @default(0) @db.Decimal(18, 2)
+  unitPrice  Decimal        @db.Decimal(18, 0)   // prix de VENTE figé (§19)
+  lineTotal  Decimal        @db.Decimal(18, 0)
+  unitCost   Decimal?       @db.Decimal(18, 0)   // coût moyen résolu (reporting)
+  cogs       Decimal        @default(0) @db.Decimal(18, 0)
   lots       SaleItemLot[]
   @@index([saleId])
   @@index([variantId])
@@ -529,7 +529,7 @@ model SaleItemLot {
   lotId      String
   lot        StockLot @relation(fields: [lotId], references: [id])
   quantity   Int
-  unitCost   Decimal  @db.Decimal(18, 2)
+  unitCost   Decimal  @db.Decimal(18, 0)
   @@index([lotId])
 }
 ```
@@ -550,9 +550,9 @@ model Debt {
   supplier        Supplier?    @relation(fields: [supplierId], references: [id])
   partyName       String?                     // obligatoire si type = TROSA_SINOA
   reason          String                      // MOTIF OBLIGATOIRE (§31, §68)
-  initialAmount   Decimal      @db.Decimal(18, 2)
-  paidAmount      Decimal      @default(0) @db.Decimal(18, 2)
-  remainingAmount Decimal      @db.Decimal(18, 2)
+  initialAmount   Decimal      @db.Decimal(18, 0)
+  paidAmount      Decimal      @default(0) @db.Decimal(18, 0)
+  remainingAmount Decimal      @db.Decimal(18, 0)
   date            DateTime     @default(now())
   dueDate         DateTime?
   status          DebtStatus   @default(OPEN)
@@ -573,7 +573,7 @@ model Payment {
   id             String            @id @default(cuid())
   reference      String?           @unique       // « PAY-0001 »
   date           DateTime          @default(now())
-  amount         Decimal           @db.Decimal(18, 2)
+  amount         Decimal           @db.Decimal(18, 0)
   direction      PaymentDirection
   partyType      PaymentPartyType
   partyId        String?                           // customerId / supplierId / …
@@ -609,7 +609,7 @@ model Expense {
   id          String          @id @default(cuid())
   categoryId  String
   category    ExpenseCategory @relation(fields: [categoryId], references: [id])
-  amount      Decimal         @db.Decimal(18, 2)
+  amount      Decimal         @db.Decimal(18, 0)
   date        DateTime        @default(now())
   description String
   method      String?
@@ -624,7 +624,7 @@ model Expense {
 model Versement {
   id          String              @id @default(cuid())
   personName  String
-  amount      Decimal             @db.Decimal(18, 2)
+  amount      Decimal             @db.Decimal(18, 0)
   date        DateTime            @default(now())
   motif       String
   method      String?
@@ -640,7 +640,7 @@ model Versement {
 model PersonalCapitalMovement {
   id              String              @id @default(cuid())
   type            CapitalMovementType // IN = injection, OUT = récupération (§34)
-  amount          Decimal             @db.Decimal(18, 2)
+  amount          Decimal             @db.Decimal(18, 0)
   date            DateTime            @default(now())
   motif           String
   destinationType String?             // ARRIVAL | EXPENSE | CASH
@@ -658,8 +658,8 @@ model LedgerEntry {
   seq         BigInt     @unique @default(autoincrement())
   date        DateTime   @default(now())
   kind        LedgerKind
-  amount      Decimal    @db.Decimal(18, 2)   // montant de l'écriture (toujours > 0)
-  cashDelta   Decimal    @db.Decimal(18, 2)   // impact caisse (peut être 0)
+  amount      Decimal    @db.Decimal(18, 0)   // montant de l'écriture (toujours > 0)
+  cashDelta   Decimal    @db.Decimal(18, 0)   // impact caisse (peut être 0)
   description String
   reference   String?
   refType     String?    // SALE | DEBT | PAYMENT | ARRIVAL | EXPENSE | …
@@ -861,7 +861,7 @@ Chaque terme est directement traçable → conforme à §62.
 
 ## 9. Stratégie de calcul du BÉNÉFICE MANGEABLE
 
-**Hypothèse (à valider — Ambiguïté A3)** : le bénéfice mangeable est un **état cumulé à date**, pas un flux de période. Il répond à la question *« combien puis-je réellement sortir maintenant ? »*.
+**Règle VALIDÉE (A3)** : le bénéfice mangeable est un **état cumulé à date**, pas un flux de période. Il répond à la question *« combien puis-je réellement sortir maintenant ? »*.
 
 ```
 SURPLUS_CASH = CAISSE − PASSIFS (argent à payer) − ARGENT_PROPRE_ENGAGÉ − RÉSERVE
@@ -890,7 +890,7 @@ BÉNÉFICE_MANGEABLE = max(0, min(BÉNÉFICE_NET_CUMULÉ, SURPLUS_CASH))
 
 ## 10. Stratégie de calcul du VOLA MIODINA
 
-**Définition retenue (à valider — Ambiguïté A4)** : le vola miodina est **tout le capital qui tourne dans l'activité**, c'est-à-dire l'argent effectivement immobilisé dans le cycle d'exploitation.
+**Définition VALIDÉE (A4)** : le vola miodina est **tout le capital qui tourne dans l'activité**, c'est-à-dire l'argent effectivement immobilisé dans le cycle d'exploitation.
 
 ```
 VOLA_MIODINA = CAISSE + VALEUR_DU_STOCK + ARGENT_A_RECEVOIR − ARGENT_A_PAYER
@@ -1080,11 +1080,48 @@ GET    /health
 
 ---
 
-## 14. Prochaine étape
+## 14. Décisions validées (Phase 1 CLOSE)
 
-**En attente de validation** des points suivants avant d'écrire le moindre code :
+### 14.1 Décisions explicites de l'utilisateur
 
-1. Les 15 ambiguïtés du §2 (A1 → A15), en priorité **A1 → A6**.
-2. Le schéma Prisma du §4.
-3. Les formules du §8, §9, §10.
-4. Le plan de développement du §12.
+| # | Décision |
+|---|---|
+| **A1** | **TROSA SINOA = argent que JE DOIS.** `Debt.direction = PAYABLE` **imposé** pour `type = TROSA_SINOA`. C'est une dette **manuelle**, distincte des dettes fournisseurs générées automatiquement par un arrivage. Elle entre dans **ARGENT À PAYER** et dans la section séparée §32 |
+| **A2** | **Versement → `DEBT_SETTLEMENT` par défaut.** Si la personne a une dette **payable** ouverte (`TROSA_SINOA`), le versement la réduit et n'affecte pas le bénéfice. Sinon → `CHARGE` (réduit le bénéfice net). Le type est choisi/modifiable à la saisie |
+| **A3** | **Bénéfice mangeable = `max(0, min(bénéfice net cumulé, caisse − à payer − argent propre engagé − réserve))`**, cumulé à date, `réserve` paramétrable défaut `0` |
+| **A4** | **Vola miodina = `caisse + stock + créances − passifs`** (= `argent propre engagé + bénéfice net cumulé`) |
+| **A5** | **Deux opérations distinctes** : `PERSONAL_CAPITAL_OUT` (récupération de capital, `K` diminue) et `PROFIT_DRAWING` (retrait de bénéfice, `K` inchangé) |
+| **A9** | **`Decimal(18, 0)` — montants entiers uniquement** (ariary sans décimale) |
+
+### 14.2 Défauts retenus sur les ambiguïtés non bloquantes
+
+| # | Défaut retenu |
+|---|---|
+| **A6** | `Recettes` = **tous** les encaissements issus des ventes (du moment **+** règlements de dettes antérieures). Sous-indicateur `ventes encaissées du moment` affiché à côté |
+| **A7** | Les **flux de caisse** restent la référence ; `FundingAllocation` est une **étiquette de reporting** sur l'arrivage. Une injection d'argent propre liée à un arrivage crée une `PersonalCapitalMovement` (la somme entre en caisse) puis le paiement de l'arrivage sort de la caisse → traçabilité §33 sans double comptage |
+| **A8** | Une dépense est **toujours réglée** (sortie de caisse). Pas de « dette dépense » en v1 |
+| **A10** | `ProductVariant.sellingPrice` = prix par défaut, **prix libre modifiable sur chaque ligne de vente** (couvre le prix vendeur en ligne). Listes de prix = évolution |
+| **A11** | **Prévus** : `POST /sales/:id/cancel` (contre-passation, restaure les mêmes lots) et `POST /stock/adjustments` (casse/perte/vol) |
+| **A12** | Versement à la **saisie manuelle** en v1 + vue historique par personne (§38) |
+| **A13** | Timezone **`Africa/Antananarivo` (UTC+3)**, bornes de période calculées **côté serveur** |
+| **A14** | Rôles `ADMIN` / `MANAGER` / `CASHIER` |
+| **A15** | **Une seule table `Debt`** — vue dashboard (§6) + vue section séparée (§32) |
+
+### 14.3 Règles dérivées imposées par ces décisions
+
+1. **Créer une dette `TROSA_SINOA` ⇒ encaissement** : écriture `LedgerKind.TROSA_BORROW` avec `cashDelta = +montant` (j'ai bien reçu l'argent). C'est ce qui **préserve l'identité comptable** du §8.3 — une dette créée sans contrepartie casserait l'équation.
+2. **Règlement d'une trosa sinoa** (versement `DEBT_SETTLEMENT` ou paiement) ⇒ `LedgerKind.TROSA_REPAY` avec `cashDelta = −montant`.
+3. **Retrait de bénéfice** ⇒ `LedgerKind.PROFIT_DRAWING` avec `cashDelta = −montant`, sans toucher à `K`.
+4. **`PASSIFS (H)` = dettes fournisseurs + trosa sinoa (payable).**
+5. Toute dette `TROSA_SINOA` a `direction = PAYABLE` (contrainte validée par Zod + service).
+
+---
+
+## 15. Prochaine étape
+
+Phase 1 **terminée et commitée**. Ensuite, dans l'ordre :
+
+- **Phase 2** — architecture : arborescence, conventions de code, `tsconfig`, `.env.example`, Couches Express.
+- **Phase 3** — `backend/prisma/schema.prisma` complet (validé par `prisma validate`) + migration initiale + seed minimal.
+- **Phase 4** — `docs/FORMULES.md` + tests unitaires purs des formules et de l'identité §8.3.
+
