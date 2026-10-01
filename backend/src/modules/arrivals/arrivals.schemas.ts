@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { FundingSource } from '@prisma/client';
 import { listQuerySchema } from '../../lib/pagination';
 
-export const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis')});
+export { idParamSchema } from '../../lib/zod';
 
 const arrivalItem = z.object({
   variantId: z.string().min(1, 'Variante requise'),

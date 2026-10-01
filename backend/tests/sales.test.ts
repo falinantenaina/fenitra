@@ -63,6 +63,15 @@ describe('Ventes', () => {
     expect(second.body.reference).toBe(first.body.reference);
   });
 
+  it('refuse une vente de total nul (400 et jamais une contrainte 500)', async () => {
+    const res = await admin.post('/sales').send({
+      items: [{ variantId: variantA, quantity: 1, unitPrice: 0 }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(JSON.stringify(res.body.error.details)).toContain('strictement positif');
+  });
+
   it('vend en FIFO : COGS = 10×20000 + 2×23000 (Test 4)', async () => {
     const res = await admin.post('/sales').send({
       items: [{ variantId: variantA, quantity: 12, unitPrice: 45000 }],

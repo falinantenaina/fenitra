@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { listQuerySchema } from '../../lib/pagination';
 
-export const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis') });
+export { idParamSchema } from '../../lib/zod';
 
 /** slug : généré une seule fois à la création, jamais régénéré ensuite. */
 export function slugify(input: string): string {

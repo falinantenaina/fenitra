@@ -10,8 +10,7 @@ import { money } from '../../lib/money';
 import { ilike, listQuerySchema, offset, pageMeta } from '../../lib/pagination';
 import { allocateFIFO } from '../../services/fifo';
 import { n } from '../../services/metrics/queries';
-
-const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis') });
+import { idParamSchema } from '../../lib/zod';
 
 export const stockRouter = Router();
 

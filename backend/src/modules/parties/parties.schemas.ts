@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { listQuerySchema } from '../../lib/pagination';
 
-export const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis') });
+export { idParamSchema } from '../../lib/zod';
 
 const name = z.string().trim().min(2, 'Nom requis').max(120);
 const phone = z.string().trim().max(40).nullish();

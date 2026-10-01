@@ -6,8 +6,7 @@ import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { conflict, notFound } from '../../lib/errors';
 import { boolFilter } from '../../lib/pagination';
-
-const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis') });
+import { idParamSchema } from '../../lib/zod';
 
 export const settingsRouter = Router();
 

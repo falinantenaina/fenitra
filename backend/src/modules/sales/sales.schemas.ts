@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { SaleStatus } from '@prisma/client';
 import { listQuerySchema } from '../../lib/pagination';
 
-export const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis')});
+export { idParamSchema } from '../../lib/zod';
 
 /** A10 — le prix est libre **par ligne de vente** (remise, promotion, prix négocié). */
 const saleItemSchema = z.object({
@@ -31,6 +31,18 @@ export const createSaleSchema = z
   .refine((v) => !(v.customerId && v.onlineSellerId), {
     message: 'Client et vendeur en ligne sont mutuellement exclusifs',
     path: ['customerId'],
+  })
+  .superRefine((v, ctx) => {
+    // Une vente de total nul casserait le CHECK "LedgerEntry_amount_nonzero" (500)
+    // et n'aurait aucun sens comptable : on refuse au niveau du schéma (400).
+    const total = v.items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    if (total < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items'],
+        message: 'Le total de la vente doit être strictement positif (une ligne peut être offerte)',
+      });
+    }
   });
 
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;

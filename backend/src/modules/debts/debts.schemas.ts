@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { DebtType, LedgerKind, PaymentPartyType } from '@prisma/client';
 import { listQuerySchema } from '../../lib/pagination';
 
-export const idParamSchema = z.object({ id: z.string().min(1, 'Identifiant requis')});
+export { idParamSchema } from '../../lib/zod';
 
 export const createDebtSchema = z.object({
   type: z.nativeEnum(DebtType),
