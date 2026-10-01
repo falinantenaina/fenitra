@@ -6,11 +6,12 @@ import { customersRouter, onlineSellersRouter, suppliersRouter } from '../module
 import { settingsRouter } from '../modules/settings/settings.routes';
 import { arrivalsRouter } from '../modules/arrivals/arrivals.routes';
 import { stockRouter } from '../modules/stock/stock.routes';
+import { salesRouter } from '../modules/sales/sales.routes';
 
 /**
  * Registre des routes de l'API. Chaque module ajoute son Router ici.
  * Phase 5 : auth ✓, users ✓, catalog ✓, parties ✓, settings ✓,
- *           arrivals ✓, stock ✓, sales, debts, payments, expenses,
+ *           arrivals ✓, stock ✓, sales ✓, debts, payments, expenses,
  *           versements, personal-capital, trosa-sinoa, ledger, dashboard, reports.
  */
 export const apiRouter = Router();
@@ -38,6 +39,7 @@ apiRouter.get('/', (_req, res) => {
       '/api/payment-methods',
       '/api/arrivals',
       '/api/stock',
+      '/api/sales',
       '/api/health',
     ],
   });
@@ -53,4 +55,5 @@ apiRouter.use('/customers', customersRouter);
 apiRouter.use('/online-sellers', onlineSellersRouter);
 apiRouter.use('/arrivals', arrivalsRouter);
 apiRouter.use('/stock', stockRouter);
+apiRouter.use('/sales', salesRouter);
 apiRouter.use('/', settingsRouter);
