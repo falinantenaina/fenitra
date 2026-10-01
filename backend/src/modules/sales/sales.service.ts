@@ -77,6 +77,7 @@ export async function loadSale(db: Db, id: string) {
           id: sale.debt.id,
           type: sale.debt.type,
           direction: sale.debt.direction,
+          origin: sale.debt.origin,
           reason: sale.debt.reason,
           status: sale.debt.status,
           initialAmount: money(sale.debt.initialAmount),

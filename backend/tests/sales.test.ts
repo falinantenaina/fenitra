@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Prisma } from '@prisma/client';
 import { adminToken, as, tokenFor, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
+import { accountingIdentity, identityBalance } from './identity';
 
 const stamp = Date.now();
 
@@ -275,64 +275,12 @@ describe('Ventes', () => {
   });
 
   it('identité comptable : caisse + stock + créances − passifs = K + (CA − COGS − charges)', async () => {
-    const snapshot = await prisma.$transaction(
-      async (tx) => {
-        const [cash, stock, debts, capital, flows] = await Promise.all([
-          tx.ledgerEntry.aggregate({ _sum: { cashDelta: true } }),
-          tx.stockLot.aggregate({
-            where: { status: { not: 'CANCELLED' } },
-            _sum: { remainingQty: true },
-          }),
-          tx.debt.findMany({ where: { status: { not: 'CANCELLED' } } }),
-          tx.ledgerEntry.findMany({ where: { kind: { in: ['PERSONAL_CAPITAL_IN', 'PERSONAL_CAPITAL_OUT'] } } }),
-          tx.ledgerEntry.findMany({
-            where: { kind: { in: ['SALE', 'COGS', 'EXPENSE', 'VERSEMENT', 'PROFIT_DRAWING'] } },
-          }),
-        ]);
-
-        const stockValue = (
-          await tx.$queryRaw<{ value: number | bigint }[]>`
-            SELECT COALESCE(SUM("remainingQty" * "unitCost"), 0)::bigint AS value
-            FROM "StockLot" WHERE status <> 'CANCELLED'`
-        )[0]!.value;
-
-        const recv = debts
-          .filter((d) => d.type === 'CUSTOMER' || d.type === 'ONLINE_SELLER')
-          .reduce((s, d) => s + d.remainingAmount, 0);
-        const liab = debts
-          .filter((d) => d.type === 'SUPPLIER' || d.type === 'TROSA_SINOA')
-          .reduce((s, d) => s + d.remainingAmount, 0);
-
-        const k = capital.reduce(
-          (s, e) => s + (e.kind === 'PERSONAL_CAPITAL_IN' ? e.amount : -e.amount),
-          0,
-        );
-        const sum = (kind: string) =>
-          flows.filter((f) => f.kind === kind).reduce((s, f) => s + f.amount, 0);
-
-        return {
-          cash: cash._sum.cashDelta ?? 0,
-          stock: typeof stockValue === 'bigint' ? Number(stockValue) : stockValue,
-          recv,
-          liab,
-          k,
-          ca: sum('SALE'),
-          cogs: sum('COGS'),
-          expense: sum('EXPENSE'),
-          versement: sum('VERSEMENT'),
-          retrait: sum('PROFIT_DRAWING'),
-          lots: stock._sum.remainingQty,
-        };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
-
-    const lhs = snapshot.cash + snapshot.stock + snapshot.recv - snapshot.liab;
-    const rhs =
-      snapshot.k +
-      (snapshot.ca - snapshot.cogs - snapshot.expense - snapshot.versement - snapshot.retrait);
+    const snapshot = await accountingIdentity();
+    const { lhs, rhs, delta } = identityBalance(snapshot);
 
     expect(snapshot.lots).toBeGreaterThan(0);
+    expect(snapshot.cash).not.toBe(0);
+    expect(delta).toBe(0);
     expect(lhs).toBe(rhs);
   });
 });
