@@ -1,0 +1,666 @@
+// ─────────────────────────────────────────────────────────────
+//  Gestion commerciale / stock / finances — vente de chaussures
+//  Phase 3 : schéma de données
+//
+//  Règles non négociables encodées ici :
+//   • aucun Float            → Decimal(18,0) sur tous les montants
+//   • prix d'achat historisé → StockLot.unitCost (jamais écrasé)
+//   • dette = motif obligatoire → Debt.reason NOT NULL
+//   • pas de suppression destructive → statuts CANCELLED / archived
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════ ENUMS ══════════════════════════
+
+enum RoleName {
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+enum PaymentDirection {
+  IN
+  OUT
+}
+
+enum PaymentPartyType {
+  CUSTOMER
+  ONLINE_SELLER
+  SUPPLIER
+  TROSA_SINOA
+  SELF
+  OTHER
+}
+
+enum SaleStatus {
+  PAID
+  PARTIAL
+  UNPAID
+  CANCELLED
+}
+
+enum ArrivalStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+enum DebtType {
+  CUSTOMER
+  ONLINE_SELLER
+  SUPPLIER
+  TROSA_SINOA
+}
+
+enum DebtDirection {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum DebtOrigin {
+  SALE
+  ARRIVAL
+  MANUAL
+}
+
+enum DebtStatus {
+  OPEN
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  RETURN
+  REVERSAL
+}
+
+enum CapitalMovementType {
+  IN
+  OUT
+}
+
+enum VersementTreatment {
+  CHARGE
+  DEBT_SETTLEMENT
+}
+
+enum FundingSource {
+  OWN_CAPITAL
+  TROSA_SINOA
+  SALES_CASH
+  SUPPLIER_CREDIT
+}
+
+enum LedgerKind {
+  SALE
+  COGS
+  CUSTOMER_PAYMENT
+  ONLINE_SELLER_PAYMENT
+  SUPPLIER_PAYMENT
+  EXPENSE
+  VERSEMENT
+  PERSONAL_CAPITAL_IN
+  PERSONAL_CAPITAL_OUT
+  PROFIT_DRAWING
+  TROSA_BORROW
+  TROSA_REPAY
+  OTHER
+  REVERSAL
+}
+
+// ═══════════════════ UTILISATEURS & RBAC ═══════════════════
+
+model Role {
+  id    String   @id @default(cuid())
+  name  RoleName @unique
+  users User[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sales          Sale[]
+  ledger         LedgerEntry[]
+  payments       Payment[]
+  expenses       Expense[]
+  versements     Versement[]
+  capitalMoves   PersonalCapitalMovement[]
+  stockMoves     StockMovement[]
+  arrivals       Arrival[]
+
+  @@index([roleId])
+}
+
+// ═══════════════════════ CATALOGUE ═══════════════════════
+
+model Size {
+  id       String           @id @default(cuid())
+  value    Int
+  label    String?
+  order    Int              @default(0)
+  variants ProductVariant[]
+
+  @@unique([value])
+}
+
+model Product {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String?
+  imageUrl    String?
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    ProductVariant[]
+
+  @@index([name])
+}
+
+model ProductVariant {
+  id           String       @id @default(cuid())
+  productId    String
+  product      Product      @relation(fields: [productId], references: [id])
+  sizeId       String
+  size         Size         @relation(fields: [sizeId], references: [id])
+  sku          String?      @unique
+  /// Prix de VENTE actuel — modifiable. Les ventes historiques gardent leur propre prix (§19)
+  sellingPrice Int          @default(0)
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  lots         StockLot[]
+  saleItems    SaleItem[]
+  arrivalItems ArrivalItem[]
+
+  @@unique([productId, sizeId])
+  @@index([productId])
+}
+
+// ═══════════════════════ TIERS ═══════════════════════
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  arrivals Arrival[]
+  debts    Debt[]
+  lots     StockLot[]
+
+  @@index([name])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales Sale[]
+  debts Debt[]
+
+  @@index([name])
+}
+
+/// §28 / §67 : les vendeurs en ligne achètent et revendent eux-mêmes.
+/// AUCUN champ dépense / boost / pub / bénéfice / CA ici.
+model OnlineSeller {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  status    String   @default("ACTIVE")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales Sale[]
+  debts Debt[]
+
+  @@index([name])
+}
+
+// ═══════════════ ARRIVAGES / CARTONS / LOTS ═══════════════
+
+model Arrival {
+  id           String           @id @default(cuid())
+  reference    String           @unique
+  supplierId   String
+  supplier     Supplier         @relation(fields: [supplierId], references: [id])
+  date         DateTime         @default(now())
+  notes        String?
+  status       ArrivalStatus    @default(RECEIVED)
+  totalCost    Int              @default(0)
+  totalQty     Int              @default(0)
+  paidAmount   Int              @default(0)
+  unpaidAmount Int              @default(0)
+  createdById  String?
+  createdBy    User?            @relation(fields: [createdById], references: [id])
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  cartons  ArrivalCarton[]
+  lots     StockLot[]
+  debt     Debt?
+  payments Payment[]
+  fundings FundingAllocation[]
+
+  @@index([supplierId, date])
+  @@index([date])
+}
+
+model ArrivalCarton {
+  id        String        @id @default(cuid())
+  reference String
+  arrivalId String
+  arrival   Arrival       @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+  date      DateTime      @default(now())
+  notes     String?
+  totalCost Int           @default(0)
+  totalQty  Int           @default(0)
+  createdAt DateTime      @default(now())
+
+  items ArrivalItem[]
+  lots  StockLot[]
+
+  @@unique([arrivalId, reference])
+  @@index([arrivalId])
+}
+
+/// Une ligne = modèle × pointure × quantité × PRIX D'ACHAT de cette ligne.
+/// Plusieurs lignes du même carton peuvent porter des prix différents (§11).
+model ArrivalItem {
+  id        String         @id @default(cuid())
+  cartonId  String
+  carton    ArrivalCarton  @relation(fields: [cartonId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  quantity  Int
+  unitCost  Int
+  lineTotal Int
+  createdAt DateTime       @default(now())
+
+  stockLots StockLot[]
+
+  @@index([cartonId])
+  @@index([variantId])
+}
+
+/// §14-§17 / §66 : UN LOT = UNE LIGNE DE CARTON.
+/// `unitCost` est écrit une seule fois et n'est JAMAIS modifié.
+model StockLot {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  arrivalId     String
+  arrival       Arrival        @relation(fields: [arrivalId], references: [id])
+  cartonId      String
+  carton        ArrivalCarton  @relation(fields: [cartonId], references: [id])
+  arrivalItemId String
+  arrivalItem   ArrivalItem    @relation(fields: [arrivalItemId], references: [id])
+  supplierId    String
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  variantId     String
+  variant       ProductVariant @relation(fields: [variantId], references: [id])
+  sizeId        String
+  initialQty    Int
+  remainingQty  Int
+  unitCost      Int
+  totalCost     Int
+  entryDate     DateTime
+  status        String         @default("OPEN")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  movements StockMovement[]
+  saleAllocs SaleItemLot[]
+
+  @@index([variantId, remainingQty, entryDate])
+  @@index([arrivalId])
+  @@index([supplierId])
+}
+
+model StockMovement {
+  id        String            @id @default(cuid())
+  lotId     String?
+  lot       StockLot?         @relation(fields: [lotId], references: [id])
+  variantId String
+  type      StockMovementType
+  quantity  Int
+  unitCost  Int?
+  refType   String?
+  refId     String?
+  date      DateTime          @default(now())
+  notes     String?
+  userId    String?
+  user      User?             @relation(fields: [userId], references: [id])
+  createdAt DateTime          @default(now())
+
+  @@index([variantId, date])
+  @@index([refType, refId])
+}
+
+/// §35 — financement mixte : étiquette de reporting sur l'arrivage.
+/// Les flux de caisse restent la référence (voir docs/ANALYSE.md §14.2 A7).
+model FundingAllocation {
+  id        String        @id @default(cuid())
+  arrivalId String
+  arrival   Arrival       @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+  source    FundingSource
+  amount    Int
+  notes     String?
+  createdAt DateTime      @default(now())
+
+  @@index([arrivalId])
+}
+
+// ═══════════════════════ VENTES ═══════════════════════
+
+model Sale {
+  id              String         @id @default(cuid())
+  reference       String         @unique
+  date            DateTime       @default(now())
+  customerId      String?
+  customer        Customer?      @relation(fields: [customerId], references: [id])
+  onlineSellerId  String?
+  onlineSeller    OnlineSeller?  @relation(fields: [onlineSellerId], references: [id])
+  status          SaleStatus     @default(UNPAID)
+  totalAmount     Int
+  paidAmount      Int            @default(0)
+  remainingAmount Int            @default(0)
+  cogs            Int            @default(0)
+  margin          Int            @default(0)
+  paymentMethod   String?
+  notes           String?
+  createdById     String?
+  createdBy       User?          @relation(fields: [createdById], references: [id])
+  cancelledAt     DateTime?
+  cancelReason    String?
+  idempotencyKey  String?        @unique
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  items    SaleItem[]
+  payments Payment[]
+  debt     Debt?
+
+  @@index([date])
+  @@index([customerId])
+  @@index([onlineSellerId])
+  @@index([status])
+}
+
+model SaleItem {
+  id        String         @id @default(cuid())
+  saleId    String
+  sale      Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  sizeId    String
+  quantity  Int
+  /// Prix de vente FIGÉ à la vente — ne change jamais si le prix actuel bouge (§19)
+  unitPrice Int
+  lineTotal Int
+  cogs      Int            @default(0)
+
+  lots SaleItemLot[]
+
+  @@index([saleId])
+  @@index([variantId])
+}
+
+/// Sortie de stock : quelle(s) partie(s) de quel lot sont parties (FIFO, §16)
+model SaleItemLot {
+  id         String   @id @default(cuid())
+  saleItemId String
+  saleItem   SaleItem @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  lotId      String
+  lot        StockLot @relation(fields: [lotId], references: [id])
+  quantity   Int
+  unitCost   Int
+
+  @@index([lotId])
+  @@index([saleItemId])
+}
+
+// ═════════════════ DETTES & PAIEMENTS ═════════════════
+
+/// §30 / §31 / §68 : toute dette a un MOTIF obligatoire.
+/// type=TROSA_SINOA impose direction=PAYABLE (validation applicative).
+model Debt {
+  id              String          @id @default(cuid())
+  type            DebtType
+  direction       DebtDirection
+  origin          DebtOrigin
+  /// Au plus une dette par vente / par arrivage (unique pour autoriser les 1-1)
+  originId        String?        @unique
+  customerId      String?
+  customer        Customer?       @relation(fields: [customerId], references: [id])
+  onlineSellerId  String?
+  onlineSeller    OnlineSeller?   @relation(fields: [onlineSellerId], references: [id])
+  supplierId      String?
+  supplier        Supplier?       @relation(fields: [supplierId], references: [id])
+  /// Libellé de la personne pour TROSA_SINOA (pas d'entité tierce dédiée)
+  partyName       String?
+  /// Motif obligatoire — généré automatiquement, modifiable par l'utilisateur
+  reason          String
+  initialAmount   Int
+  paidAmount      Int             @default(0)
+  remainingAmount Int
+  date            DateTime        @default(now())
+  dueDate         DateTime?
+  status          DebtStatus      @default(OPEN)
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  sale     Sale?     @relation(fields: [originId], references: [id], onDelete: SetNull, map: "Debt_originId_sale_fkey")
+  arrival  Arrival?  @relation(fields: [originId], references: [id], onDelete: SetNull, map: "Debt_originId_arrival_fkey")
+  payments Payment[]
+  versements Versement[]
+
+  @@index([type, status])
+  @@index([customerId])
+  @@index([onlineSellerId])
+  @@index([supplierId])
+  @@index([originId])
+  @@index([date])
+  @@index([partyName])
+}
+
+/// Paiement unique pour TOUS les flux (client, vendeur, fournisseur, trosa, caisse).
+/// `amount` est toujours > 0 ; le sens est porté par `direction`.
+model Payment {
+  id             String            @id @default(cuid())
+  reference      String            @unique
+  date           DateTime          @default(now())
+  amount         Int
+  direction      PaymentDirection
+  partyType      PaymentPartyType
+  partyId        String?
+  debtId         String?
+  debt           Debt?             @relation(fields: [debtId], references: [id])
+  saleId         String?
+  sale           Sale?             @relation(fields: [saleId], references: [id])
+  arrivalId      String?
+  arrival        Arrival?          @relation(fields: [arrivalId], references: [id])
+  method         String?
+  notes          String?
+  userId         String?
+  user           User?             @relation(fields: [userId], references: [id])
+  idempotencyKey String?           @unique
+  createdAt      DateTime          @default(now())
+
+  @@index([debtId])
+  @@index([partyType, partyId])
+  @@index([date])
+  @@index([saleId])
+}
+
+// ═══════════════════ FINANCES ═══════════════════
+
+/// §36 : catégories dynamiques — on désactive, on ne supprime jamais.
+model ExpenseCategory {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  icon     String?
+  order    Int       @default(0)
+  active   Boolean   @default(true)
+  expenses Expense[]
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  categoryId  String
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+  amount      Int
+  date        DateTime        @default(now())
+  description String
+  method      String?
+  reference   String?
+  notes       String?
+  userId      String?
+  user        User?           @relation(fields: [userId], references: [id])
+  createdAt   DateTime        @default(now())
+
+  @@index([categoryId, date])
+  @@index([date])
+}
+
+/// §37-§38 — versements à une personne.
+/// treatment=DEBT_SETTLEMENT règle une dette payable (TROSA_SINOA) et n'affecte
+/// pas le bénéfice ; treatment=CHARGE réduit le bénéfice net.
+model Versement {
+  id         String             @id @default(cuid())
+  personName String
+  amount     Int
+  date       DateTime           @default(now())
+  motif      String
+  method     String?
+  comment    String?
+  treatment  VersementTreatment @default(CHARGE)
+  debtId     String?
+  debt       Debt?              @relation(fields: [debtId], references: [id])
+  userId     String?
+  user       User?              @relation(fields: [userId], references: [id])
+  createdAt  DateTime           @default(now())
+
+  @@index([personName, date])
+  @@index([date])
+}
+
+/// §33-§34 — mon argent personnel.
+/// IN = injection (K augmente), OUT = récupération de capital (K diminue).
+/// Retrait de bénéfice = autre type d'écriture (PROFIT_DRAWING), pas celui-ci.
+model PersonalCapitalMovement {
+  id              String              @id @default(cuid())
+  type            CapitalMovementType
+  amount          Int
+  date            DateTime            @default(now())
+  motif           String
+  destinationType String?
+  destinationId   String?
+  reference       String?
+  comment         String?
+  userId          String?
+  user            User?               @relation(fields: [userId], references: [id])
+  createdAt       DateTime            @default(now())
+
+  @@index([type, date])
+  @@index([date])
+}
+
+// ═══════════════ JOURNAL FINANCIÈRE (SOURCE DE VÉRITÉ) ═══════════════
+
+/// §39 / §62 — chaque chiffre du dashboard est une agrégation d'écritures.
+/// cashDelta : impact caisse (0 pour les écritures non monétaires type COGS).
+/// amount    : toujours > 0 ; le sens est porté par `kind`.
+model LedgerEntry {
+  id          String     @id @default(cuid())
+  seq         BigInt     @unique @default(autoincrement())
+  date        DateTime   @default(now())
+  kind        LedgerKind
+  amount      Int
+  cashDelta   Int
+  description String
+  reference   String?
+  refType     String?
+  refId       String?
+  saleId      String?
+  debtId      String?
+  paymentId   String?
+  arrivalId   String?
+  expenseId   String?
+  versementId String?
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id])
+  createdAt   DateTime   @default(now())
+
+  @@index([date])
+  @@index([kind, date])
+  @@index([refType, refId])
+}
+
+// ═══════════════════ DIVERS ═══════════════════
+
+model IdempotencyRecord {
+  key        String   @id
+  userId     String?
+  endpoint   String
+  statusCode Int
+  body       String
+  createdAt  DateTime @default(now())
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentMethod {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  order  Int     @default(0)
+  active Boolean @default(true)
+}
+
+model Sequence {
+  key   String @id
+  value Int    @default(0)
+}
