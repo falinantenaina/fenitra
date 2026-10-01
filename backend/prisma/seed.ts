@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   }
 
   // Utilisateur administrateur
-  const adminEmail = 'admin@local';
+  const adminEmail = 'admin@test.local';
   const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
   if (!existingAdmin) {
     await prisma.user.create({

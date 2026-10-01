@@ -14,7 +14,8 @@ export default function globalSetup(): void {
   const databaseUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('TEST_DATABASE_URL manquant');
 
-  execSync('npx prisma migrate reset --force --skip-generate --skip-seed', {
+  // Reset complet + seed (rôles, admin, catalogue de base) via prisma.config.ts
+  execSync('npx prisma migrate reset --force --skip-generate', {
     cwd: path.resolve(__dirname, '../..'),
     env: { ...process.env, DATABASE_URL: databaseUrl, NODE_ENV: 'test' },
     stdio: 'inherit',

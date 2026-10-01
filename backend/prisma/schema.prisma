@@ -148,8 +148,26 @@ model User {
   capitalMoves   PersonalCapitalMovement[]
   stockMoves     StockMovement[]
   arrivals       Arrival[]
+  sessions       Session[]
 
   @@index([roleId])
+}
+
+/// §5 — gestion de session : chaque refresh token est haché et révocable.
+model Session {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash  String    @unique
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+  lastUsedAt        DateTime?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // ═══════════════════════ CATALOGUE ═══════════════════════

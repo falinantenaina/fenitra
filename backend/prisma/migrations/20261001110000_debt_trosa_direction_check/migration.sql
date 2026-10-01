@@ -1,18 +1,16 @@
--- ═══════════════════════════════════════════════════════════════
--- Contraintes d'intégrité métier (priorité 1 du cahier des charges)
--- ═══════════════════════════════════════════════════════════════
+-- Integrity checks (business rules from the specification)
 
--- §30 / §68 — une dette TROSA_SINOA est TOUJOURS une dette que je paie (PAYABLE)
+-- A "trosa sinoa" debt is always money I owe => PAYABLE
 ALTER TABLE "Debt"
   ADD CONSTRAINT "Debt_trosa_is_payable"
   CHECK (type <> 'TROSA_SINOA' OR direction = 'PAYABLE');
 
--- §31 / §68 — le motif est obligatoire et ne peut pas être vide
+-- The reason is mandatory and can not be blank
 ALTER TABLE "Debt"
   ADD CONSTRAINT "Debt_reason_not_blank"
   CHECK (btrim(reason) <> '');
 
--- Montants cohérents
+-- Amounts must be coherent
 ALTER TABLE "Debt"
   ADD CONSTRAINT "Debt_amounts_positive"
   CHECK ("initialAmount" > 0 AND "paidAmount" >= 0 AND "remainingAmount" >= 0);
@@ -21,7 +19,7 @@ ALTER TABLE "Debt"
   ADD CONSTRAINT "Debt_paid_never_exceeds_initial"
   CHECK ("paidAmount" <= "initialAmount");
 
--- §15 / §17 — un lot ne peut pas sortir plus que ce qu'il contient
+-- A lot can never ship more units than it contains
 ALTER TABLE "StockLot"
   ADD CONSTRAINT "StockLot_quantities_positive"
   CHECK ("initialQty" > 0 AND "remainingQty" >= 0 AND "remainingQty" <= "initialQty");
@@ -30,18 +28,18 @@ ALTER TABLE "StockLot"
   ADD CONSTRAINT "StockLot_unit_cost_positive"
   CHECK ("unitCost" > 0);
 
--- §9-§12 — une ligne d'arrivage est cohérente
+-- An arrival line must be internally consistent
 ALTER TABLE "ArrivalItem"
   ADD CONSTRAINT "ArrivalItem_quantity_positive"
   CHECK (quantity > 0 AND "unitCost" >= 0 AND "lineTotal" = quantity * "unitCost");
 
--- §19 — une vente historique conserve son prix
+-- A historical sale keeps its own price
 ALTER TABLE "SaleItem"
   ADD CONSTRAINT "SaleItem_price_and_qty_positive"
   CHECK (quantity > 0 AND "unitPrice" >= 0 AND "lineTotal" = quantity * "unitPrice");
 
--- §24 — statuts de vente cohérents avec les montants
--- (une vente annulée échappe au contrôle : son historique est conservé tel quel)
+-- Sale amounts must stay coherent with the status
+-- (a cancelled sale keeps its historical record untouched)
 ALTER TABLE "Sale"
   ADD CONSTRAINT "Sale_amounts_consistent"
   CHECK (
@@ -55,13 +53,12 @@ ALTER TABLE "Sale"
     )
   );
 
--- Un paiement est toujours d'un seul sens et d'un montant strictement positif
+-- A payment always has a strictly positive amount and a single direction
 ALTER TABLE "Payment"
   ADD CONSTRAINT "Payment_amount_positive"
   CHECK ("amount" > 0);
 
--- Le journal : `amount` et `cashDelta` sont signés uniquement pour les
--- contre-passations ; les écritures normales portent un montant strictement positif.
+-- Journal: amount is signed only for reversals; a normal entry is never zero
 ALTER TABLE "LedgerEntry"
   ADD CONSTRAINT "LedgerEntry_amount_nonzero"
   CHECK (amount <> 0);
