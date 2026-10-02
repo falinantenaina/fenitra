@@ -168,6 +168,13 @@ export default function HomeScreen() {
 
           <Pressable
             className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white"
+            onPress={() => router.push('/settings')}>
+            <Ionicons color="#334155" name="settings-outline" size={18} />
+            <Text className="font-semibold text-slate-700">Paramètres</Text>
+          </Pressable>
+
+          <Pressable
+            className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white"
             onPress={() => router.push('/reports')}>
             <Ionicons color="#334155" name="document-text-outline" size={18} />
             <Text className="font-semibold text-slate-700">Rapports &amp; journal</Text>

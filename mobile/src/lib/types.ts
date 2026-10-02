@@ -558,3 +558,104 @@ export interface CreateCapitalBody {
   reference?: string | null;
   comment?: string | null;
 }
+
+/* ════════════ Paramètres & administration (6f-b) ════════════ */
+
+export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
+
+/** Ligne de `GET /users`. */
+export interface UserItem {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+/** Corps de `POST /users` (ADMIN). */
+export interface CreateUserBody {
+  email: string;
+  name: string;
+  password: string;
+  role: UserRole;
+}
+
+/** Corps de `PATCH /users/:id` (ADMIN). */
+export interface UpdateUserBody {
+  name?: string;
+  role?: UserRole;
+  active?: boolean;
+}
+
+/** Référentiel de tiers manipulable depuis les paramètres. */
+export type PartyKind = 'suppliers' | 'customers' | 'online-sellers';
+
+/** Corps de `POST /suppliers|customers|online-sellers`. */
+export interface CreatePartyBody {
+  name: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+  status?: string;
+}
+
+/** Corps de `PUT /suppliers|customers|online-sellers/:id` — `null` efface un champ texte. */
+export interface UpdatePartyBody {
+  name?: string;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active?: boolean;
+  status?: string;
+}
+
+export interface CreateProductBody {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateProductBody {
+  name?: string;
+  description?: string | null;
+  active?: boolean;
+}
+
+export interface CreateSizeBody {
+  value: number;
+  label?: string;
+}
+
+export interface CreateCategoryBody {
+  name: string;
+}
+
+export interface UpdateCategoryBody {
+  name?: string;
+  active?: boolean;
+}
+
+export interface CreateMethodBody {
+  name: string;
+}
+
+export interface UpdateMethodBody {
+  active?: boolean;
+}
+
+export interface PasswordBody {
+  currentPassword: string;
+  newPassword: string;
+}
+
+/** Objet plat de `GET|PUT /settings` : `{ cle: valeur }`. */
+export type SettingsMap = Record<string, string>;
+
+/** Ligne de `GET /sizes` (paramètres). */
+export interface SizeListItem {
+  id: string;
+  value: number;
+  label: string | null;
+  order: number;
+}

@@ -12,9 +12,15 @@ import type {
   CapitalItem,
   CreateArrivalBody,
   CreateCapitalBody,
+  CreateCategoryBody,
   CreateExpenseBody,
+  CreateMethodBody,
+  CreatePartyBody,
+  CreateProductBody,
   CreateSaleBody,
+  CreateSizeBody,
   CreateTrosaBody,
+  CreateUserBody,
   CreateVersementBody,
   DashboardResponse,
   DailyReport,
@@ -34,13 +40,23 @@ import type {
   MonthlyReport,
   PagedResponse,
   Party,
+  PartyKind,
+  PasswordBody,
   PaymentMethod,
   PeriodKey,
   ProductDetail,
   ProductListItem,
   SaleCreated,
+  SettingsMap,
+  SizeListItem,
   StockMovementFeedItem,
   StockSummary,
+  UpdateCategoryBody,
+  UpdateMethodBody,
+  UpdatePartyBody,
+  UpdateProductBody,
+  UpdateUserBody,
+  UserItem,
   VariantSearchItem,
   VersementItem,
 } from '@/lib/types';
@@ -558,3 +574,298 @@ export function useCreateCapital() {
     },
   });
 }
+/* ════════════ Paramètres & administration (6f-b) ════════════ */
+
+/** `GET /products?limit=` — catalogue complet, y compris les produits inactifs. */
+export function useProductList(term: string): UseQueryResult<PagedResponse<ProductListItem>> {
+  const q = term.trim();
+  return useQuery<PagedResponse<ProductListItem>>({
+    queryKey: ['products', 'admin', q],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<ProductListItem>>('/products', {
+        params: { limit: 100, ...(q ? { q } : {}) },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** `GET /sizes?limit=` — pointures du catalogue. */
+export function useSizeList(): UseQueryResult<PagedResponse<SizeListItem>> {
+  return useQuery<PagedResponse<SizeListItem>>({
+    queryKey: ['sizes'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<SizeListItem>>('/sizes', {
+        params: { limit: 200 },
+      });
+      return data;
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** `GET /:kind?limit=&q=` — fournisseurs / clients / vendeurs en ligne. */
+export function usePartyList(
+  kind: PartyKind,
+  term: string,
+): UseQueryResult<PagedResponse<Party>> {
+  const q = term.trim();
+  return useQuery<PagedResponse<Party>>({
+    queryKey: ['parties', kind, q],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<Party>>(`/${kind}`, {
+        params: { limit: 100, ...(q ? { q } : {}) },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** `GET /users` — liste complète (ADMIN). */
+export function useUserList(): UseQueryResult<UserItem[]> {
+  return useQuery<UserItem[]>({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const { data } = await api.get<UserItem[]>('/users');
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** `GET /users/roles` — rôles disponibles (ADMIN ou MANAGER). */
+export function useRoleList(): UseQueryResult<string[]> {
+  return useQuery<string[]>({
+    queryKey: ['roles'],
+    queryFn: async () => {
+      const { data } = await api.get<string[]>('/users/roles');
+      return data;
+    },
+    staleTime: 300_000,
+  });
+}
+
+/** `GET /settings` — objet plat `{ cle: valeur }`. */
+export function useSettings(): UseQueryResult<SettingsMap> {
+  return useQuery<SettingsMap>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const { data } = await api.get<SettingsMap>('/settings');
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** `GET /expense-categories` — y compris les catégories désactivées. */
+export function useExpenseCategoryList(): UseQueryResult<ExpenseCategory[]> {
+  return useQuery<ExpenseCategory[]>({
+    queryKey: ['expense-categories', 'all'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<ExpenseCategory>>('/expense-categories', {
+        params: { limit: 200 },
+      });
+      return data.items;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** `GET /payment-methods` — y compris les modes désactivés. */
+export function usePaymentMethodList(): UseQueryResult<PaymentMethod[]> {
+  return useQuery<PaymentMethod[]>({
+    queryKey: ['payment-methods', 'all'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<PaymentMethod>>('/payment-methods');
+      return data.items;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** `POST /products` */
+export function useCreateProduct() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateProductBody) => {
+      const { data } = await api.post<ProductListItem>('/products', body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['products'] }),
+  });
+}
+
+/** `PUT /products/:id` — renommage ou activation / désactivation. */
+export function useUpdateProduct() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateProductBody }) => {
+      const { data } = await api.put<ProductListItem>(`/products/${id}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['products'] }),
+  });
+}
+
+/** `POST /sizes` */
+export function useCreateSize() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateSizeBody) => {
+      const { data } = await api.post<SizeListItem>('/sizes', body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['sizes'] }),
+  });
+}
+
+/** `DELETE /sizes/:id` — refusé (409) si des variantes l'utilisent. */
+export function useDeleteSize() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/sizes/${id}`);
+      return id;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['sizes'] }),
+  });
+}
+
+/** `POST /suppliers|customers|online-sellers` */
+export function useCreateParty() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ kind, body }: { kind: PartyKind; body: CreatePartyBody }) => {
+      const { data } = await api.post<Party>(`/${kind}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['parties'] }),
+  });
+}
+
+/** `PUT /suppliers|customers|online-sellers/:id` */
+export function useUpdateParty() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      kind,
+      id,
+      body,
+    }: {
+      kind: PartyKind;
+      id: string;
+      body: UpdatePartyBody;
+    }) => {
+      const { data } = await api.put<Party>(`/${kind}/${id}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['parties'] }),
+  });
+}
+
+/** `POST /expense-categories` */
+export function useCreateCategory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateCategoryBody) => {
+      const { data } = await api.post<ExpenseCategory>('/expense-categories', body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['expense-categories'] }),
+  });
+}
+
+/** `PUT /expense-categories/:id` — renommage ou `active:false` (jamais de suppression). */
+export function useUpdateCategory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateCategoryBody }) => {
+      const { data } = await api.put<ExpenseCategory>(`/expense-categories/${id}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['expense-categories'] }),
+  });
+}
+
+/** `POST /payment-methods` */
+export function useCreateMethod() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateMethodBody) => {
+      const { data } = await api.post<PaymentMethod>('/payment-methods', body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['payment-methods'] }),
+  });
+}
+
+/** `PATCH /payment-methods/:id` */
+export function useUpdateMethod() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateMethodBody }) => {
+      const { data } = await api.patch<PaymentMethod>(`/payment-methods/${id}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['payment-methods'] }),
+  });
+}
+
+/** `POST /users` — création d'un compte (ADMIN). */
+export function useCreateUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateUserBody) => {
+      const { data } = await api.post<UserItem>('/users', body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+/** `PATCH /users/:id` — nom, rôle ou activation (ADMIN). */
+export function useUpdateUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateUserBody }) => {
+      const { data } = await api.patch<UserItem>(`/users/${id}`, body);
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+/** `POST /users/:id/password` — réinitialisation par un administrateur (204). */
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: async ({ id, newPassword }: { id: string; newPassword: string }) => {
+      await api.post(`/users/${id}/password`, { newPassword });
+      return id;
+    },
+  });
+}
+
+/** `PUT /settings` — fusion des clés envoyées. */
+export function useUpdateSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: SettingsMap) => {
+      const { data } = await api.put<SettingsMap>('/settings', body);
+      return data;
+    },
+    onSuccess: (data) => client.setQueryData(['settings'], data),
+  });
+}
+
+/** `POST /users/me/password` — révoque toutes les sessions de l'utilisateur (204). */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (body: PasswordBody) => {
+      await api.post('/users/me/password', body);
+      return true;
+    },
+  });
+}
+

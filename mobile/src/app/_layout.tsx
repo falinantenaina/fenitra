@@ -94,6 +94,34 @@ export default function RootLayout() {
             name="reports/index"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Rapports' }}
           />
+          <Stack.Screen
+            name="settings/index"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Paramètres' }}
+          />
+          <Stack.Screen
+            name="settings/catalogue"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Catalogue' }}
+          />
+          <Stack.Screen
+            name="settings/tiers"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Tiers' }}
+          />
+          <Stack.Screen
+            name="settings/categories"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Retour',
+              title: 'Catégories & paiement',
+            }}
+          />
+          <Stack.Screen
+            name="settings/users"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Utilisateurs' }}
+          />
+          <Stack.Screen
+            name="settings/general"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Général' }}
+          />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

@@ -1484,3 +1484,70 @@ ventes avec lignes), journal paginé + résumé `byKind`, export PDF quotidien
 et mensuel (statut 200, `application/pdf`, signature `%PDF`, nom
 `rapport-*.pdf`), `?download=json` (nom + rapport inclus), `401` sans
 jeton et `400` pour un `type` d'export inconnu.
+
+---
+
+## 23. Mobile — paramètres et administration (Phase 6f-b)
+
+**But (plan §12, 6f)** : exposer depuis l'application les écrans de
+paramétrage du cahier — catalogue, tiers, catégories/modes de paiement,
+utilisateurs et réglages généraux — avec les mêmes règles RBAC (A14) que
+l'API.
+
+**Point d'entrée** : bouton « Paramètres » (`settings-outline`) sur
+l'accueil, au-dessus de « Rapports & journal ». `src/app/settings/index.tsx`
+liste les sections ; la ligne « Utilisateurs & rôles » n'apparaît que pour
+un `ADMIN`, et chaque écran rappelle que l'écriture est réservée à
+ADMIN/MANAGER (les boutons sont masqués pour un `CASHIER`).
+
+**`/settings/catalogue`** — pointures (`GET /sizes`, création `POST /sizes`,
+suppression `DELETE /sizes/:id` avec le `409` « pointure utilisée »
+affiché comme aide) et produits (`GET /products?q=` sans filtre d'actif,
+création `POST /products`, `PUT /products/:id` pour renommer, activer ou
+désactiver — jamais de suppression définitive, l'historique reste lisible).
+
+**`/settings/tiers`** — trois segments Fournisseurs / Clients / Vendeurs
+en ligne sur `GET|POST|PUT /suppliers|customers|online-sellers`, recherche
+par nom, création et édition (nom, téléphone, adresse, notes) puis
+activation/désactivation (`DELETE` = désactivation côté serveur, `PUT
+{active:false}` pour le reste). Le corps d'édition envoie `null` pour
+effacer un champ texte.
+
+**`/settings/categories`** — deux sections : catégories de dépenses
+(`POST`, `PUT /expense-categories/:id` avec `active`, jamais de suppression
+selon §36) et modes de paiement (`POST`, `PATCH /payment-methods/:id`).
+Les deux listes affichent aussi les éléments inactifs, contrairement aux
+listes de saisie qui ne montrent que les éléments `active`.
+
+**`/settings/users`** (ADMIN) — `GET /users`, création (`POST /users`,
+mot de passe ≥ 8 caractères), édition nom/rôle (`PATCH /users/:id`),
+activation/désactivation, réinitialisation de mot de passe
+(`POST /users/:id/password`). Les rôles viennent de `GET /users/roles`
+avec repli `ADMIN | MANAGER | CASHIER`.
+
+**`/settings/general`** — changement de son propre mot de passe
+(`POST /users/me/password`, contrôle de confirmation côté Zod) : le serveur
+révoque les sessions, l'écran déconnecte puis renvoie vers `/login` ;
+et réglages clé/valeur (`GET|PUT /settings`, fusion des clés absentes,
+aucune suppression possible).
+
+**Validation** (`src/lib/settings.ts`) : schémas Zod + `zodResolver`,
+`mode: onSubmit`, builders (`buildProductPayload`, `buildPartyPayload`,
+`buildUserPayload`, `buildSettingsPayload`…) qui n'envoient que les champs
+renseignés et convertissent une valeur vidée en `null`.
+
+**Points de contrôle validés (6f-b)** : `npx expo export --platform
+android` (types routés), `npx tsc --noEmit` et `npx expo lint` verts
+(0 erreur, 1 avertissement React Compiler connu sur `arrival/new`). Le
+backend n'a pas été modifié (178 tests / 12 fichiers verts). **Contrat
+réel** contre l'API (base de tests, port 4100) : **47/47** — réglages
+(fusion des clés, `400` sur un envoi vide), catégorie (`201`, `409` sur
+doublon, désactivation/réactivation), mode de paiement (`201`, `PATCH`),
+produit (`201`, recherche, désactivation), pointures (`201`, `409` sur
+pointure utilisée, `204` sur pointure libre), tiers (`201`, `PUT` avec
+`phone: null`, `204` de désactivation et exclusion des listes actives),
+vendeur en ligne (`status` porté), utilisateurs (`201`, `409` doublon,
+`400` mot de passe court, `403` pour MANAGER/CASHIER sur `GET /users`,
+`409` d'auto-désactivation d'un admin, `409`/`204` sur le changement de
+son propre mot de passe puis reconnexion, `401` au login d'un compte
+désactivé), `401` sans jeton et `integrity.ok = true` après l'ensemble.
