@@ -1156,3 +1156,43 @@ Phase 1 **terminée et commitée**. Ensuite, dans l'ordre :
 dashboard, `GET /dashboard/:indicator/transactions` doit sommer exactement à
 l'affichage de l'indicateur, et `integrity.identityDelta` doit être `0`.
 
+
+---
+
+## 17. Mobile — socle (Phase 6a)
+
+**Stack** : Expo SDK 57 · Expo Router (routes dans `src/app/`) · TypeScript
+strict · NativeWind 4.2.7 + Tailwind 3.4 (className) · Axios · React Query ·
+Zustand · `expo-secure-store`.
+
+**Arborescence**
+
+```
+mobile/
+├── babel.config.js       # babel-preset-expo + jsxImportSource nativewind + nativewind/babel
+├── metro.config.js       # withNativeWind(config, { input: './global.css' })
+├── tailwind.config.js    # preset nativewind, contenu = ./src/**/*.{ts,tsx}
+├── global.css            # @tailwind base/components/utilities (input Metro)
+├── .env.example          # EXPO_PUBLIC_API_URL (défaut : http://10.0.2.2:4000/api)
+└── src/
+    ├── app/_layout.tsx       # hydratation de la session puis Stack (tabs | login)
+    ├── app/login.tsx         # formulaire email/mot de passe
+    ├── app/(tabs)/_layout.tsx# garde : signedOut → /login ; 5 onglets
+    ├── app/(tabs)/{index,stock,ventes,dettes,finances}.tsx
+    ├── lib/api.ts            # instance Axios, Bearer, refresh 401, apiMessage()
+    ├── store/auth.ts         # Zustand : hydrate/login/logout/signOut
+    └── providers/query-provider.tsx
+```
+
+**Authentification** : jetons dans SecureStore (`gv_access_token`,
+`gv_refresh_token`) ; `hydrate()` relit les jetons et appelle `GET /auth/me` ;
+l'intercepteur Axios tente un `POST /auth/refresh` unique sur un 401
+(config `__retried`), sinon `signOut()` local. Les handlers sont injectés par
+`store/auth.ts` pour éviter les dépendances circulaires.
+
+**Points de contrôle validés (6a)** : `npx tsc --noEmit` propre ·
+`npx expo lint` sans erreur · `npx expo-doctor` 21/21 ·
+`npx expo export --platform android` (bundle Hermes généré) · contrat API
+vérifié à la main : `GET /api/health` → `{status, uptime, timestamp}`,
+`POST /api/auth/login` → `{accessToken, refreshToken, user}`, `GET /api/auth/me`
+sans jeton → 401.
