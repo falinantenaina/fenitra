@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useState, type PropsWithChildren } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -163,6 +165,13 @@ export default function HomeScreen() {
               value={formatMoney(d.money.personalCapitalEngaged)}
             />
           </Section>
+
+          <Pressable
+            className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white"
+            onPress={() => router.push('/reports')}>
+            <Ionicons color="#334155" name="document-text-outline" size={18} />
+            <Text className="font-semibold text-slate-700">Rapports &amp; journal</Text>
+          </Pressable>
 
           <Pressable
             className="h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50"

@@ -1432,3 +1432,55 @@ partiel, **A2 vérifié** (`treatment = DEBT_SETTLEMENT` et `debtId` retrouvé),
 dépense/versements/argent propre créés et retrouvés dans leurs listes,
 `401` sans jeton, et `integrity.identityDelta = 0` après l'ensemble du
 parcours.
+
+---
+
+## 22. Mobile — rapports et journal financier (Phase 6f-a)
+
+**But (plan §12, 6f)** : donner à l'application les écrans de restitution
+prévus en §39/§63 — rapport journalier, rapport mensuel et journal des
+écritures — avec export PDF partageable.
+
+**Écran `/reports`** (`src/app/reports/index.tsx`, accessible depuis un
+bouton « Rapports & journal » sur l'accueil) : trois segments —
+
+- **Journalier** : date (`AAAA-MM-JJ`, « Aujourd'hui ») → `GET /reports/daily?date=` ;
+- **Mensuel** : année + mois → `GET /reports/monthly?year=&month=` ;
+- **Journal** : plage `from/to` → `GET /ledger?from=&to=&limit=50` et
+  `GET /ledger/summary?from=&to=` (totaux, ventilation `byKind`, écritures
+  avec `seq`, `kind`, `amount`, `cashDelta`, `description`).
+
+**Vue de rapport** (`ReportBodyView`) : bandeau d'intégrité (`integrity.ok`,
+`identityDelta`), les six métriques d'activité (CA, marge, bénéfice net,
+encaissements, dépenses, versements), les ventes de la période (≤ 10,
+tappable → détail de la vente), les meilleures ventes (≤ 5) et les dépenses
+par catégorie. Les montants sont affichés via `formatMoney` (le formatage
+reste tolérant `string | number`).
+
+**Export PDF** (`src/lib/report.ts`) : bouton « Exporter en PDF » →
+`GET /reports/export.pdf?…` récupéré en `arraybuffer` (`api.get<ArrayBuffer>`),
+écrit dans le cache via `File`/`Paths` (`expo-file-system`) puis
+`Sharing.shareAsync` (`expo-sharing`, plugin ajouté à `app.json`) —
+`isAvailableAsync` est vérifié avant le partage, sinon `Alert`. Le type de
+rapport exporté suit l'onglet actif ; l'échec réseau ou un partage
+indisponible remonte une `Alert` sans casser l'écran.
+
+**Correctif backend annexe (§11)** : `/reports/daily`, `/reports/monthly` et
+`?download=json` renvoyaient `activity` / `money` en **nombres bruts** alors
+que la convention du §11 impose des montants en string décimale. Les helpers
+`presentActivity` / `presentMoney` (extraits de `presentDashboard`) sont
+désormais appliqués dans `buildReport` : les rapports exposent exactement la
+même forme que `GET /dashboard` (`payable`, `workingCapital`, `ca: "355000.00"`),
+le constructeur du PDF utilise directement ces chaînes. Trois assertions
+régression ajoutées à `tests/reports.test.ts` (journalier + mensuel).
+
+**Points de contrôle validés (6f-a)** : `npx expo export --platform
+android` (types routés régénérés), `npx tsc --noEmit`, `npx expo lint`
+(0 erreur, 1 avertissement connu) verts ; `npm run typecheck` et `npm test`
+backend verts (**178 tests / 12 fichiers**). **Contrat réel** contre l'API
+(base de tests, port 4100) : **38/38** — rapport quotidien et mensuel
+(`type`, `label`, `activity`, `money`, `integrity.identityDelta = 0`,
+ventes avec lignes), journal paginé + résumé `byKind`, export PDF quotidien
+et mensuel (statut 200, `application/pdf`, signature `%PDF`, nom
+`rapport-*.pdf`), `?download=json` (nom + rapport inclus), `401` sans
+jeton et `400` pour un `type` d'export inconnu.

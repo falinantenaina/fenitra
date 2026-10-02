@@ -17,6 +17,7 @@ import type {
   CreateTrosaBody,
   CreateVersementBody,
   DashboardResponse,
+  DailyReport,
   DebtDetail,
   DebtItem,
   DebtPaymentBody,
@@ -26,8 +27,11 @@ import type {
   ExpenseCategory,
   ExpenseItem,
   IndicatorKey,
+  LedgerEntry,
+  LedgerSummary,
   LotItem,
   LotMovementsResponse,
+  MonthlyReport,
   PagedResponse,
   Party,
   PaymentMethod,
@@ -330,6 +334,79 @@ export function useCapitalMovements(): UseQueryResult<PagedResponse<CapitalItem>
       const { data } = await api.get<PagedResponse<CapitalItem>>('/personal-capital', {
         params: { limit: 50 },
       });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/* ════════════ Rapports (6f) ════════════ */
+
+/** Rapport quotidien (`GET /reports/daily?date=`). */
+export function useDailyReport(
+  date: string,
+  enabled = true,
+): UseQueryResult<DailyReport> {
+  return useQuery<DailyReport>({
+    queryKey: ['reports', 'daily', date],
+    enabled,
+    queryFn: async () => {
+      const { data } = await api.get<DailyReport>('/reports/daily', { params: { date } });
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** Rapport mensuel (`GET /reports/monthly?year=&month=`). */
+export function useMonthlyReport(
+  year: number,
+  month: number,
+  enabled = true,
+): UseQueryResult<MonthlyReport> {
+  return useQuery<MonthlyReport>({
+    queryKey: ['reports', 'monthly', `${year}-${month}`],
+    enabled: enabled && year > 2000 && month >= 1 && month <= 12,
+    queryFn: async () => {
+      const { data } = await api.get<MonthlyReport>('/reports/monthly', {
+        params: { year, month },
+      });
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** Journal financier sur une plage (`GET /ledger`). */
+export function useLedger(
+  from: string,
+  to: string,
+  enabled = true,
+): UseQueryResult<PagedResponse<LedgerEntry>> {
+  return useQuery<PagedResponse<LedgerEntry>>({
+    queryKey: ['ledger', 'list', from, to],
+    enabled: enabled && Boolean(from && to),
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<LedgerEntry>>('/ledger', {
+        params: { from, to, limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Agrégats du journal (`GET /ledger/summary`). */
+export function useLedgerSummary(
+  from: string,
+  to: string,
+  enabled = true,
+): UseQueryResult<LedgerSummary> {
+  return useQuery<LedgerSummary>({
+    queryKey: ['ledger', 'summary', from, to],
+    enabled: enabled && Boolean(from && to),
+    queryFn: async () => {
+      const { data } = await api.get<LedgerSummary>('/ledger/summary', { params: { from, to } });
       return data;
     },
     staleTime: 15_000,

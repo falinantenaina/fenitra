@@ -148,10 +148,72 @@ function parseDay(value: string) {
 
 /* ════════════════════ RAPPORTS (§— / §63) ════════════════════ */
 
+/** Activité présentée — §11 : montants en string décimale, compteurs en nombre. */
+export interface PresentedActivity {
+  salesCount: number;
+  ca: string;
+  receipts: string;
+  collectedAtSale: string;
+  cogs: string;
+  grossProfit: string;
+  expenses: string;
+  versementCharges: string;
+  netProfit: string;
+  cashOutflow: string;
+}
+
+/** Trésorerie présentée — mêmes libellés que `GET /dashboard`. */
+export interface PresentedMoney {
+  cash: string;
+  cashAtStart: string;
+  cashDelta: string;
+  receivables: string;
+  payable: string;
+  workingCapital: string;
+  volaMiodina: string;
+  personalCapitalEngaged: string;
+  personalCapitalIn: string;
+  personalCapitalOut: string;
+  profitDrawings: string;
+  disposableProfit: string;
+}
+
+export function presentActivity(a: DashboardResult['activity']): PresentedActivity {
+  return {
+    salesCount: a.salesCount,
+    ca: money(a.ca),
+    receipts: money(a.receipts),
+    collectedAtSale: money(a.collectedAtSale),
+    cogs: money(a.cogs),
+    grossProfit: money(a.grossProfit),
+    expenses: money(a.expenses),
+    versementCharges: money(a.versementCharges),
+    netProfit: money(a.netProfit),
+    cashOutflow: money(a.cashOutflow),
+  };
+}
+
+export function presentMoney(m: DashboardResult['money']): PresentedMoney {
+  return {
+    cash: money(m.cash),
+    cashAtStart: money(m.cashAtStart),
+    cashDelta: money(m.cashDelta),
+    receivables: money(m.receivables),
+    payable: money(m.payables),
+    workingCapital: money(m.volaMiodina),
+    volaMiodina: money(m.volaMiodina),
+    personalCapitalEngaged: money(m.personalCapitalEngaged),
+    personalCapitalIn: money(m.personalCapitalIn),
+    personalCapitalOut: money(m.personalCapitalOut),
+    profitDrawings: money(m.profitDrawings),
+    disposableProfit: money(m.disposableProfit),
+  };
+}
+
 export interface ReportResult {
   period: { from: string; to: string; label: string };
-  activity: DashboardResult['activity'];
-  money: DashboardResult['money'];
+  activity: PresentedActivity;
+  money: PresentedMoney;
   integrity: DashboardResult['integrity'];
   sales: unknown[];
   topProducts: unknown[];
@@ -229,8 +291,8 @@ async function buildReport(range: PeriodRange, take: number): Promise<ReportResu
 
   return {
     period: { from: range.from.toISOString(), to: range.to.toISOString(), label: range.label },
-    activity: dashboard.activity,
-    money: dashboard.money,
+    activity: presentActivity(dashboard.activity),
+    money: presentMoney(dashboard.money),
     integrity: dashboard.integrity,
     sales: sales.map((s) => ({
       id: s.id,
@@ -354,13 +416,13 @@ export async function exportReportPdf(query: { type: 'daily' | 'monthly'; date?:
   const lines: string[] = [
     `${report.label} — ${report.type === 'daily' ? 'Rapport journalier' : 'Rapport mensuel'}`,
     '',
-    `Chiffre d'affaires : ${money(a.ca)} Ar   (${a.salesCount} vente(s))`,
-    `Recettes encaissees : ${money(a.receipts)} Ar`,
-    `COGS : ${money(a.cogs)} Ar`,
-    `Benefice brut : ${money(a.grossProfit)} Ar`,
-    `Depenses : ${money(a.expenses)} Ar`,
-    `Versements (charges) : ${money(a.versementCharges)} Ar`,
-    `Benefice net : ${money(a.netProfit)} Ar`,
+    `Chiffre d'affaires : ${a.ca} Ar   (${a.salesCount} vente(s))`,
+    `Recettes encaissees : ${a.receipts} Ar`,
+    `COGS : ${a.cogs} Ar`,
+    `Benefice brut : ${a.grossProfit} Ar`,
+    `Depenses : ${a.expenses} Ar`,
+    `Versements (charges) : ${a.versementCharges} Ar`,
+    `Benefice net : ${a.netProfit} Ar`,
     '',
     'VENTES',
     ...report.sales.map((s) => {

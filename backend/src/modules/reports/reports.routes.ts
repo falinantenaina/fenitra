@@ -26,6 +26,8 @@ import {
   ledgerSummary,
   listLedger,
   monthlyReport,
+  presentActivity,
+  presentMoney,
 } from './reports.service';
 
 export const ledgerRouter = Router();
@@ -60,32 +62,8 @@ type Presentable = DashboardResult & { soldItems?: number };
 function presentDashboard(d: Presentable) {
   return {
     period: d.period,
-    activity: {
-      salesCount: d.activity.salesCount,
-      ca: money(d.activity.ca),
-      receipts: money(d.activity.receipts),
-      collectedAtSale: money(d.activity.collectedAtSale),
-      cogs: money(d.activity.cogs),
-      grossProfit: money(d.activity.grossProfit),
-      expenses: money(d.activity.expenses),
-      versementCharges: money(d.activity.versementCharges),
-      netProfit: money(d.activity.netProfit),
-      cashOutflow: money(d.activity.cashOutflow),
-    },
-    money: {
-      cash: money(d.money.cash),
-      cashAtStart: money(d.money.cashAtStart),
-      cashDelta: money(d.money.cashDelta),
-      receivables: money(d.money.receivables),
-      payable: money(d.money.payables),
-      workingCapital: money(d.money.volaMiodina),
-      volaMiodina: money(d.money.volaMiodina),
-      personalCapitalEngaged: money(d.money.personalCapitalEngaged),
-      personalCapitalIn: money(d.money.personalCapitalIn),
-      personalCapitalOut: money(d.money.personalCapitalOut),
-      profitDrawings: money(d.money.profitDrawings),
-      disposableProfit: money(d.money.disposableProfit),
-    },
+    activity: presentActivity(d.activity),
+    money: presentMoney(d.money),
     debts: {
       customer: money(d.debts.customer),
       onlineSeller: money(d.debts.onlineSeller),

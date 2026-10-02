@@ -216,6 +216,14 @@ describe('Journal, dashboard et rapports', () => {
     expect(res.body).toHaveProperty('expensesByCategory');
     expect(Array.isArray(res.body.sales)).toBe(true);
 
+    // §11 : montants exposés en string décimale, comme au dashboard
+    expect(res.body.activity.ca).toMatch(/^\d+\.\d{2}$/);
+    expect(res.body.activity.netProfit).toMatch(/^-?\d+\.\d{2}$/);
+    expect(res.body.money.cash).toMatch(/^-?\d+\.\d{2}$/);
+    expect(res.body.money).toHaveProperty('payable');
+    expect(res.body.integrity.ok).toBe(true);
+    expect(res.body.integrity.identityDelta).toBe(0);
+
     const explicit = await admin.get('/reports/daily?date=2026-09-30');
     expect(explicit.status).toBe(200);
     expect(explicit.body.date).toBe('2026-09-30');
@@ -229,6 +237,8 @@ describe('Journal, dashboard et rapports', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ type: 'monthly', year: 2026, month: 10 });
     expect(res.body.topProducts.length).toBeGreaterThan(0);
+    expect(res.body.activity.ca).toMatch(/^\d+\.\d{2}$/);
+    expect(res.body.integrity.identityDelta).toBe(0);
 
     const missingYear = await admin.get('/reports/export.pdf?type=monthly');
     expect(missingYear.status).toBe(400);

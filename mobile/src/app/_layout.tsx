@@ -90,6 +90,10 @@ export default function RootLayout() {
               title: 'Nouvelle trosa sinoa',
             }}
           />
+          <Stack.Screen
+            name="reports/index"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Rapports' }}
+          />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

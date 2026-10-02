@@ -111,6 +111,94 @@ export interface PagedResponse<T> {
   totalPages: number;
 }
 
+/* ════════════ Rapports (6f) ════════════ */
+
+/** Ligne de vente d'un rapport (`GET /reports/daily|monthly`). */
+export interface ReportSalesLine {
+  id: string;
+  reference: string;
+  date: string;
+  status: string;
+  totalAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+  cogs: string;
+  margin: string;
+  party: string | null;
+  items: {
+    product: { id: string; name: string } | null;
+    size: { label: string | null } | null;
+    sku: string | null;
+    quantity: number;
+    unitPrice: string;
+    lineTotal: string;
+    cogs: string;
+    margin: string;
+  }[];
+}
+
+/** Meilleures ventes d'une période, par pointure. */
+export interface ReportTopProduct {
+  variantId: string;
+  sku: string | null;
+  product: { id: string; name: string } | null;
+  size: { label: string | null } | null;
+  quantity: number;
+  revenue: string;
+  cogs: string;
+  margin: string;
+  salesCount: number;
+}
+
+/** Corps commun des rapports quotidien et mensuel. */
+export interface ReportBody {
+  period: { from: string; to: string; label: string };
+  activity: DashboardActivity;
+  money: DashboardMoney;
+  integrity: { identityDelta: number; ok: boolean };
+  sales: ReportSalesLine[];
+  topProducts: ReportTopProduct[];
+  expensesByCategory: {
+    category: { id: string; name: string; icon: string | null };
+    count: number;
+    amount: string;
+  }[];
+}
+
+export interface DailyReport extends ReportBody {
+  type: 'daily';
+  date: string;
+  label: string;
+}
+
+export interface MonthlyReport extends ReportBody {
+  type: 'monthly';
+  year: number;
+  month: number;
+  label: string;
+}
+
+/** Écriture du journal (`GET /ledger`). */
+export interface LedgerEntry {
+  id: string;
+  seq: number;
+  date: string;
+  kind: string;
+  amount: string;
+  cashDelta: string;
+  description: string;
+  reference: string | null;
+  refType: string | null;
+  refId: string | null;
+  user?: { id: string; name: string };
+}
+
+/** Agrégats du journal (`GET /ledger/summary`). */
+export interface LedgerSummary {
+  byKind: { kind: string; count: number; amount: string; cashDelta: string }[];
+  totals: { count: number; amount: string; cashDelta: string };
+}
+
 /* ════════════ Référentiels (arrivage) ════════════ */
 
 export interface Party {
