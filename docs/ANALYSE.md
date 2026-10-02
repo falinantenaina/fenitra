@@ -1156,6 +1156,15 @@ Phase 1 **terminée et commitée**. Ensuite, dans l'ordre :
 dashboard, `GET /dashboard/:indicator/transactions` doit sommer exactement à
 l'affichage de l'indicateur, et `integrity.identityDelta` doit être `0`.
 
+Le total du dérillage est calculé **par indicateur** (`total()` dans
+`src/services/metrics/index.ts`) : les indicateurs dérivés ont besoin de signes
+par `kind` (`netProfit = CA − CMGP − dépenses − versements`, argent propre =
+injections − récupérations), sinon la somme brute des `amount` ne retombe pas
+sur la valeur affichée. Contrôlé par `backend/tests/reports.test.ts` pour
+`ca`, `cogs`, `grossProfit`, `netProfit`, `receipts`, `expenses`, `versements`
+et `cash` ; `capital` et `profitDrawings` sont affichés en cumulé au dashboard
+sans équivalent de période.
+
 
 ---
 
@@ -1196,3 +1205,36 @@ l'intercepteur Axios tente un `POST /auth/refresh` unique sur un 401
 vérifié à la main : `GET /api/health` → `{status, uptime, timestamp}`,
 `POST /api/auth/login` → `{accessToken, refreshToken, user}`, `GET /api/auth/me`
 sans jeton → 401.
+
+---
+
+## 18. Mobile — tableau de bord (Phase 6b)
+
+**Écran** `(tabs)/index.tsx` : filtre de période (`today`, `yesterday`,
+`last7d`, `week`, `month`, `prevMonth`, `year`) → `GET /api/dashboard?period=`,
+puis trois groupes de cartes :
+
+| Section | Cartes | Dérillable |
+|---|---|---|
+| Activité de la période | CA, bénéfice brut, bénéfice net, recettes, dépenses, versements | ✔ (indicateurs de période) |
+| Situation à la date | caisse, variation de caisse, vola miodina, créances, passifs, bénéfice disponible | variation de caisse ✔ |
+| Stock et dettes | stock (pièces + valeur), dettes totales, trosa sinoa, argent propre | — (états, pas des indicateurs) |
+
+Une bannière affiche `integrity.ok` (écart d'identité doit être `0`).
+
+**Dérillage** : le tap sur une carte ouvre `components/drilldown-modal.tsx`
+(`GET /dashboard/:indicator/transactions?period=`) : total de l'indicateur,
+puis la liste des écritures (date, description, `kind`, référence, montant et
+impact caisse). Le total affiché est **garanti égal** à la valeur de la carte
+(§16).
+
+**Fichiers** : `src/lib/types.ts` (contrat API), `src/lib/format.ts`
+(`formatMoney` « 1 245 000 Ar », `formatQuantity`, `formatDateTime` — sans
+dépendre d'`Intl`), `src/lib/queries.ts` (React Query `useDashboard`,
+`useDrilldown`), `src/components/{period-tabs,kpi-card,drilldown-modal}.tsx`.
+
+**Points de contrôle validés (6b)** : `npx tsc --noEmit`, `npx expo lint`,
+`npx expo export --platform android` verts ; script de vérification contre une
+API réelle (seed de démo) : format des 17 champs de cartes sur 4 périodes,
+`integrity.ok` à `0`, et total du dérillage = valeur affichée pour les 8
+indicateurs de période.
