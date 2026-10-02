@@ -50,6 +50,46 @@ export default function RootLayout() {
             name="sale/new"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvelle vente' }}
           />
+          <Stack.Screen
+            name="stock/lot"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Détail du lot' }}
+          />
+          <Stack.Screen
+            name="stock/adjust"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Retour',
+              title: 'Ajuster le stock',
+            }}
+          />
+          <Stack.Screen
+            name="dettes/[id]"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Détail de la dette' }}
+          />
+          <Stack.Screen
+            name="finance/expense"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvelle dépense' }}
+          />
+          <Stack.Screen
+            name="finance/versement"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouveau versement' }}
+          />
+          <Stack.Screen
+            name="finance/capital"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Retour',
+              title: 'Argent propre',
+            }}
+          />
+          <Stack.Screen
+            name="finance/trosa"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Retour',
+              title: 'Nouvelle trosa sinoa',
+            }}
+          />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

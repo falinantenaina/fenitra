@@ -7,19 +7,38 @@ import {
 
 import { api } from '@/lib/api';
 import type {
+  AdjustStockBody,
+  AdjustStockResult,
+  CapitalItem,
   CreateArrivalBody,
+  CreateCapitalBody,
+  CreateExpenseBody,
   CreateSaleBody,
+  CreateTrosaBody,
+  CreateVersementBody,
   DashboardResponse,
+  DebtDetail,
+  DebtItem,
+  DebtPaymentBody,
+  DebtStatus,
+  DebtType,
   DrilldownResponse,
+  ExpenseCategory,
+  ExpenseItem,
   IndicatorKey,
+  LotItem,
+  LotMovementsResponse,
+  PagedResponse,
   Party,
   PaymentMethod,
   PeriodKey,
   ProductDetail,
   ProductListItem,
   SaleCreated,
+  StockMovementFeedItem,
   StockSummary,
   VariantSearchItem,
+  VersementItem,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -144,13 +163,16 @@ export function useCustomers(): UseQueryResult<Party[]> {
   });
 }
 
-/** Quantité encore en stock d'une variante (`GET /stock/summary?variantId=`). */
-export function useStockSummary(variantId: string): UseQueryResult<StockSummary> {
+/**
+ * `GET /stock/summary?variantId=` — quantité encore disponible.
+ * `variantId = null` donne le résumé global (quantité, valeur, nombre de lots).
+ */
+export function useStockSummary(variantId: string | null): UseQueryResult<StockSummary> {
   return useQuery<StockSummary>({
-    queryKey: ['stock-summary', variantId],
+    queryKey: ['stock-summary', variantId ?? 'all'],
     queryFn: async () => {
       const { data } = await api.get<StockSummary>('/stock/summary', {
-        params: { variantId },
+        params: variantId ? { variantId } : {},
       });
       return data;
     },
@@ -167,6 +189,150 @@ export function useSaleReference(): UseQueryResult<{ reference: string }> {
       return data;
     },
     staleTime: 30_000,
+  });
+}
+
+/* ════════════ Stock / dettes / finances (6e) ════════════ */
+
+export interface LotFilter {
+  q?: string;
+  status?: '' | 'OPEN' | 'CLOSED';
+}
+
+/** Lots valorisés (`GET /stock/lots`). */
+export function useLots(filter: LotFilter): UseQueryResult<PagedResponse<LotItem>> {
+  const q = filter.q?.trim() ?? '';
+  const status = filter.status || undefined;
+  return useQuery<PagedResponse<LotItem>>({
+    queryKey: ['stock', 'lots', q, status ?? ''],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<LotItem>>('/stock/lots', {
+        params: { ...(q ? { q } : {}), ...(status ? { status } : {}), limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Mouvements d'un lot — piste d'audit (`GET /stock/lots/:id/movements`). */
+export function useLotMovements(lotId: string | null): UseQueryResult<LotMovementsResponse> {
+  return useQuery<LotMovementsResponse>({
+    queryKey: ['stock', 'lot-movements', lotId],
+    enabled: Boolean(lotId),
+    queryFn: async () => {
+      const { data } = await api.get<LotMovementsResponse>(`/stock/lots/${lotId}/movements`, {
+        params: { limit: 100 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Derniers mouvements de stock (`GET /stock/movements`). */
+export function useRecentMovements(
+  limit = 8,
+): UseQueryResult<PagedResponse<StockMovementFeedItem>> {
+  return useQuery<PagedResponse<StockMovementFeedItem>>({
+    queryKey: ['stock', 'movements', limit],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<StockMovementFeedItem>>('/stock/movements', {
+        params: { limit },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+export interface DebtFilter {
+  type?: DebtType | '';
+  status?: DebtStatus | '';
+}
+
+/** Dettes (`GET /debts`) — filtres type et statut. */
+export function useDebts(filter: DebtFilter = {}): UseQueryResult<PagedResponse<DebtItem>> {
+  const type = filter.type || undefined;
+  const status = filter.status || undefined;
+  return useQuery<PagedResponse<DebtItem>>({
+    queryKey: ['debts', 'list', type ?? '', status ?? ''],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<DebtItem>>('/debts', {
+        params: { ...(type ? { type } : {}), ...(status ? { status } : {}), limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Détail d'une dette : paiements, écritures, versements liés (`GET /debts/:id`). */
+export function useDebt(id: string | null): UseQueryResult<DebtDetail> {
+  return useQuery<DebtDetail>({
+    queryKey: ['debts', 'detail', id],
+    enabled: Boolean(id),
+    queryFn: async () => {
+      const { data } = await api.get<DebtDetail>(`/debts/${id}`);
+      return data;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** Dépenses (`GET /expenses`). */
+export function useExpenses(): UseQueryResult<PagedResponse<ExpenseItem>> {
+  return useQuery<PagedResponse<ExpenseItem>>({
+    queryKey: ['expenses', 'list'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<ExpenseItem>>('/expenses', {
+        params: { limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Catégories de dépenses actives (`GET /expense-categories`). */
+export function useExpenseCategories(): UseQueryResult<ExpenseCategory[]> {
+  return useQuery<ExpenseCategory[]>({
+    queryKey: ['expense-categories'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<ExpenseCategory>>('/expense-categories', {
+        params: { limit: 200 },
+      });
+      return data.items.filter((c) => c.active);
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** Versements (`GET /versements`). */
+export function useVersements(): UseQueryResult<PagedResponse<VersementItem>> {
+  return useQuery<PagedResponse<VersementItem>>({
+    queryKey: ['versements', 'list'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<VersementItem>>('/versements', {
+        params: { limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Argent propre (`GET /personal-capital`). */
+export function useCapitalMovements(): UseQueryResult<PagedResponse<CapitalItem>> {
+  return useQuery<PagedResponse<CapitalItem>>({
+    queryKey: ['capital', 'list'],
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<CapitalItem>>('/personal-capital', {
+        params: { limit: 50 },
+      });
+      return data;
+    },
+    staleTime: 15_000,
   });
 }
 
@@ -218,6 +384,100 @@ export function useCreateSale() {
       void client.invalidateQueries({ queryKey: ['stock-summary'] });
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['sale-reference'] });
+    },
+  });
+}
+
+/** `POST /stock/adjustments` — casse / perte : FIFO + dépense automatique. */
+export function useAdjustStock() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: AdjustStockBody) => {
+      const { data } = await api.post<AdjustStockResult>('/stock/adjustments', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['expenses'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /debts/:id/payments` — règlement partiel ou total d'une dette. */
+export function usePayDebt() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: DebtPaymentBody }) => {
+      const { data } = await api.post<DebtDetail>(`/debts/${id}/payments`, body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['versements'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /trosa-sinoa` — dette dont je suis redevable (A1 : caisse +X). */
+export function useCreateTrosa() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateTrosaBody) => {
+      const { data } = await api.post<DebtDetail>('/trosa-sinoa', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /expenses` — dépense toujours réglée (A8 : caisse −amount). */
+export function useCreateExpense() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateExpenseBody) => {
+      const { data } = await api.post<ExpenseItem>('/expenses', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['expenses'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /versements` — le traitement (charge ou remboursement) est détecté (A2). */
+export function useCreateVersement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateVersementBody) => {
+      const { data } = await api.post<VersementItem>('/versements', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['versements'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /personal-capital` — argent propre, distinct du bénéfice (A5). */
+export function useCreateCapital() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateCapitalBody) => {
+      const { data } = await api.post<CapitalItem>('/personal-capital', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['capital'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

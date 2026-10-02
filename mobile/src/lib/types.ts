@@ -102,6 +102,15 @@ export interface DrilldownResponse {
   entries: DrillEntry[];
 }
 
+/** Réponse paginée standard (`items,total,page,limit,totalPages`). */
+export interface PagedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 /* ════════════ Référentiels (arrivage) ════════════ */
 
 export interface Party {
@@ -214,4 +223,250 @@ export interface SaleCreated {
   totalAmount: string;
   paidAmount: string;
   remainingAmount: string;
+}
+
+/* ════════════ Stock (6e) ════════════ */
+
+export type LotStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
+
+/** Ligne de `GET /stock/lots`. */
+export interface LotItem {
+  id: string;
+  code: string;
+  entryDate: string;
+  status: LotStatus;
+  initialQty: number;
+  remainingQty: number;
+  unitCost: string;
+  totalCost: string;
+  value: string;
+  supplier: { id: string; name: string } | null;
+  arrival: { id: string; reference: string; date: string } | null;
+  variant: {
+    id: string;
+    product: { id: string; name: string };
+    size: { id: string; value: number; label: string | null };
+  };
+}
+
+export type MovementType = 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'REVERSAL';
+
+/** Mouvement vu dans `GET /stock/movements` (flux global). */
+export interface StockMovementFeedItem {
+  id: string;
+  type: MovementType;
+  delta: number;
+  unitCost: string;
+  date: string;
+  notes: string | null;
+  refType: string | null;
+  refId: string | null;
+  lot: { id: string; code: string };
+  variant: { id: string; product: { id: string; name: string }; size: { id: string; value: number } };
+  user: { id: string; name: string } | null;
+}
+
+/** Mouvement vu dans `GET /stock/lots/:id/movements`. */
+export interface LotMovementItem {
+  id: string;
+  type: MovementType;
+  delta: number;
+  unitCost: string;
+  date: string;
+  notes: string | null;
+  refType: string | null;
+  refId: string | null;
+  user: { id: string; name: string } | null;
+}
+
+export interface LotMovementsResponse {
+  lot: {
+    id: string;
+    code: string;
+    initialQty: number;
+    remainingQty: number;
+    unitCost: string;
+    status: LotStatus;
+  };
+  items: LotMovementItem[];
+}
+
+/** Corps de `POST /stock/adjustments` (casse / perte). */
+export interface AdjustStockBody {
+  variantId: string;
+  qty: number;
+  reason: string;
+  date?: string;
+}
+
+export interface AdjustStockResult {
+  variantId: string;
+  quantity: number;
+  reason: string;
+  lostValue: string;
+  expenseId: string;
+  allocations: { lotId: string; quantity: number; unitCost: string; cost: string }[];
+}
+
+/* ════════════ Dettes (6e) ════════════ */
+
+export type DebtType = 'CUSTOMER' | 'ONLINE_SELLER' | 'SUPPLIER' | 'TROSA_SINOA';
+export type DebtStatus = 'OPEN' | 'PARTIAL' | 'PAID' | 'CANCELLED';
+
+/** Ligne de `GET /debts`. */
+export interface DebtItem {
+  id: string;
+  type: DebtType;
+  direction: 'PAYABLE' | 'RECEIVABLE';
+  origin: string;
+  status: DebtStatus;
+  party: { id: string; name: string; phone: string | null } | null;
+  reason: string | null;
+  initialAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+  date: string;
+  dueDate: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  saleId: string | null;
+  arrivalId: string | null;
+}
+
+/** Ligne de `GET /payments` et des `payments[]` d'une dette. */
+export interface PaymentItem {
+  id: string;
+  reference: string;
+  date: string;
+  amount: string;
+  direction: 'IN' | 'OUT';
+  partyType: string;
+  debtId: string | null;
+  saleId: string | null;
+  arrivalId: string | null;
+  method: string | null;
+  notes: string | null;
+  user: { id: string; name: string } | null;
+}
+
+/** Écriture du journal attachée à la dette (`history[]`). */
+export interface LedgerLine {
+  id: string;
+  date: string;
+  kind: string;
+  amount: string;
+  cashDelta: string;
+  description: string;
+  reference: string | null;
+}
+
+/** Réponse de `GET /debts/:id`. */
+export interface DebtDetail extends DebtItem {
+  payments: PaymentItem[];
+  history: LedgerLine[];
+  versements: { id: string; personName: string; motif: string; amount: number; date: string }[];
+}
+
+/** Corps de `POST /debts/:id/payments`. */
+export interface DebtPaymentBody {
+  amount: number;
+  method?: string | null;
+  date?: string;
+  notes?: string | null;
+}
+
+/** Corps de `POST /trosa-sinoa` (A1 : on ne doit pas, la caisse sort à la création). */
+export interface CreateTrosaBody {
+  type: 'TROSA_SINOA';
+  partyName: string;
+  amount: number;
+  paidAmount?: number;
+  reason?: string;
+  date?: string;
+  method?: string | null;
+}
+
+/* ════════════ Finances (6e) ════════════ */
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  icon: string | null;
+  order: number;
+  active: boolean;
+}
+
+/** Ligne de `GET /expenses`. */
+export interface ExpenseItem {
+  id: string;
+  amount: string;
+  date: string;
+  description: string;
+  method: string | null;
+  reference: string | null;
+  notes: string | null;
+  categoryId: string;
+  category: { id: string; name: string; icon: string | null } | null;
+  user: { id: string; name: string } | null;
+}
+
+/** Corps de `POST /expenses` (A8 : toujours réglée → caisse −amount). */
+export interface CreateExpenseBody {
+  categoryId: string;
+  amount: number;
+  date?: string;
+  description: string;
+  method?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+/** Ligne de `GET /versements`. */
+export interface VersementItem {
+  id: string;
+  personName: string;
+  amount: string;
+  date: string;
+  motif: string;
+  method: string | null;
+  comment: string | null;
+  treatment: string;
+  debtId: string | null;
+  user: { id: string; name: string } | null;
+}
+
+/** Corps de `POST /versements` (A2 : traitement détecté côté serveur). */
+export interface CreateVersementBody {
+  personName: string;
+  amount: number;
+  date?: string;
+  motif: string;
+  method?: string | null;
+  comment?: string | null;
+}
+
+/** Ligne de `GET /personal-capital`. */
+export interface CapitalItem {
+  id: string;
+  type: 'IN' | 'OUT';
+  amount: string;
+  date: string;
+  motif: string;
+  destinationType: string | null;
+  destinationId: string | null;
+  reference: string | null;
+  comment: string | null;
+  user: { id: string; name: string } | null;
+}
+
+/** Corps de `POST /personal-capital` (A5 : ni bénéfice, ni trosa). */
+export interface CreateCapitalBody {
+  type: 'IN' | 'OUT';
+  amount: number;
+  date?: string;
+  motif: string;
+  destinationType?: string | null;
+  destinationId?: string | null;
+  reference?: string | null;
+  comment?: string | null;
 }

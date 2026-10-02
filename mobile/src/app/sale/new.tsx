@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { Chip } from '@/components/chip';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -41,28 +42,6 @@ const PAYMENT_LABELS: Record<PaymentMode, string> = {
   PARTIAL: 'Partiel',
   CREDIT: 'Crédit',
 };
-
-function Chip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      className={`h-9 items-center justify-center rounded-full border px-4 ${
-        selected ? 'border-brand bg-brand/10' : 'border-slate-300 bg-white'
-      }`}
-      onPress={onPress}>
-      <Text className={`text-sm ${selected ? 'font-semibold text-brand' : 'text-slate-600'}`}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
 
 function StockHint({ variantId, quantity }: { variantId: string; quantity: number }) {
   const summary = useStockSummary(variantId);

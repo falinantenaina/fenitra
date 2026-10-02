@@ -1369,3 +1369,66 @@ crédit (sans `payment`, `paidAmount = 0`, reste dû = total), rejets
 serveur), `409 INSUFFICIENT_STOCK`, rejou d'idempotence (même `id`),
 `integrity.identityDelta = 0`. Suite backend : **10 exécutions consécutives
 à 178 tests / 12 fichiers** après les correctifs de concurrence de §16.
+
+---
+
+## 21. Mobile — stock, dettes et finances (Phase 6e)
+
+**But (plan §12, 6e)** : connecter les trois derniers onglets à l'API —
+lots / valorisation / mouvements / ajustements, dettes avec détail et
+règlement (§50), puis dépenses, versements, argent propre et trosa sinoa.
+
+**Onglet Stock** — résumé global `GET /stock/summary` (sans `variantId` :
+quantité, valorisation, nombre de lots), recherche de lots débouncée et
+filtres de statut sur `GET /stock/lots?q=&status=`, flux
+`GET /stock/movements?limit=8`, boutons « Arrivage » et « Ajuster » réservés
+ADMIN/MANAGER. Le tap sur un lot ouvre `/stock/lot` (`GET /stock/lots/:id/movements`
+: entrées d'arrivage, sorties FIFO, retours, ajustements, avec l'auteur).
+
+**`/stock/adjust`** — même recherche d'article que la vente (debounce 300 ms),
+stepper de quantité, motif, date, et aperçu de la valeur retirée calculé sur
+la valorisation moyenne du résumé. Garde-fou côté client (`quantité ≤ stock`)
+complété par le `409` du serveur ; `POST /stock/adjustments` renvoie
+`lostValue`, `allocations` FIFO et `expenseId` (la casse devient une dépense).
+
+**Onglet Dettes** — croisement de filtres (type : clients / vendeurs /
+fournisseurs / trosa ; statut : ouvertes / partielles / réglées) sur
+`GET /debts?type=&status=`, reste dû et montant initial par ligne, total de
+la liste affichée. `/dettes/[id]` : en-tête avec statut et échéance,
+règlement (ADMIN/MANAGER, bouton « Solde » en un tap, modes de paiement
+de `GET /payment-methods`) vers `POST /debts/:id/payments`, puis les trois
+listes du détail : `payments[]`, `versements[]` liés (A2) et `history[]`
+(écritures du journal).
+
+**Onglet Finances** — quatre segments : Dépenses (`GET /expenses`),
+Versements (`GET /versements`), Argent propre (`GET /personal-capital`) et
+Trosa (`GET /debts?type=TROSA_SINOA`, tappable → détail de la dette). Le
+bouton « Nouveau », réservé aux gestionnaires, route vers les quatre
+formulaires `finance/expense`, `finance/versement`, `finance/capital`,
+`finance/trosa`.
+
+**Rappels métier affichés à l'écran** : A8 (une dépense est toujours réglée →
+caisse −`amount` immédiat), A2 (le versement détecte lui-même un
+remboursement de trosa ouverte, sinon une dépense), A5 (argent propre = ni
+bénéfice, ni trosa), A1 (la trosa sinoa est un passif : la caisse monte à la
+création). Après création d'une trosa, l'écran se redirige sur le détail de
+la dette.
+
+**Validation** (`src/lib/finance.ts`, Zod + `zodResolver`, `mode: onSubmit`) :
+montants entiers en ariary, dates `AAAA-MM-JJ`, motifs bornés ; les builders
+(`buildAdjustPayload`, `buildExpensePayload`, `buildVersementPayload`,
+`buildCapitalPayload`, `buildTrosaPayload`, `buildDebtPaymentPayload`)
+n'envoient que les champs renseignés. Le composant `Chip` partagé
+(`src/components/chip.tsx`) remplace la copie locale de la vente.
+
+**Points de contrôle validés (6e)** : `npx tsc --noEmit`, `npx expo lint`
+(1 avertissement React Compiler connu) et `npx expo export --platform
+android` verts. **Contrat réel** contre l'API (base de tests, port 4100) :
+**64/64** — résumé/lots/mouvements, arrivage de 2 unités puis ajustement de 1
+(`stock +2 puis −1`, `lostValue > 0`, dépense de casse présente dans
+`GET /expenses`), dette client `OPEN → PARTIAL → PAID` avec deux paiements
+visibles dans `GET /payments?debtId=`, trosa `PAYABLE` puis règlement
+partiel, **A2 vérifié** (`treatment = DEBT_SETTLEMENT` et `debtId` retrouvé),
+dépense/versements/argent propre créés et retrouvés dans leurs listes,
+`401` sans jeton, et `integrity.identityDelta = 0` après l'ensemble du
+parcours.
