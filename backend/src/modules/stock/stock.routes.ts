@@ -11,6 +11,7 @@ import { ilike, listQuerySchema, offset, pageMeta } from '../../lib/pagination';
 import { allocateFIFO } from '../../services/fifo';
 import { n } from '../../services/metrics/queries';
 import { idParamSchema } from '../../lib/zod';
+import { utc } from '../../lib/sql';
 
 export const stockRouter = Router();
 
@@ -71,7 +72,7 @@ stockRouter.get(
           l."initialQty" + COALESCE((
             SELECT SUM(m.delta)
             FROM "StockMovement" m
-            WHERE m."lotId" = l.id AND m."date" < ${at} AND m.type <> 'IN'
+            WHERE m."lotId" = l.id AND m."date" < ${utc(at)}::timestamp AND m.type <> 'IN'
           ), 0) AS qty
         FROM "StockLot" l
         WHERE l.status <> 'CANCELLED' ${variantFilter}

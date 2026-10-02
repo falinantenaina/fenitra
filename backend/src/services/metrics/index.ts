@@ -6,7 +6,7 @@ import {
   type FinanceConfig,
 } from './core';
 import { ledgerEntriesForKinds, loadActivity, loadBalance } from './queries';
-import { resolvePeriod, type PeriodKey, type PeriodRange } from '../period.service';
+import { resolvePeriod, cumulativeUntil, type PeriodKey, type PeriodRange } from '../period.service';
 
 export * from './core';
 
@@ -74,13 +74,18 @@ export async function getDashboard(
 
 export async function buildDashboard(range: PeriodRange): Promise<DashboardResult> {
   const config = financeConfig();
+  const cumulative = cumulativeUntil(range);
 
-  const [activity, balance] = await Promise.all([
+  const [activity, balance, allTime] = await Promise.all([
     loadActivity(range.from, range.to),
     loadBalance(range.from, range.to, config.openingCashBalance),
+    loadActivity(cumulative.from, cumulative.to),
   ]);
 
-  const d: DerivedMetrics = computeDerived(activity, balance, config);
+  // L'intégrité compare des STOCKS (caisse, stock, dettes à `to`) à des
+  // FLUX cumulés : on utilise donc l'activité depuis l'origine, quel que
+  // soit le filtre d'affichage de la période.
+  const d: DerivedMetrics = computeDerived(activity, balance, config, allTime);
 
   return {
     period: {

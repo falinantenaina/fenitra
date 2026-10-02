@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { utc } from '../../lib/sql';
 import type { RawActivity, RawBalance } from './core';
 
 /**
@@ -53,12 +54,12 @@ export async function loadActivity(from: Date, to: Date): Promise<RawActivity> {
         COALESCE(SUM("amount") FILTER (WHERE kind = 'PROFIT_DRAWING'), 0)           AS profit_drawings,
         COALESCE(-SUM("cashDelta") FILTER (WHERE "cashDelta" < 0), 0)               AS cash_outflow
       FROM "LedgerEntry"
-      WHERE "date" >= ${from} AND "date" < ${to}
+      WHERE "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp
     ),
     s AS (
       SELECT COUNT(*)::bigint AS sales_count
       FROM "Sale"
-      WHERE "date" >= ${from} AND "date" < ${to} AND status <> 'CANCELLED'
+      WHERE "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp AND status <> 'CANCELLED'
     )
     SELECT le.*, s.sales_count
     FROM le CROSS JOIN s`;
@@ -84,26 +85,41 @@ export async function loadBalance(
 ): Promise<RawBalance> {
   const cashRows = await prisma.$queryRaw<{ cash_before: Num; cash_to: Num }[]>`
     SELECT
-      COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${from}), 0) AS cash_before,
-      COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${to}), 0)   AS cash_to
+      COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${utc(from)}::timestamp), 0) AS cash_before,
+      COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${utc(to)}::timestamp), 0)   AS cash_to
     FROM "LedgerEntry"`;
 
   const cashBefore = n(cashRows[0]?.cash_before);
   const cashTo = n(cashRows[0]?.cash_to);
 
+  /**
+   * Reste à payer / à recevoir **à la date `to`**.
+   *
+   * On reconstitue `initial − règlements (< to)` plutôt que de lire
+   * `Debt.remainingAmount` (qui reflète l'instant présent) : les règlements
+   * viennent de `Payment` **et** de `Versement` (A2 — un versement de dette
+   * trosa met à jour le solde de la dette sans créer de `Payment`, cf.
+   * `versements.service`).
+   */
   const debtRows = await prisma.$queryRaw<{ type: string; initial: Num; paid: Num }[]>`
     SELECT
       d.type::text AS type,
       COALESCE(SUM(d."initialAmount"), 0)::bigint AS initial,
-      COALESCE(SUM(pa.paid), 0)::bigint           AS paid
+      COALESCE(SUM(COALESCE(pa.paid, 0) + COALESCE(ve.paid, 0)), 0)::bigint AS paid
     FROM "Debt" d
     LEFT JOIN (
       SELECT "debtId", SUM("amount")::bigint AS paid
       FROM "Payment"
-      WHERE "debtId" IS NOT NULL AND "date" < ${to}
+      WHERE "debtId" IS NOT NULL AND "date" < ${utc(to)}::timestamp
       GROUP BY "debtId"
     ) pa ON pa."debtId" = d.id
-    WHERE d."date" < ${to} AND d.status <> 'CANCELLED'
+    LEFT JOIN (
+      SELECT "debtId", SUM("amount")::bigint AS paid
+      FROM "Versement"
+      WHERE "debtId" IS NOT NULL AND "date" < ${utc(to)}::timestamp
+      GROUP BY "debtId"
+    ) ve ON ve."debtId" = d.id
+    WHERE d."date" < ${utc(to)}::timestamp AND d.status <> 'CANCELLED'
     GROUP BY d.type`;
 
   const byType: Record<string, number> = {};
@@ -113,14 +129,14 @@ export async function loadBalance(
 
   const capitalRows = await prisma.$queryRaw<{ cin: Num; cout: Num }[]>`
     SELECT
-      COALESCE(SUM("amount") FILTER (WHERE type = 'IN' AND "date" < ${to}), 0)  AS cin,
-      COALESCE(SUM("amount") FILTER (WHERE type = 'OUT' AND "date" < ${to}), 0) AS cout
+      COALESCE(SUM("amount") FILTER (WHERE type = 'IN' AND "date" < ${utc(to)}::timestamp), 0)  AS cin,
+      COALESCE(SUM("amount") FILTER (WHERE type = 'OUT' AND "date" < ${utc(to)}::timestamp), 0) AS cout
     FROM "PersonalCapitalMovement"`;
 
   const drawingRows = await prisma.$queryRaw<{ drawings: Num }[]>`
     SELECT COALESCE(SUM("amount"), 0)::bigint AS drawings
     FROM "LedgerEntry"
-    WHERE kind = 'PROFIT_DRAWING' AND "date" < ${to}`;
+    WHERE kind = 'PROFIT_DRAWING' AND "date" < ${utc(to)}::timestamp`;
 
   return {
     cashAtStart: openingCashBalance + cashBefore,
@@ -154,7 +170,7 @@ export async function loadStockAt(date: Date): Promise<{ value: number; quantity
         l."initialQty" + COALESCE((
           SELECT SUM(m.delta)
           FROM "StockMovement" m
-          WHERE m."lotId" = l.id AND m."date" < ${date} AND m.type <> 'IN'
+          WHERE m."lotId" = l.id AND m."date" < ${utc(date)}::timestamp AND m.type <> 'IN'
         ), 0) AS qty
       FROM "StockLot" l
       WHERE l.status <> 'CANCELLED'
@@ -172,7 +188,7 @@ export async function lotQuantityAt(lotId: string, date: Date): Promise<number> 
     SELECT l."initialQty" + COALESCE((
       SELECT SUM(m.delta)
       FROM "StockMovement" m
-      WHERE m."lotId" = l.id AND m."date" < ${date} AND m.type <> 'IN'
+      WHERE m."lotId" = l.id AND m."date" < ${utc(date)}::timestamp AND m.type <> 'IN'
     ), 0) AS qty
     FROM "StockLot" l
     WHERE l.id = ${lotId}`;
@@ -188,7 +204,7 @@ export async function sumLedgerAmount(
   const rows = await prisma.$queryRaw<{ total: Num }[]>`
     SELECT COALESCE(SUM("amount"), 0)::bigint AS total
     FROM "LedgerEntry"
-    WHERE kind::text = ANY(${kinds}::text[]) AND "date" >= ${from} AND "date" < ${to}`;
+    WHERE kind::text = ANY(${kinds}::text[]) AND "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp`;
   return n(rows[0]?.total);
 }
 
@@ -229,7 +245,7 @@ export async function ledgerEntriesForKinds(
     SELECT id, seq, date, kind::text AS kind, amount, "cashDelta", description,
            reference, "refType" AS "refType", "refId" AS "refId"
     FROM "LedgerEntry"
-    WHERE kind::text = ANY(${kinds}::text[]) AND "date" >= ${from} AND "date" < ${to}
+    WHERE kind::text = ANY(${kinds}::text[]) AND "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp
     ORDER BY "date" DESC, seq DESC
     LIMIT ${limit}`;
 

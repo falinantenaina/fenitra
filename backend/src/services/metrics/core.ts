@@ -202,14 +202,23 @@ export function verifyIdentity(
   return { identityDelta: lhs - expected, expected, actual: lhs };
 }
 
+/**
+ * @param cumulativeActivity Activité **cumulée depuis l'origine jusqu'à `to`**,
+ * seule compatible avec l'identité (les stocks de `balance` — caisse, stock,
+ * dettes — sont cumulés eux aussi). Sans cet argument, on retombe sur
+ * l'activité de la période, ce qui n'est juste que pour une période
+ * commençant à l'origine.
+ */
 export function computeDerived(
   activity: RawActivity,
   balance: RawBalance,
   config: FinanceConfig = DEFAULT_FINANCE_CONFIG,
+  cumulativeActivity?: RawActivity,
 ): DerivedMetrics {
   const a = computeActivity(activity);
   const b = computeBalance(balance);
-  const { identityDelta } = verifyIdentity(b, a);
+  const cumulative = cumulativeActivity ? computeActivity(cumulativeActivity) : a;
+  const { identityDelta } = verifyIdentity(b, cumulative);
 
   const volaMiodina = b.cash + b.stockValue + b.receivables - b.payables;
 

@@ -1127,3 +1127,32 @@ Phase 1 **terminée et commitée**. Ensuite, dans l'ordre :
 - **Phase 3** — `backend/prisma/schema.prisma` complet (validé par `prisma validate`) + migration initiale + seed minimal.
 - **Phase 4** — `docs/FORMULES.md` + tests unitaires purs des formules et de l'identité §8.3.
 
+---
+
+## 16. Les 12 scénarios E2E (Phases 5h et 7)
+
+> Reconstitués depuis le plan de phases (§12), qui attribue les tests aux
+> phases : **1, 2, 3, 8, 9** → arrivages/stock ; **4, 5, 6, 10** → ventes ;
+> **7** → dettes ; **11, 12** → finances. Chaque scénario est joué de bout en
+> bout dans `backend/tests/e2e.test.ts`, dans son propre contexte, sans
+> dépendre d'une autre suite.
+
+| # | Scénario | Phase | Ce qui doit être vérifié |
+|---|---|---|---|
+| **1** | **Arrivage complet réglé d'emblée** | 5c | Cartons → lignes → `StockLot` (FIFO) → `StockMovement` → paiement intégral → écriture `SUPPLIER_PAYMENT`, dette fournisseur `PAID`, stock et valeur à jour, `reference` `ARR-####` |
+| **2** | **Arrivage à crédit partiel** | 5c | Paiement partiel, `Debt` fournisseur `PARTIAL` avec `remainingAmount` exact, écritures `SUPPLIER_PAYMENT` pour la part réglée, identité comptable préservée |
+| **3** | **Annulation d'un arrivage** | 5c | Lots `CANCELLED` (exclus de la valorisation), dette `CANCELLED`, **contre-passation** de toutes les écritures positives (`amount` et `cashDelta` inversés, kind identique), stock inchangé |
+| **4** | **Vente FIFO** | 5d | Allocation `entryDate ASC`, `SaleItemLot` figé par lot, `COGS` = coût réel des lots sortis, `margin` = CA − COGS, écritures `SALE` (`cashDelta` = part encaissée) et `COGS` (`cashDelta` = 0) |
+| **5** | **Annulation d'une vente** | 5d | Quantités restituées **dans les mêmes lots**, `StockMovement` de type `RETURN`, dette `CANCELLED`, chaque écriture positive de la vente contre-passée, `Σ amount WHERE kind='SALE'` redevenu exact |
+| **6** | **Vente à crédit** | 5d | Dette client / vendeur en ligne ouverte, **motif auto** (`Achat de … — non payé`), `SaleStatus = UNPAID`, aucun encaissement au journal côté recettes |
+| **7** | **Dettes génériques & paiements multiples** | 5e | `POST /debts` (motif obligatoire généré, **contrepartie de caisse** pour l'identité), règlements successifs `OPEN → PARTIAL → PAID`, refus du trop-perçu, refus d'annuler une dette née d'une vente |
+| **8** | **Valorisation du stock à la date + prix d'achat** | 5c | `quantitéRestanteLot(T)` exclut les `IN` postérieurs à `T` et les lots `CANCELLED`, historique des prix d'achat par variante (`/variants/:id/price-history`) |
+| **9** | **Lots & mouvements (FIFO verrouillé)** | 5c | Tri `entryDate ASC, createdAt ASC, id ASC` sous `FOR UPDATE`, historique complet par lot (`/stock/lots/:id/movements`), ajustement de perte → `Expense` + écriture `EXPENSE` `cashDelta = 0` |
+| **10** | **Règlements de vente** | 5d | Paiement partiel puis solde, dette synchronisée, écritures `CUSTOMER_PAYMENT` / `ONLINE_SELLER_PAYMENT` avec `cashDelta = +montant`, `SaleStatus` `UNPAID → PARTIAL → PAID` |
+| **11** | **Dépenses & versements (A2)** | 5f | Dépense toujours réglée (`cashDelta = −montant`), correction/suppression par contre-passation ; versement **auto** `DEBT_SETTLEMENT` si une trosa est ouverte (écriture `TROSA_REPAY`, hors bénéfice), sinon `CHARGE` (écriture `VERSEMENT`, réduit le bénéfice) |
+| **12** | **Argent propre, trosa sinoa & financement mixte (A7)** | 5f | `PERSONAL_CAPITAL_IN/OUT` ⇔ `K`, trosa `PAYABLE` avec encaissement `TROSA_BORROW` (A1), traçabilité d'une injection liée à un arrivage (`/personal-capital/:id/destinations`), **double comptage impossible** |
+
+**Point de contrôle transverse** (Phase 5g) : pour chaque indicateur du
+dashboard, `GET /dashboard/:indicator/transactions` doit sommer exactement à
+l'affichage de l'indicateur, et `integrity.identityDelta` doit être `0`.
+

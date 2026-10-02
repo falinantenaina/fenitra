@@ -92,6 +92,12 @@ async function main(): Promise<void> {
   }
   console.log(`  + ${PAYMENT_METHODS.length} modes de paiement`);
 
+  // Phase 5h — données de démonstration : jamais sur la base de tests.
+  if (process.env.NODE_ENV !== 'test') {
+    const { seedDemo } = await import('./demo');
+    await seedDemo(prisma);
+  }
+
   console.log('─ Seed terminé ─');
 }
 
