@@ -1238,3 +1238,59 @@ dépendre d'`Intl`), `src/lib/queries.ts` (React Query `useDashboard`,
 API réelle (seed de démo) : format des 17 champs de cartes sur 4 périodes,
 `integrity.ok` à `0`, et total du dérillage = valeur affichée pour les 8
 indicateurs de période.
+
+## 19. Mobile — saisie rapide d'arrivage (Phase 6c)
+
+**Route** `src/app/arrival/new.tsx` (en-tête déclaré dans `src/app/_layout.tsx`),
+point d'entrée : bouton « Nouvel arrivage » sur l'onglet Stock, affiché aux
+rôles `ADMIN`/`MANAGER` seulement (le backend impose `managerOrAdmin` → 403).
+
+**Une écran, trois sections** :
+
+1. **En-tête** : fournisseur (chips `GET /suppliers?active=true`), date
+   `AAAA-MM-JJ` saisie en locale (le serveur applique `Indian/Antananarivo`),
+   notes libres.
+2. **Cartons multipliables** (React Hook Form `useFieldArray`, 1 à 50) : chips des
+   modèles (`GET /products?active=true`) ; au changement de modèle la grille se
+   recharge depuis `GET /products/:id` (variantes triées par pointure).
+   **Grille contrôlée pointure × quantité × prix d'achat** avec copier/coller
+   d'une ligne et sous-total par carton.
+3. **Paiement** (montant + modes `GET /payment-methods`) et **financement**
+   (`OWN_CAPITAL`, `TROSA_SINOA`, `SALES_CASH`, `SUPPLIER_CREDIT` + montant).
+
+**Validation avant envoi** (`arrivalFormSchema`, Zod + `zodResolver`,
+`mode: onSubmit`) : au moins un carton, carton non vide, prix d'achat requis sur
+chaque ligne chiffrée, paiement ≥ 1 et ≤ total, financement ≥ 1. Le pied
+d'écran collant affiche le total (pièces + Ar) et le bouton d'enregistrement.
+
+**Transformation** (`src/lib/arrival.ts::buildArrivalPayload`) : les items sont
+saisis en *record* `variantId → {quantity, unitCost}` (accès O(1) dans la grille)
+puis convertis en tableau, lignes à quantité 0 exclues ; référence absente →
+`Carton N`. Envoi `POST /arrivals` avec un en-tête `Idempotency-Key` généré
+**par tentative** (un double tap ne crée jamais deux arrivages). Succès →
+invalidation `arrivals`/`dashboard`/`stock`/`debts`, `Alert`, retour en arrière.
+
+**Brouillon** : `src/store/arrival-draft.ts` (Zustand `save`/`clear`), restauré à
+l'ouverture et sauvegardé à chaque changement (`watch`), vidé après une écriture
+réussie. Survite à une perte de focus, pas au redémarrage (pas de persistance
+disque).
+
+**Prix groupé** : `src/components/price-bulk-modal.tsx` — « Appliquer un prix
+d'achat » pré-sélectionne les lignes déjà chiffrées, coche/décoche Tout/Aucun,
+applique le prix **sans toucher aux quantités**. La sélection est un état dérivé
+(`manual ?? automatic`) : aucun `setState` dans un effet.
+
+**Décision** : `activeProductId` / `usedProductIds` ne sont que de la navigation
+de grille — ils ne quittent jamais l'écran, le payload ne contient que ce que
+`createArrivalSchema` accepte.
+
+**Points de contrôle validés (6c)** : `npx tsc --noEmit`, `npx expo lint`
+(1 avertissement React Compiler sur `watch`, non bloquant) et
+`npx expo export --platform android` verts. **Contrat réel** exécuté contre
+l'API (base de tests, port 4100) : 21/21 — payload du formulaire, rejets Zod
+(paiement > total, carton vide, prix manquant), `POST /arrivals → 201`
+(`totalQty = 4`, `totalCost = "106000.00"`, `paidAmount = "50000.00"`, 2 cartons),
+rejou d'idempotence (même `id`), `integrity.identityDelta = 0`, dérillage
+`ca → 200`. Suite backend : 178 tests / 12 fichiers verts sur **3 exécutions
+consécutives** — le test §62 a été isolé dans une fenêtre close en 2099 pour
+supprimer la course avec les autres fichiers qui écrivent « aujourd'hui ».

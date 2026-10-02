@@ -42,6 +42,10 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="login" options={{ animation: 'fade' }} />
+          <Stack.Screen
+            name="arrival/new"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvel arrivage' }}
+          />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

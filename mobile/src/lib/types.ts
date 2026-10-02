@@ -101,3 +101,76 @@ export interface DrilldownResponse {
   total: string;
   entries: DrillEntry[];
 }
+
+/* ════════════ Référentiels (arrivage) ════════════ */
+
+export interface Party {
+  id: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductListItem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  imageUrl: string | null;
+  active: boolean;
+  variantsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SizeRef {
+  id: string;
+  value: number;
+  label: string;
+  order: number;
+}
+
+export interface VariantItem {
+  id: string;
+  sku: string;
+  sellingPrice: string;
+  active: boolean;
+  size: SizeRef;
+}
+
+export interface ProductDetail {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  imageUrl: string | null;
+  active: boolean;
+  variants: VariantItem[];
+}
+
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  order: number;
+  active: boolean;
+}
+
+export type FundingSource = 'OWN_CAPITAL' | 'TROSA_SINOA' | 'SALES_CASH' | 'SUPPLIER_CREDIT';
+
+/** Corps de `POST /arrivals`. */
+export interface CreateArrivalBody {
+  supplierId: string;
+  date: string;
+  notes?: string;
+  cartons: {
+    reference: string;
+    notes?: string;
+    items: { variantId: string; quantity: number; unitCost: number }[];
+  }[];
+  payment?: { amount: number; method?: string };
+  funding?: { source: FundingSource; amount: number; notes?: string };
+}

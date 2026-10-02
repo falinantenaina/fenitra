@@ -7,8 +7,13 @@ import { buildPdf } from '../src/modules/reports/reports.service';
 
 const stamp = Date.now();
 const WIDE = 'period=custom&from=2020-01-01&to=2100-12-31';
+/** Fenêtre fermée : rien d'autre que ce fichier n'y écrit (voir test §62). */
+const SEALED = 'period=custom&from=2099-06-01&to=2099-06-30';
+const SEALED_DAY = '2099-06-15';
 
 let admin: AuthedRequest;
+let categoryId: string;
+let variantId: string;
 
 describe('Journal, dashboard et rapports', () => {
   beforeAll(async () => {
@@ -32,6 +37,8 @@ describe('Journal, dashboard et rapports', () => {
     const variant = await admin
       .post('/variants')
       .send({ productId: product.body.id, sizeId: size40.id, sellingPrice: 60000 });
+    categoryId = category.body.id;
+    variantId = variant.body.id;
 
     await admin.post('/arrivals').send({
       supplierId: supplier.body.id,
@@ -141,8 +148,41 @@ describe('Journal, dashboard et rapports', () => {
   });
 
   it('retombe exactement sur le dashboard pour chaque indicateur dérillable (§62)', async () => {
-    const dash = await admin.get(`/dashboard?${WIDE}`);
+    // Toutes les autres suites écrivent « aujourd'hui » : comparées dans une
+    // large période, deux lectures successives (dashboard puis dérillage) peuvent
+    // voir des écritures différentes. On isole donc une fenêtre close en 2099,
+    // remplie ici et par personne d'autre.
+    const [sale, expense, versement] = await Promise.all([
+      admin.post('/sales').send({
+        date: SEALED_DAY,
+        items: [{ variantId, quantity: 1, unitPrice: 60000 }],
+        payment: { amount: 60000, method: 'Espèces' },
+      }),
+      admin.post('/expenses').send({
+        categoryId,
+        amount: 4000,
+        date: SEALED_DAY,
+        description: `Fenêtre §62 ${stamp}`,
+      }),
+      admin.post('/versements').send({
+        personName: `Versement §62 ${stamp}`,
+        amount: 2000,
+        date: SEALED_DAY,
+        motif: 'Dérillage des indicateurs',
+      }),
+    ]);
+    expect(sale.status, JSON.stringify(sale.body)).toBe(201);
+    expect(expense.status, JSON.stringify(expense.body)).toBe(201);
+    expect(versement.status, JSON.stringify(versement.body)).toBe(201);
+
+    const dash = await admin.get(`/dashboard?${SEALED}`);
     expect(dash.status).toBe(200);
+
+    // Chaque indicateur doit être réellement renseigné dans la fenêtre.
+    expect(Number(dash.body.activity.ca)).toBeGreaterThan(0);
+    expect(Number(dash.body.activity.cogs)).toBeGreaterThan(0);
+    expect(Number(dash.body.activity.expenses)).toBeGreaterThan(0);
+    expect(Number(dash.body.activity.versementCharges)).toBeGreaterThan(0);
 
     // `capital` et `profitDrawings` n'ont pas d'équivalent de période au
     // dashboard (cumulés depuis l'origine) : ils sont exclus de la comparaison.
@@ -158,7 +198,7 @@ describe('Journal, dashboard et rapports', () => {
     };
 
     for (const [indicator, displayed] of Object.entries(expected)) {
-      const drill = await admin.get(`/dashboard/${indicator}/transactions?${WIDE}`);
+      const drill = await admin.get(`/dashboard/${indicator}/transactions?${SEALED}`);
       expect(drill.status, indicator).toBe(200);
       expect(
         Number(drill.body.total),
