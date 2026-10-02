@@ -3,7 +3,8 @@ import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
-import { remember, replayIfSeen } from '../../services/idempotency';
+import { conflict } from '../../lib/errors';
+import { beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelDebtSchema,
   createDebtSchema,
@@ -57,19 +58,25 @@ debtsRouter.post(
   asyncHandler(async (req, res) => {
     const body = parseBody(req, createDebtSchema);
     const key = idempotencyKey(req);
+    const endpoint = 'POST /debts';
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, 'POST /debts');
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const debt = await createDebt(body, req.user!.id);
-    if (key) await remember(key, 'POST /debts', 201, debt);
-
-    res.status(201).json(debt);
+    try {
+      const debt = await createDebt(body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 201, debt);
+      res.status(201).json(debt);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );
 
@@ -91,19 +98,25 @@ debtsRouter.post(
     const { id } = parseParams(req, idParamSchema);
     const body = parseBody(req, debtPaymentSchema);
     const key = idempotencyKey(req);
+    const endpoint = `POST /debts/${id}/payments`;
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, `POST /debts/${id}/payments`);
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const debt = await payDebt(id, body, req.user!.id);
-    if (key) await remember(key, `POST /debts/${id}/payments`, 200, debt);
-
-    res.json(debt);
+    try {
+      const debt = await payDebt(id, body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 200, debt);
+      res.json(debt);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );
 
@@ -134,18 +147,24 @@ paymentsRouter.post(
   asyncHandler(async (req, res) => {
     const body = parseBody(req, createPaymentSchema);
     const key = idempotencyKey(req);
+    const endpoint = 'POST /payments';
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, 'POST /payments');
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const debt = await payDebt(body.debtId, body, req.user!.id);
-    if (key) await remember(key, 'POST /payments', 200, debt);
-
-    res.json(debt);
+    try {
+      const debt = await payDebt(body.debtId, body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 200, debt);
+      res.json(debt);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );

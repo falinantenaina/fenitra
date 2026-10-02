@@ -3,7 +3,8 @@ import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
-import { remember, replayIfSeen } from '../../services/idempotency';
+import { conflict } from '../../lib/errors';
+import { beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelSchema,
   createArrivalSchema,
@@ -46,20 +47,25 @@ arrivalsRouter.post(
   asyncHandler(async (req, res) => {
     const body = parseBody(req, createArrivalSchema);
     const key = idempotencyKey(req);
+    const endpoint = 'POST /arrivals';
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, 'POST /arrivals');
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const arrival = await createArrival(body, req.user!.id);
-
-    if (key) await remember(key, 'POST /arrivals', 201, arrival);
-
-    res.status(201).json(arrival);
+    try {
+      const arrival = await createArrival(body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 201, arrival);
+      res.status(201).json(arrival);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );
 

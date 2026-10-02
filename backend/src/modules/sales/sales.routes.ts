@@ -3,7 +3,8 @@ import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
-import { remember, replayIfSeen } from '../../services/idempotency';
+import { conflict } from '../../lib/errors';
+import { beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelSaleSchema,
   createSaleSchema,
@@ -54,19 +55,25 @@ salesRouter.post(
   asyncHandler(async (req, res) => {
     const body = parseBody(req, createSaleSchema);
     const key = idempotencyKey(req);
+    const endpoint = 'POST /sales';
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, 'POST /sales');
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const sale = await createSale(body, req.user!.id, key);
-    if (key) await remember(key, 'POST /sales', 201, sale);
-
-    res.status(201).json(sale);
+    try {
+      const sale = await createSale(body, req.user!.id, key);
+      if (key) await finishIdempotent(key, endpoint, 201, sale);
+      res.status(201).json(sale);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );
 
@@ -88,19 +95,25 @@ salesRouter.post(
     const { id } = parseParams(req, idParamSchema);
     const body = parseBody(req, salePaymentSchema);
     const key = idempotencyKey(req);
+    const endpoint = `POST /sales/${id}/payments`;
+    const claim = key ? await beginIdempotent(key, endpoint) : null;
 
-    if (key) {
-      const seen = await replayIfSeen(key, `POST /sales/${id}/payments`);
-      if (seen) {
-        res.status(seen.statusCode).json(seen.body);
-        return;
-      }
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
     }
 
-    const sale = await addSalePayment(id, body, req.user!.id);
-    if (key) await remember(key, `POST /sales/${id}/payments`, 200, sale);
-
-    res.json(sale);
+    try {
+      const sale = await addSalePayment(id, body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 200, sale);
+      res.json(sale);
+    } catch (error) {
+      if (key) await releaseIdempotent(key);
+      throw error;
+    }
   }),
 );
 
