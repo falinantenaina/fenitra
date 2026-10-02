@@ -301,8 +301,10 @@ describe('12 scénarios E2E', () => {
   /** E2E-08 — valorisation à une date + historique des prix d'achat (Phase 5c). */
   it('E2E-08 : valorisation à la date de la vente + historique des prix d’achat', async () => {
     const sale = await admin.get(`/sales/${creditSaleId}`);
-    const justBefore = new Date(new Date(sale.body.date).getTime() - 1000).toISOString();
-    const atSale = await admin.get(`/stock/summary?variantId=${variantA}&to=${justBefore}`);
+    // Frontière déterministe : `to` est filtré par `date < at`, donc à l'instant
+    // exact de la vente, sa propre sortie de stock n'est pas encore appliquée —
+    // ni aucun écart de quelques millisecondes entre les ventes précédentes.
+    const atSale = await admin.get(`/stock/summary?variantId=${variantA}&to=${sale.body.date}`);
     expect(atSale.body.quantity).toBe(12);
     expect(atSale.body.value).toBe('258000.00');
 

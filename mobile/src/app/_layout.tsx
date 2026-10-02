@@ -46,6 +46,10 @@ export default function RootLayout() {
             name="arrival/new"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvel arrivage' }}
           />
+          <Stack.Screen
+            name="sale/new"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvelle vente' }}
+          />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

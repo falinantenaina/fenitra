@@ -65,7 +65,16 @@ describe('Arrivages & stock', () => {
     const first = await admin.get('/arrivals/reference-preview');
     const second = await admin.get('/arrivals/reference-preview');
     expect(first.body.reference).toMatch(/^ARR-\d{4}$/);
-    expect(second.body.reference).toBe(first.body.reference);
+
+    if (second.body.reference !== first.body.reference) {
+      // Les fichiers tournent en parallèle : une autre suite a pu consommer la
+      // référence entre les deux appels. On vérifie alors qu'un ARRIVAGE porte
+      // bien cette référence — sinon c'est la prévisualisation qui l'a gaspillée.
+      const consumed = await prisma.arrival.findFirst({
+        where: { reference: first.body.reference },
+      });
+      expect(consumed, `prévisualisation ${first.body.reference} non consommée`).not.toBeNull();
+    }
   });
 
   it('enregistre un arrivage complet en une transaction (Test 1)', async () => {
@@ -185,7 +194,7 @@ describe('Arrivages & stock', () => {
       reason: 'Casse constatée en vitrine',
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.quantity).toBe(3);
     expect(res.body.lostValue).toBe('60000.00'); // 3 × 20000, le lot le plus ancien
     expect(res.body.allocations).toHaveLength(1);

@@ -8,6 +8,7 @@ import {
 import { api } from '@/lib/api';
 import type {
   CreateArrivalBody,
+  CreateSaleBody,
   DashboardResponse,
   DrilldownResponse,
   IndicatorKey,
@@ -16,6 +17,9 @@ import type {
   PeriodKey,
   ProductDetail,
   ProductListItem,
+  SaleCreated,
+  StockSummary,
+  VariantSearchItem,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -110,6 +114,62 @@ export function usePaymentMethods(): UseQueryResult<PaymentMethod[]> {
   });
 }
 
+/** Recherche de pointures par nom de modèle ou SKU (`GET /variants?q=`). */
+export function useVariantSearch(term: string): UseQueryResult<VariantSearchItem[]> {
+  const trimmed = term.trim();
+  return useQuery<VariantSearchItem[]>({
+    queryKey: ['variants', 'search', trimmed],
+    enabled: trimmed.length >= 2,
+    queryFn: async () => {
+      const { data } = await api.get<ListResponse<VariantSearchItem>>('/variants', {
+        params: { active: 'true', q: trimmed, limit: 20, sort: 'sku' },
+      });
+      return data.items;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** Clients actifs (`GET /customers?active=true`). */
+export function useCustomers(): UseQueryResult<Party[]> {
+  return useQuery<Party[]>({
+    queryKey: ['customers'],
+    queryFn: async () => {
+      const { data } = await api.get<ListResponse<Party>>('/customers', {
+        params: { active: 'true', limit: 200 },
+      });
+      return data.items;
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** Quantité encore en stock d'une variante (`GET /stock/summary?variantId=`). */
+export function useStockSummary(variantId: string): UseQueryResult<StockSummary> {
+  return useQuery<StockSummary>({
+    queryKey: ['stock-summary', variantId],
+    queryFn: async () => {
+      const { data } = await api.get<StockSummary>('/stock/summary', {
+        params: { variantId },
+      });
+      return data;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** Prochaine référence de vente, sans la consommer (`GET /sales/reference-preview`). */
+export function useSaleReference(): UseQueryResult<{ reference: string }> {
+  return useQuery<{ reference: string }>({
+    queryKey: ['sale-reference'],
+    queryFn: async () => {
+      const { data } = await api.get<{ reference: string }>('/sales/reference-preview');
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
 /* ════════════ Mutations ════════════ */
 
 /** `POST /arrivals` — enregistrement transactionnel (cartons → lots → dette). */
@@ -138,4 +198,26 @@ export interface ArrivalCreated {
   reference: string;
   totalCost: string;
   totalQty: number;
+}
+
+/** `POST /sales` — vente FIFO avec règlement éventuel (Idempotency-Key par tentative). */
+export function useCreateSale() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateSaleBody) => {
+      const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const { data } = await api.post<SaleCreated>('/sales', body, {
+        headers: { 'Idempotency-Key': key },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sales'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['sale-reference'] });
+    },
+  });
 }

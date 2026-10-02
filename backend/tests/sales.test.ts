@@ -60,7 +60,13 @@ describe('Ventes', () => {
     const first = await admin.get('/sales/reference-preview');
     const second = await admin.get('/sales/reference-preview');
     expect(first.body.reference).toMatch(/^VTE-\d{4}$/);
-    expect(second.body.reference).toBe(first.body.reference);
+
+    if (second.body.reference !== first.body.reference) {
+      // Les fichiers tournent en parallèle : une autre suite a pu consommer la
+      // référence entre les deux appels — il faut alors qu'une VENTE la porte.
+      const consumed = await prisma.sale.findFirst({ where: { reference: first.body.reference } });
+      expect(consumed, `prévisualisation ${first.body.reference} non consommée`).not.toBeNull();
+    }
   });
 
   it('refuse une vente de total nul (400 et jamais une contrainte 500)', async () => {

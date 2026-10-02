@@ -1,4 +1,7 @@
+import { Prisma } from '@prisma/client';
+
 import { env } from '../../config/env';
+import { prisma } from '../../lib/prisma';
 import {
   computeDerived,
   DEFAULT_FINANCE_CONFIG,
@@ -76,11 +79,20 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
   const config = financeConfig();
   const cumulative = cumulativeUntil(range);
 
-  const [activity, balance, allTime] = await Promise.all([
-    loadActivity(range.from, range.to),
-    loadBalance(range.from, range.to, config.openingCashBalance),
-    loadActivity(cumulative.from, cumulative.to),
-  ]);
+  /**
+   * Instantané cohérent (§4) : l'identité compare des STOCKS à des FLUX lus en
+   * parallèle. Sans `RepeatableRead`, une écriture concurrente entre deux
+   * lectures se traduirait par un écart d'intégrité purement apparent.
+   */
+  const [activity, balance, allTime] = await prisma.$transaction(
+    async (tx) =>
+      Promise.all([
+        loadActivity(range.from, range.to, tx),
+        loadBalance(range.from, range.to, config.openingCashBalance, tx),
+        loadActivity(cumulative.from, cumulative.to, tx),
+      ]),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
 
   // L'intégrité compare des STOCKS (caisse, stock, dettes à `to`) à des
   // FLUX cumulés : on utilise donc l'activité depuis l'origine, quel que

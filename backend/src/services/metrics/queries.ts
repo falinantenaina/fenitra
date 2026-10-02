@@ -16,6 +16,9 @@ import type { RawActivity, RawBalance } from './core';
 
 type Num = number | bigint | string | null | undefined;
 
+/** Client de lecture : `prisma` seul, ou un `tx` d'instantané (dashboard). */
+type Db = Prisma.TransactionClient | typeof prisma;
+
 export function n(v: Num): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number') return v;
@@ -24,8 +27,8 @@ export function n(v: Num): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export async function loadActivity(from: Date, to: Date): Promise<RawActivity> {
-  const rows = await prisma.$queryRaw<
+export async function loadActivity(from: Date, to: Date, db: Db = prisma): Promise<RawActivity> {
+  const rows = await db.$queryRaw<
     {
       ca: Num;
       cogs: Num;
@@ -82,8 +85,9 @@ export async function loadBalance(
   from: Date,
   to: Date,
   openingCashBalance: number,
+  db: Db = prisma,
 ): Promise<RawBalance> {
-  const cashRows = await prisma.$queryRaw<{ cash_before: Num; cash_to: Num }[]>`
+  const cashRows = await db.$queryRaw<{ cash_before: Num; cash_to: Num }[]>`
     SELECT
       COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${utc(from)}::timestamp), 0) AS cash_before,
       COALESCE(SUM("cashDelta") FILTER (WHERE "date" < ${utc(to)}::timestamp), 0)   AS cash_to
@@ -101,7 +105,7 @@ export async function loadBalance(
    * trosa met à jour le solde de la dette sans créer de `Payment`, cf.
    * `versements.service`).
    */
-  const debtRows = await prisma.$queryRaw<{ type: string; initial: Num; paid: Num }[]>`
+  const debtRows = await db.$queryRaw<{ type: string; initial: Num; paid: Num }[]>`
     SELECT
       d.type::text AS type,
       COALESCE(SUM(d."initialAmount"), 0)::bigint AS initial,
@@ -125,15 +129,15 @@ export async function loadBalance(
   const byType: Record<string, number> = {};
   for (const r of debtRows) byType[r.type] = n(r.initial) - n(r.paid);
 
-  const stock = await loadStockAt(to);
+  const stock = await loadStockAt(to, db);
 
-  const capitalRows = await prisma.$queryRaw<{ cin: Num; cout: Num }[]>`
+  const capitalRows = await db.$queryRaw<{ cin: Num; cout: Num }[]>`
     SELECT
       COALESCE(SUM("amount") FILTER (WHERE type = 'IN' AND "date" < ${utc(to)}::timestamp), 0)  AS cin,
       COALESCE(SUM("amount") FILTER (WHERE type = 'OUT' AND "date" < ${utc(to)}::timestamp), 0) AS cout
     FROM "PersonalCapitalMovement"`;
 
-  const drawingRows = await prisma.$queryRaw<{ drawings: Num }[]>`
+  const drawingRows = await db.$queryRaw<{ drawings: Num }[]>`
     SELECT COALESCE(SUM("amount"), 0)::bigint AS drawings
     FROM "LedgerEntry"
     WHERE kind = 'PROFIT_DRAWING' AND "date" < ${utc(to)}::timestamp`;
@@ -158,8 +162,11 @@ export async function loadBalance(
  *   valeur = Σ (quantité restante à T × prix d'achat du lot)
  * Jamais `quantité totale × prix d'achat actuel`.
  */
-export async function loadStockAt(date: Date): Promise<{ value: number; quantity: number }> {
-  const rows = await prisma.$queryRaw<{ value: Num; quantity: Num }[]>`
+export async function loadStockAt(
+  date: Date,
+  db: Db = prisma,
+): Promise<{ value: number; quantity: number }> {
+  const rows = await db.$queryRaw<{ value: Num; quantity: Num }[]>`
     SELECT
       COALESCE(SUM(GREATEST(qty, 0) * l."unitCost"), 0)::bigint AS value,
       COALESCE(SUM(GREATEST(qty, 0)), 0)::bigint                AS quantity

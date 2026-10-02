@@ -174,3 +174,44 @@ export interface CreateArrivalBody {
   payment?: { amount: number; method?: string };
   funding?: { source: FundingSource; amount: number; notes?: string };
 }
+
+/* ════════════ Référentiels (vente) ════════════ */
+
+/** Ligne de `GET /variants` — recherche modèle/SKU pour la vente. */
+export interface VariantSearchItem {
+  id: string;
+  sku: string | null;
+  sellingPrice: string;
+  active: boolean;
+  product: { id: string; name: string; active: boolean };
+  size: SizeRef;
+}
+
+/** `GET /stock/summary?variantId=` — quantité encore disponible. */
+export interface StockSummary {
+  at: string;
+  variantId: string | null;
+  quantity: number;
+  value: string;
+  lots: number;
+}
+
+/** Corps de `POST /sales` (§46 : prix libre par ligne — A10). */
+export interface CreateSaleBody {
+  customerId?: string;
+  onlineSellerId?: string;
+  date?: string;
+  notes?: string;
+  items: { variantId: string; quantity: number; unitPrice: number }[];
+  payment?: { amount: number; method?: string };
+}
+
+/** Réponse de `POST /sales` — champs utiles à l'écran de saisie. */
+export interface SaleCreated {
+  id: string;
+  reference: string;
+  status: string;
+  totalAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+}

@@ -1165,6 +1165,32 @@ sur la valeur affichée. Contrôlé par `backend/tests/reports.test.ts` pour
 et `cash` ; `capital` et `profitDrawings` sont affichés en cumulé au dashboard
 sans équivalent de période.
 
+### Concurrence — quatre pièges détectés en exécution parallèle
+
+Les fichiers de tests partagent une base et tournent en parallèle ; après
+correctifs : **10 exécutions consécutives vertes (178 tests / 12 fichiers)**.
+
+1. **Le dashboard n'était pas un instantané.** `buildDashboard` lançait ses
+   trois lectures (`loadActivity`, `loadBalance`, `loadActivity` cumulée) en
+   `Promise.all` **sans transaction** : une écriture concurrente entre deux
+   d'entre elles fabriquait un `identityDelta` fictif (`70000`, `-20000`,
+   `246000`…) et un `integrity.ok = false` en production comme en test.
+   Correctif : transaction `RepeatableRead` — les trois lectures partagent le
+   même instantané PostgreSQL (`src/services/metrics/index.ts::buildDashboard`
+   et le paramètre `db` de `queries.ts`).
+2. **Test §62** : la comparaison dashboard/dérillage se faisait dans une période
+   ouverte à toutes les écritures du jour → fenêtre fermée en **2099** remplie
+   par ce seul fichier (voir §19).
+3. **E2E-08** : la frontière « 1 seconde avant la vente » tombait entre la vente
+   annulée et sa contre-passation selon la vitesse de machine (quantité 12 ou
+   2). Frontière déterministe : `to = date de la vente`, le filtre strict
+   `date < at` exclut toujours la propre sortie de la vente.
+4. **Prévisualisation de référence** partagée entre les fichiers
+   (`/arrivals/reference-preview`, `/sales/reference-preview`) : deux appels
+   consécutifs peuvent différer si une autre suite crée entre les deux. On
+   vérifie alors qu'un document porte **déjà** cette référence — sinon c'est la
+   prévisualisation qui l'aurait consommée.
+
 
 ---
 
@@ -1294,3 +1320,52 @@ rejou d'idempotence (même `id`), `integrity.identityDelta = 0`, dérillage
 `ca → 200`. Suite backend : 178 tests / 12 fichiers verts sur **3 exécutions
 consécutives** — le test §62 a été isolé dans une fenêtre close en 2099 pour
 supprimer la course avec les autres fichiers qui écrivent « aujourd'hui ».
+
+---
+
+## 20. Mobile — saisie rapide d'une vente (Phase 6d)
+
+**Route** `src/app/sale/new.tsx` (en-tête déclaré dans `src/app/_layout.tsx`),
+point d'entrée : bouton « Nouvelle vente » sur l'onglet Ventes — tous les rôles,
+le backend n'exige que `requireAuth` sur `POST /sales`.
+
+**Parcours en un écran** :
+
+1. **Recherche** `GET /variants?active=true&q=` (nom de modèle ou SKU),
+   debouncée à 300 ms ; le tap sur un résultat ajoute la pointure au panier —
+   ou incrémente la quantité si elle y figure déjà — avec le prix par défaut
+   `sellingPrice`.
+2. **Panier** (`useFieldArray`) : steppers de quantité, **prix libre par ligne**
+   (A10), suppression, sous-total par ligne, et disponibilité réelle
+   (`GET /stock/summary?variantId=`) avec alerte rouge si la quantité demandée
+   dépasse le stock. Le serveur reste l'arbitre : `409 INSUFFICIENT_STOCK`.
+3. **Client** : chips « Comptoir » (aucun `customerId`) ou liste
+   `GET /customers?active=true`.
+4. **Règlement** : `TOTAL` → objet `payment` égal au total ; `PARTIEL` →
+   montant saisi (≥ 1 et ≤ total) ; `CRÉDIT` → **aucun** objet `payment` (la
+   vente ouvre une dette client). Modes de paiement via
+   `GET /payment-methods`.
+5. **Notes** libres, puis pied d'écran collant : total, nombre d'articles,
+   bouton « Enregistrer ».
+
+**Validation** (`src/lib/sale.ts::saleFormSchema`, Zod + `zodResolver`,
+`mode: onSubmit`) : panier non vide, total strictement positif (une ligne
+**offerte** passe si une autre ligne porte un prix ; seul un total nul est
+refusé — comme le serveur en `400`), règlement partiel borné au total.
+
+**Envoi** : `buildSalePayload` — les libellés d'affichage (`productName`,
+`sizeLabel`) ne quittent pas l'écran — vers `POST /sales` avec un
+`Idempotency-Key` **par tentative** ; succès → invalidation
+`sales`/`dashboard`/`stock`/`debts`, `Alert` avec la référence créée puis
+retour en arrière.
+
+**Points de contrôle validés (6d)** : `npx tsc --noEmit`, `npx expo lint`
+(1 avertissement React Compiler connu, non bloquant) et
+`npx expo export --platform android` verts. **Contrat réel** contre l'API (base
+de tests, port 4100) : **26/26** — `POST /sales → 201` réglé
+(`paidAmount = total`, `remainingAmount = 0`, stock diminué d'une unité),
+crédit (sans `payment`, `paidAmount = 0`, reste dû = total), rejets
+(règlement > total, panier vide, total nul côté formulaire **et** `400` côté
+serveur), `409 INSUFFICIENT_STOCK`, rejou d'idempotence (même `id`),
+`integrity.identityDelta = 0`. Suite backend : **10 exécutions consécutives
+à 178 tests / 12 fichiers** après les correctifs de concurrence de §16.
