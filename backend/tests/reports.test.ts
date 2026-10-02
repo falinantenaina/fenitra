@@ -16,11 +16,16 @@ describe('Journal, dashboard et rapports', () => {
 
     // Le fichier peut être le premier exécuté : il crée son propre jeu de
     // données pour ne dépendre d'aucune autre suite.
-    const [supplier, product, categories] = await Promise.all([
+    const [supplier, product, category] = await Promise.all([
       admin.post('/suppliers').send({ name: `Fournisseur Rapports ${stamp}` }),
       admin.post('/products').send({ name: `Modèle Rapport ${stamp}` }),
-      admin.get('/expense-categories'),
+      // Catégorie dédiée : `items[0]` d'une liste partagée peut être une
+      // catégorie temporaire qu'un autre fichier désactive en parallèle.
+      admin.post('/expense-categories').send({ name: `Rapports ${stamp}`, icon: 'stats-chart' }),
     ]);
+    if (category.status !== 201) {
+      throw new Error(`Catégorie Rapports ${category.status}: ${JSON.stringify(category.body)}`);
+    }
     const sizes = await admin.get('/sizes?limit=100');
     const size40 = sizes.body.items.find((s: { value: number }) => s.value === 40);
 
@@ -39,11 +44,14 @@ describe('Journal, dashboard et rapports', () => {
     });
     if (sale.status !== 201) throw new Error(`Amorçage vente ${sale.status}: ${JSON.stringify(sale.body)}`);
 
-    await admin.post('/expenses').send({
-      categoryId: categories.body.items[0].id,
+    const expense = await admin.post('/expenses').send({
+      categoryId: category.body.id,
       amount: 4000,
       description: `Frais de rapport ${stamp}`,
     });
+    if (expense.status !== 201) {
+      throw new Error(`Amorçage dépense ${expense.status}: ${JSON.stringify(expense.body)}`);
+    }
   });
 
   it('refuse l\'accès sans jeton', async () => {
@@ -130,6 +138,33 @@ describe('Journal, dashboard et rapports', () => {
     const indicators = await admin.get('/dashboard/indicators');
     expect(indicators.status).toBe(200);
     expect(indicators.body.items.length).toBeGreaterThan(5);
+  });
+
+  it('retombe exactement sur le dashboard pour chaque indicateur dérillable (§62)', async () => {
+    const dash = await admin.get(`/dashboard?${WIDE}`);
+    expect(dash.status).toBe(200);
+
+    // `capital` et `profitDrawings` n'ont pas d'équivalent de période au
+    // dashboard (cumulés depuis l'origine) : ils sont exclus de la comparaison.
+    const expected: Record<string, string> = {
+      ca: dash.body.activity.ca,
+      cogs: dash.body.activity.cogs,
+      grossProfit: dash.body.activity.grossProfit,
+      netProfit: dash.body.activity.netProfit,
+      receipts: dash.body.activity.receipts,
+      expenses: dash.body.activity.expenses,
+      versements: dash.body.activity.versementCharges,
+      cash: dash.body.money.cashDelta,
+    };
+
+    for (const [indicator, displayed] of Object.entries(expected)) {
+      const drill = await admin.get(`/dashboard/${indicator}/transactions?${WIDE}`);
+      expect(drill.status, indicator).toBe(200);
+      expect(
+        Number(drill.body.total),
+        `${indicator} : total du dérillage ≠ valeur affichée au dashboard`,
+      ).toBeCloseTo(Number(displayed), 2);
+    }
   });
 
   it('produit le rapport journalier', async () => {

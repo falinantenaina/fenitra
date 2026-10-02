@@ -40,15 +40,20 @@ describe('12 scénarios E2E', () => {
   beforeAll(async () => {
     admin = as(await adminToken());
 
-    const [supplier, customer, categories, sizes] = await Promise.all([
+    // Catégorie créée pour ce fichier : `items[0]` d'une liste partagée peut
+    // être une catégorie temporaire qu'un autre fichier désactive en parallèle.
+    const [supplier, customer, category, sizes] = await Promise.all([
       admin.post('/suppliers').send({ name: `Fournisseur E2E ${stamp}` }),
       admin.post('/customers').send({ name: `Client E2E ${stamp}` }),
-      admin.get('/expense-categories'),
+      admin.post('/expense-categories').send({ name: `Divers E2E ${stamp}`, icon: 'box' }),
       admin.get('/sizes?limit=100'),
     ]);
     supplierId = supplier.body.id;
     customerId = customer.body.id;
-    categoryId = categories.body.items[0].id;
+    if (category.status !== 201) {
+      throw new Error(`Catégorie E2E ${category.status}: ${JSON.stringify(category.body)}`);
+    }
+    categoryId = category.body.id;
 
     const size40 = sizes.body.items.find((s: { value: number }) => s.value === 40);
     const size42 = sizes.body.items.find((s: { value: number }) => s.value === 42);

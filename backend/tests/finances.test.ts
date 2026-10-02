@@ -27,8 +27,15 @@ describe('Finances — dépenses, versements, argent propre, trosa', () => {
     admin = as(await adminToken());
     cashier = as(await tokenFor(`caissier-fin-${stamp}@test.local`, 'Caissier Finances', 'CASHIER'));
 
-    const categories = await admin.get('/expense-categories');
-    categoryId = categories.body.items[0].id;
+    // Catégorie dédiée : `items[0]` d'une liste partagée peut être une
+    // catégorie temporaire qu'un autre fichier désactive en parallèle.
+    const category = await admin
+      .post('/expense-categories')
+      .send({ name: `Finances ${stamp}`, icon: 'wallet' });
+    if (category.status !== 201) {
+      throw new Error(`Catégorie Finances ${category.status}: ${JSON.stringify(category.body)}`);
+    }
+    categoryId = category.body.id;
   });
 
   /* ══════════════ DÉPENSES ══════════════ */

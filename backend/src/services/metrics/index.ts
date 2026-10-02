@@ -161,27 +161,66 @@ export type IndicatorKey =
   | 'capital'
   | 'profitDrawings';
 
+/** Écriture du journal minimale nécessaire au calcul d'un total d'indicateur. */
+interface LedgerRow {
+  kind: string;
+  amount: number;
+  cashDelta: number;
+}
+
 interface IndicatorDef {
   label: string;
   kinds: string[];
   /** Ne retourne que les écritures à cashDelta > 0 */
   positiveCashOnly?: boolean;
+  /**
+   * Total de l'indicateur. Par défaut : `Σ amount`.
+   * Les indicateurs dérivés (bénéfice) et l'argent propre ont besoin de signes
+   * par `kind` : sans cela, `GET /dashboard/:indicator/transactions` ne
+   * retomberait pas sur la valeur affichée au dashboard (§62, contrôle §16).
+   */
+  total?: (entries: LedgerRow[]) => number;
 }
+
+const sumAmount = (entries: LedgerRow[], kind?: string): number =>
+  entries.reduce((acc, e) => (kind === undefined || e.kind === kind ? acc + e.amount : acc), 0);
+
+const sumCashDelta = (entries: LedgerRow[]): number =>
+  entries.reduce((acc, e) => acc + e.cashDelta, 0);
 
 export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   ca: { label: "Chiffre d'affaires", kinds: ['SALE'] },
   cogs: { label: 'Coût des marchandises vendues', kinds: ['COGS'] },
-  grossProfit: { label: 'Bénéfice brut', kinds: ['SALE', 'COGS'] },
-  netProfit: { label: 'Bénéfice net', kinds: ['SALE', 'COGS', 'EXPENSE', 'VERSEMENT'] },
+  grossProfit: {
+    label: 'Bénéfice brut',
+    kinds: ['SALE', 'COGS'],
+    total: (es) => sumAmount(es, 'SALE') - sumAmount(es, 'COGS'),
+  },
+  netProfit: {
+    label: 'Bénéfice net',
+    kinds: ['SALE', 'COGS', 'EXPENSE', 'VERSEMENT'],
+    total: (es) =>
+      sumAmount(es, 'SALE') -
+      sumAmount(es, 'COGS') -
+      sumAmount(es, 'EXPENSE') -
+      sumAmount(es, 'VERSEMENT'),
+  },
   receipts: {
     label: 'Recettes encaissées',
     kinds: ['SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT'],
     positiveCashOnly: true,
+    total: sumCashDelta,
   },
   expenses: { label: 'Dépenses', kinds: ['EXPENSE'] },
   versements: { label: 'Versements (charges)', kinds: ['VERSEMENT'] },
-  cash: { label: 'Caisse', kinds: ALL_CASH_KINDS },
-  capital: { label: 'Argent propre', kinds: ['PERSONAL_CAPITAL_IN', 'PERSONAL_CAPITAL_OUT'] },
+  cash: { label: 'Caisse', kinds: ALL_CASH_KINDS, total: sumCashDelta },
+  capital: {
+    label: 'Argent propre',
+    kinds: ['PERSONAL_CAPITAL_IN', 'PERSONAL_CAPITAL_OUT'],
+    // Une sortie d'argent propre est stockée avec un `amount` positif : le total
+    // est la variation nette (injections − récupérations).
+    total: (es) => sumAmount(es, 'PERSONAL_CAPITAL_IN') - sumAmount(es, 'PERSONAL_CAPITAL_OUT'),
+  },
   profitDrawings: { label: 'Bénéfice sorti', kinds: ['PROFIT_DRAWING'] },
 };
 
@@ -207,6 +246,10 @@ export async function getIndicatorDrilldown(
   let entries = await ledgerEntriesForKinds(def.kinds, range.from, range.to);
   if (def.positiveCashOnly) entries = entries.filter((e) => e.cashDelta > 0);
 
+  const total = def.total
+    ? def.total(entries)
+    : entries.reduce((acc, e) => acc + e.amount, 0);
+
   return {
     indicator,
     label: def.label,
@@ -217,7 +260,7 @@ export async function getIndicatorDrilldown(
       label: range.label,
     },
     count: entries.length,
-    total: entries.reduce((acc, e) => acc + (def.positiveCashOnly ? e.cashDelta : e.amount), 0),
+    total,
     entries,
   };
 }
