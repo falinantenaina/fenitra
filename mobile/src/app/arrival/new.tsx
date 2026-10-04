@@ -42,7 +42,7 @@ import { useArrivalDraft } from '@/store/arrival-draft';
 
 const FUNDING_SOURCES: { value: FundingSource; label: string }[] = [
   { value: 'OWN_CAPITAL', label: 'Argent propre' },
-  { value: 'TROSA_SINOA', label: 'Trosa sinoa' },
+  { value: 'TROSA_SINOA', label: 'Emprunt (à payer)' },
   { value: 'SALES_CASH', label: 'Caisse des ventes' },
   { value: 'SUPPLIER_CREDIT', label: 'Crédit fournisseur' },
 ];
@@ -536,7 +536,7 @@ export default function NewArrivalScreen() {
             <View className="flex-1 pr-3">
               <Text className="text-sm font-semibold text-slate-900">Financement</Text>
               <Text className="text-xs text-slate-500">
-                Origine de l&apos;argent (argent propre, trosa, caisse…)
+                Origine de l&apos;argent (argent propre, emprunt, caisse…)
               </Text>
             </View>
             <Ionicons

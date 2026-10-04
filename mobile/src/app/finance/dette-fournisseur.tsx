@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import { Controller, useForm } from 'react-hook-form';
+import { useEffect } from 'react';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
   Alert,
@@ -13,36 +14,47 @@ import {
   View,
 } from 'react-native';
 
+import { Chip } from '@/components/chip';
 import { ErrorText, Field } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
-  buildTrosaPayload,
+  buildSupplierDebtPayload,
+  supplierDebtFormSchema,
   todayISO,
-  trosaFormSchema,
-  type TrosaFormValues,
+  type SupplierDebtFormValues,
 } from '@/lib/finance';
-import { useCreateTrosa } from '@/lib/queries';
+import { useCreateSupplierDebt, useSuppliers } from '@/lib/queries';
 
-export default function NewTrosaScreen() {
-  const createTrosa = useCreateTrosa();
+export default function NewSupplierDebtScreen() {
+  const createDebt = useCreateSupplierDebt();
+  const suppliers = useSuppliers();
 
   const {
     control,
     handleSubmit,
     setValue,
     formState: { errors },
-  } = useForm<TrosaFormValues>({
-    resolver: zodResolver(trosaFormSchema),
+  } = useForm<SupplierDebtFormValues>({
+    resolver: zodResolver(supplierDebtFormSchema),
     mode: 'onSubmit',
-    defaultValues: { partyName: '', amount: 0, date: todayISO(), reason: '' },
+    defaultValues: { supplierId: '', amount: 0, date: todayISO(), reason: '' },
   });
+
+  const supplierId = useWatch({ control, name: 'supplierId' });
+
+  // Pré-remplissage : premier fournisseur.
+  useEffect(() => {
+    if (!supplierId && suppliers.data?.length) {
+      setValue('supplierId', suppliers.data[0]!.id);
+    }
+  }, [supplierId, suppliers.data, setValue]);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
-      const debt = await createTrosa.mutateAsync(buildTrosaPayload(values));
+      const debt = await createDebt.mutateAsync(buildSupplierDebtPayload(values));
       Alert.alert(
-        'Trosa sinoa enregistrée',
+        'Dette enregistrée',
         `${debt.party?.name ?? ''} — ${formatMoney(debt.initialAmount)}`,
         [
           {
@@ -52,7 +64,7 @@ export default function NewTrosaScreen() {
         ],
       );
     } catch (error) {
-      Alert.alert('Trosa refusée', apiMessage(error));
+      Alert.alert('Dette refusée', apiMessage(error));
     }
   });
 
@@ -63,30 +75,32 @@ export default function NewTrosaScreen() {
       <ScrollView className="flex-1 px-4 pb-32 pt-4" keyboardShouldPersistTaps="handled">
         <View className="gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
           <Text className="text-xs text-amber-800">
-            Trosa sinoa : argent que je dois. La caisse augmente du montant emprunté et la dette
-            apparaît au passif jusqu&apos;au remboursement.
+            Dette fournisseur : argent que je dois. La caisse augmente du montant acheté à crédit et
+            la dette apparaît au passif jusqu&apos;au règlement.
           </Text>
         </View>
 
-        <Field label="Personne qui prête">
-          <Controller
-            control={control}
-            name="partyName"
-            render={({ field }) => (
-              <TextInput
-                className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900"
-                onChangeText={field.onChange}
-                placeholder="Nom de la personne"
-                placeholderTextColor="#94A3B8"
-                selectionColor="#208AEF"
-                value={field.value}
+        <Field label="Fournisseur">
+          <View className="flex-row flex-wrap gap-2">
+            {(suppliers.data ?? []).map((supplier) => (
+              <Chip
+                key={supplier.id}
+                label={supplier.name}
+                selected={supplierId === supplier.id}
+                onPress={() => setValue('supplierId', supplier.id, { shouldValidate: true })}
               />
-            )}
-          />
-          {errors.partyName ? <ErrorText message={errors.partyName.message} /> : null}
+            ))}
+          </View>
+          {suppliers.isPending ? <ActivityIndicator className="py-2" color="#208AEF" /> : null}
+          {!suppliers.isPending && (suppliers.data ?? []).length === 0 ? (
+            <Text className="text-xs text-slate-400">
+              Aucun fournisseur enregistré — créez-le d&apos;abord depuis l&apos;arrivage.
+            </Text>
+          ) : null}
+          {errors.supplierId ? <ErrorText message={errors.supplierId.message} /> : null}
         </Field>
 
-        <Field label="Montant emprunté (Ar)">
+        <Field label="Montant de la dette (Ar)">
           <Controller
             control={control}
             name="amount"
@@ -108,7 +122,7 @@ export default function NewTrosaScreen() {
           {errors.amount ? <ErrorText message={errors.amount.message} /> : null}
         </Field>
 
-        <Field label="Motif">
+        <Field label="Motif (facultatif)">
           <Controller
             control={control}
             name="reason"
@@ -159,11 +173,11 @@ export default function NewTrosaScreen() {
       <View className="border-t border-slate-200 bg-white px-4 pb-6 pt-3">
         <Pressable
           className={`h-11 items-center justify-center rounded-xl ${
-            createTrosa.isPending ? 'bg-slate-300' : 'bg-brand'
+            createDebt.isPending ? 'bg-slate-300' : 'bg-brand'
           }`}
-          disabled={createTrosa.isPending}
+          disabled={createDebt.isPending}
           onPress={() => void onSubmit()}>
-          {createTrosa.isPending ? (
+          {createDebt.isPending ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
             <Text className="font-semibold text-white">Enregistrer</Text>

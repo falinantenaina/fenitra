@@ -25,13 +25,13 @@ import type {
 } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
-type Segment = 'expenses' | 'versements' | 'capital' | 'trosa';
+type Segment = 'expenses' | 'versements' | 'capital' | 'debts';
 
 const SEGMENTS: { key: Segment; label: string; route: Href }[] = [
   { key: 'expenses', label: 'Dépenses', route: '/finance/expense' },
   { key: 'versements', label: 'Versements', route: '/finance/versement' },
   { key: 'capital', label: 'Argent propre', route: '/finance/capital' },
-  { key: 'trosa', label: 'Trosa', route: '/finance/trosa' },
+  { key: 'debts', label: 'Dettes à payer', route: '/finance/dette-fournisseur' },
 ];
 
 const TREATMENT_LABELS: Record<string, string> = {
@@ -263,8 +263,9 @@ function CapitalList() {
   );
 }
 
-function TrosaList({ onPress }: { onPress: (id: string) => void }) {
-  const debts = useDebts({ type: 'TROSA_SINOA' });
+/** Dettes que je dois payer (fournisseurs + emprunts). */
+function PayableDebtList({ onPress }: { onPress: (id: string) => void }) {
+  const debts = useDebts({ direction: 'PAYABLE' });
 
   return (
     <ListShell
@@ -354,8 +355,8 @@ export default function FinancesScreen() {
         {segment === 'expenses' ? <ExpenseList /> : null}
         {segment === 'versements' ? <VersementList /> : null}
         {segment === 'capital' ? <CapitalList /> : null}
-        {segment === 'trosa' ? (
-          <TrosaList
+        {segment === 'debts' ? (
+          <PayableDebtList
             onPress={(id) => router.push({ pathname: '/dettes/[id]', params: { id } })}
           />
         ) : null}

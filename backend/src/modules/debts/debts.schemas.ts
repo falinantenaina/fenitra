@@ -22,6 +22,7 @@ export type CreateDebtInput = z.infer<typeof createDebtSchema>;
 
 export const debtListQuery = listQuerySchema.extend({
   type: z.nativeEnum(DebtType).optional(),
+  direction: z.enum(['RECEIVABLE', 'PAYABLE']).optional(),
   status: z.enum(['OPEN', 'PARTIAL', 'PAID', 'CANCELLED']).optional(),
   partyId: z.string().min(1).optional(),
   from: z.coerce.date().optional(),

@@ -1255,12 +1255,14 @@ puis trois groupes de cartes :
 |---|---|---|
 | Activité de la période | CA, bénéfice brut, bénéfice net, coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
 | Situation à la date | caisse, variation de caisse, vola miodina, créances (à recevoir), dettes à payer, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
-| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, vendeurs en ligne, fournisseurs, trosa sinoa | ✔ tous, sauf « vendus » (compteur d'unités) |
+| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, fournisseurs | ✔ tous, sauf « vendus » (compteur d'unités) |
 
-Les cartes de dettes affichent leur sens : « à recevoir » (clients, vendeurs)
-ou « à payer » (fournisseurs, trosa sinoa — la trosa sinoa **est** la dette
-qu'on paie au fournisseur). Le total mélangé « Dettes totales » a disparu :
-les totaux sont « Créances (à recevoir) » et « Dettes à payer ».
+Les cartes de dettes affichent leur sens : « à recevoir » (clients, vendeurs
+en ligne regroupés avec les clients) ou « à payer » (fournisseurs, avec la
+trosa sinoa regroupée dedans). Le total mélangé « Dettes totales » a disparu :
+les totaux sont « Créances (à recevoir) » et « Dettes à payer ». Le
+regroupement est **à l'affichage uniquement** — le type (`CUSTOMER`,
+`ONLINE_SELLER`, `SUPPLIER`, `TROSA_SINOA`) reste stocké en base.
 
 Le filtre `components/period-tabs.tsx` expose les sept presets **plus un
 éditeur « Personnalisé »** (`Du` / `Au`, champ `AAAA-MM-JJ` réutilisant
@@ -1469,7 +1471,8 @@ serveur), `409 INSUFFICIENT_STOCK`, rejou d'idempotence (même `id`),
 
 **But (plan §12, 6e)** : connecter les trois derniers onglets à l'API —
 lots / valorisation / mouvements / ajustements, dettes avec détail et
-règlement (§50), puis dépenses, versements, argent propre et trosa sinoa.
+règlement (§50), puis dépenses, versements, argent propre et dettes
+fournisseurs.
 
 **Onglet Stock** — résumé global `GET /stock/summary` (sans `variantId` :
 quantité, valorisation, nombre de lots), recherche de lots débouncée et
@@ -1494,15 +1497,16 @@ la valorisation moyenne du résumé. Garde-fou côté client (`quantité ≤ sto
 complété par le `409` du serveur ; `POST /stock/adjustments` renvoie
 `lostValue`, `allocations` FIFO et `expenseId` (la casse devient une dépense).
 
-**Onglet Dettes** — croisement de filtres (type : clients / vendeurs /
-fournisseurs / trosa ; statut : ouvertes / partielles / réglées) sur
-`GET /debts?type=&status=`, reste dû et montant initial par ligne, total de
-la liste affichée. Filtres, lignes, détail et cartes du tableau de bord
-portent le **sens** de l'écriture : « à recevoir » pour clients et vendeurs,
-« à payer » pour fournisseurs et trosa sinoa (même chose : la trosa sinoa est
-la dette qu'on paie au fournisseur) ; le bouton de règlement dit « Encaisser »
-sur une créance et « Décaisser » sur une dette, selon `direction`.
-`/dettes/[id]` : en-tête avec statut et échéance,
+**Onglet Dettes** — croisement de filtres (**direction** : Toutes /
+Clients (à recevoir) / Fournisseurs (à payer) ; statut : ouvertes /
+partielles / réglées) sur `GET /debts?direction=&status=`, reste dû et montant
+initial par ligne, total de la liste affichée. Les vendeurs en ligne sont
+affichés comme des **clients** et la trosa sinoa comme une **dette
+fournisseur** (regroupement à l'affichage, type inchangé en base). Filtres,
+lignes, détail et cartes du tableau de bord portent le **sens** de l'écriture :
+« à recevoir » pour les clients, « à payer » pour les fournisseurs ; le bouton
+de règlement dit « Encaisser » sur une créance et « Décaisser » sur une dette,
+selon `direction`. `/dettes/[id]` : en-tête avec statut et échéance,
 règlement (ADMIN/MANAGER, bouton « Solde » en un tap, modes de paiement
 de `GET /payment-methods`) vers `POST /debts/:id/payments`, puis les trois
 listes du détail : `payments[]`, `versements[]` liés (A2) et `history[]`
@@ -1510,10 +1514,10 @@ listes du détail : `payments[]`, `versements[]` liés (A2) et `history[]`
 
 **Onglet Finances** — quatre segments : Dépenses (`GET /expenses`),
 Versements (`GET /versements`), Argent propre (`GET /personal-capital`) et
-Trosa (`GET /debts?type=TROSA_SINOA`, tappable → détail de la dette). Le
-bouton « Nouveau », réservé aux gestionnaires, route vers les quatre
-formulaires `finance/expense`, `finance/versement`, `finance/capital`,
-`finance/trosa`.
+Dettes à payer (`GET /debts?direction=PAYABLE`, tappable → détail de la
+dette). Le bouton « Nouveau », réservé aux gestionnaires, route vers les
+quatre formulaires `finance/expense`, `finance/versement`, `finance/capital`,
+`finance/dette-fournisseur`.
 
 **Segment Versements (§38, étape 4)** — en haut les mêmes filtres de période
 que le tableau de bord (`PeriodTabs` : presets + plage personnalisée validée,
@@ -1546,16 +1550,16 @@ dérillage reste encadré de deux lectures et retombe sur l'une d'elles dès
 qu'aucune écriture n'a eu lieu pendant le bracket.
 
 **Rappels métier affichés à l'écran** : A8 (une dépense est toujours réglée →
-caisse −`amount` immédiat), A2 (le versement détecte lui-même un
-remboursement de trosa ouverte, sinon une dépense), A5 (argent propre = ni
-bénéfice, ni trosa), A1 (la trosa sinoa est un passif : la caisse monte à la
-création). Après création d'une trosa, l'écran se redirige sur le détail de
-la dette.
+caisse −`amount` immédiat), A2 (le versement règle une dette à payer choisie,
+sinon c'est une charge), A5 (argent propre = ni bénéfice, ni dette), A1 (une
+dette fournisseur est un passif : la caisse monte à la création). Après
+création d'une dette fournisseur, l'écran se redirige sur le détail de la
+dette.
 
 **Validation** (`src/lib/finance.ts`, Zod + `zodResolver`, `mode: onSubmit`) :
 montants entiers en ariary, dates `AAAA-MM-JJ`, motifs bornés ; les builders
 (`buildAdjustPayload`, `buildExpensePayload`, `buildVersementPayload`,
-`buildCapitalPayload`, `buildTrosaPayload`, `buildDebtPaymentPayload`)
+`buildCapitalPayload`, `buildSupplierDebtPayload`, `buildDebtPaymentPayload`)
 n'envoient que les champs renseignés. Le composant `Chip` partagé
 (`src/components/chip.tsx`) remplace la copie locale de la vente.
 
@@ -1596,8 +1600,9 @@ d'intégrité (`integrity.ok`, `identityDelta`), puis les rubriques du **§48** 
   **paiements reçus**, **paiements fournisseurs**, **nouvelles dettes** ;
 - **Mensuel (18 champs)** : les neuf métriques d'activité (ventes, CA,
   recettes, COGS, dépenses, versements, brut, net, caisse), la section
-  « Situation en fin de mois » (quantité et valeur du stock, dettes clients,
-  vendeurs en ligne, fournisseurs, trosa sinoa, argent propre engagé), les
+  « Situation en fin de mois » (quantité et valeur du stock, clients à
+  recevoir [clients + vendeurs en ligne], fournisseurs à payer [fournisseurs
+  + trosa sinoa], argent propre engagé), les
   « Produits les plus vendus » (quantité, bénéfice `margin`, chiffre
   d'affaires) et les « Versements par personne » (`person`, `count`, `amount`).
 

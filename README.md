@@ -1,7 +1,7 @@
 # Gestion Vente — API + application mobile
 
 Gestion de boutique de chaussures : arrivages, stock par lots (FIFO), ventes, dettes
-(client / vendeur en ligne / fournisseur / *trosa sinoa*), finances et pilotage
+(clients, fournisseurs), finances et pilotage
 (bénéfice mangeable, vola miodina, journal financier, rapports PDF).
 
 | | |

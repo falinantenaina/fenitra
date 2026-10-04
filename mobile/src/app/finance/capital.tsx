@@ -62,7 +62,7 @@ export default function NewCapitalScreen() {
         <View className="gap-1 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5">
           <Text className="text-xs text-violet-800">
             L&apos;argent propre est personnel : injection (je mets) ou retrait (je sors). Ce
-            n&apos;est ni un bénéfice, ni une trosa sinoa.
+            n&apos;est ni un bénéfice, ni une dette à payer.
           </Text>
         </View>
 

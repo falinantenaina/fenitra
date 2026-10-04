@@ -88,11 +88,11 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
-            name="finance/trosa"
+            name="finance/dette-fournisseur"
             options={{
               headerShown: true,
               headerBackTitle: 'Retour',
-              title: 'Nouvelle trosa sinoa',
+              title: 'Nouvelle dette fournisseur',
             }}
           />
           <Stack.Screen

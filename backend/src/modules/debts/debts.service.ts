@@ -404,6 +404,7 @@ export async function cancelDebt(debtId: string, reason: string, userId: string 
 export async function listDebts(query: DebtListQuery) {
   const where: Prisma.DebtWhereInput = {
     ...(query.type ? { type: query.type } : {}),
+    ...(query.direction ? { direction: query.direction } : {}),
     ...(query.status ? { status: query.status } : { status: { not: 'CANCELLED' } }),
     ...(query.partyId
       ? {

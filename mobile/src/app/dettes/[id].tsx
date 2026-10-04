@@ -28,11 +28,12 @@ import { useCancelDebt, useDebt, usePayDebt, usePaymentMethods } from '@/lib/que
 import type { DebtStatus, DebtType } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
+// Un seul libellé par sens, comme la liste (§18, fusion à l'affichage).
 const TYPE_LABELS: Record<DebtType, string> = {
   CUSTOMER: 'Créance client (à recevoir)',
-  ONLINE_SELLER: 'Créance vendeur en ligne (à recevoir)',
+  ONLINE_SELLER: 'Créance client (à recevoir)',
   SUPPLIER: 'Dette fournisseur (à payer)',
-  TROSA_SINOA: 'Trosa sinoa — à payer au fournisseur',
+  TROSA_SINOA: 'Dette fournisseur (à payer)',
 };
 
 const STATUS_LABELS: Record<DebtStatus, { label: string; className: string; text: string }> = {

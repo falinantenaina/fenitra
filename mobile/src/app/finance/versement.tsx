@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
   Alert,
@@ -24,12 +24,14 @@ import {
   versementFormSchema,
   type VersementFormValues,
 } from '@/lib/finance';
-import { useCreateVersement, usePaymentMethods } from '@/lib/queries';
+import { useCreateVersement, useDebts, usePaymentMethods } from '@/lib/queries';
 
 export default function NewVersementScreen() {
   const methods = usePaymentMethods();
   const createVersement = useCreateVersement();
   const [method, setMethod] = useState<string | undefined>(undefined);
+  // Dettes fournisseurs encore à payer (ouvertes + partielles).
+  const payableDebts = useDebts({ type: 'SUPPLIER' });
 
   const {
     control,
@@ -41,6 +43,12 @@ export default function NewVersementScreen() {
     mode: 'onSubmit',
     defaultValues: { personName: '', amount: 0, date: todayISO(), motif: '', comment: '' },
   });
+
+  const selectedDebtId = useWatch({ control, name: 'debtId' });
+  const personName = useWatch({ control, name: 'personName' });
+  const openDebts = (payableDebts.items ?? []).filter(
+    (debt) => debt.status === 'OPEN' || debt.status === 'PARTIAL',
+  );
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -64,8 +72,8 @@ export default function NewVersementScreen() {
       <ScrollView className="flex-1 px-4 pb-32 pt-4" keyboardShouldPersistTaps="handled">
         <View className="gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5">
           <Text className="text-xs text-indigo-800">
-            Le traitement est détecté automatiquement : remboursement d&apos;une trosa sinoa
-            ouverte pour cette personne, sinon dépense.
+            Choisissez une dette à payer pour la régler (le traitement est détecté automatiquement),
+            sinon le versement est compté en charge.
           </Text>
         </View>
 
@@ -155,6 +163,40 @@ export default function NewVersementScreen() {
             <Text className="text-sm font-medium text-slate-700">Aujourd&apos;hui</Text>
           </Pressable>
         </View>
+
+        <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Dette à payer (facultatif)
+        </Text>
+        {openDebts.length === 0 ? (
+          <Text className="mt-2 text-xs text-slate-400">
+            Aucune dette fournisseur ouverte — le versement sera compté en charge.
+          </Text>
+        ) : (
+          <ScrollView
+            className="mt-2"
+            contentContainerStyle={{ gap: 8 }}
+            horizontal
+            showsHorizontalScrollIndicator={false}>
+            <Chip
+              label="Aucune (charge)"
+              selected={!selectedDebtId}
+              onPress={() => setValue('debtId', undefined)}
+            />
+            {openDebts.map((debt) => (
+              <Chip
+                key={debt.id}
+                label={`${debt.party?.name ?? 'Fournisseur'} — ${formatMoney(debt.remainingAmount)}`}
+                selected={selectedDebtId === debt.id}
+                onPress={() => {
+                  setValue('debtId', debt.id);
+                  if (!personName && debt.party?.name) {
+                    setValue('personName', debt.party.name, { shouldValidate: true });
+                  }
+                }}
+              />
+            ))}
+          </ScrollView>
+        )}
 
         <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Mode de paiement

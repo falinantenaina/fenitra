@@ -27,13 +27,14 @@ import type {
   CreateProductBody,
   CreateSaleBody,
   CreateSizeBody,
-  CreateTrosaBody,
+  CreateSupplierDebtBody,
   CreateUserBody,
   CreateVersementBody,
   CustomRange,
   DashboardResponse,
   DailyReport,
   DebtDetail,
+  DebtDirection,
   DebtItem,
   DebtPaymentBody,
   DebtStatus,
@@ -524,13 +525,15 @@ export function useRecentMovements(
 
 export interface DebtFilter {
   type?: DebtType | '';
+  direction?: DebtDirection | '';
   status?: DebtStatus | '';
 }
 
-/** Dettes paginées (`GET /debts`) — filtres type et statut, accumulation des pages. */
+/** Dettes paginées (`GET /debts`) — filtres direction/type/statut, accumulation des pages. */
 export function useDebts(filter: DebtFilter = {}): PagedInfinite<DebtItem> {
   return useInfiniteList<DebtItem>(['debts', 'list'], '/debts', {
     type: filter.type || undefined,
+    direction: filter.direction || undefined,
     status: filter.status || undefined,
   });
 }
@@ -805,12 +808,12 @@ export function usePayDebt() {
   });
 }
 
-/** `POST /trosa-sinoa` — dette dont je suis redevable (A1 : caisse +X). */
-export function useCreateTrosa() {
+/** `POST /debts` — dette fournisseur à payer (A1 : caisse +X, passif au passif). */
+export function useCreateSupplierDebt() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (body: CreateTrosaBody) => {
-      const { data } = await api.post<DebtDetail>('/trosa-sinoa', body);
+    mutationFn: async (body: CreateSupplierDebtBody) => {
+      const { data } = await api.post<DebtDetail>('/debts', body);
       return data;
     },
     onSuccess: () => {

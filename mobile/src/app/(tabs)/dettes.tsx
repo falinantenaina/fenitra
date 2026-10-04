@@ -7,14 +7,12 @@ import { Chip } from '@/components/chip';
 import { ListFooter } from '@/components/list-footer';
 import { formatMoney } from '@/lib/format';
 import { useDebts } from '@/lib/queries';
-import type { DebtItem, DebtStatus, DebtType } from '@/lib/types';
+import type { DebtDirection, DebtItem, DebtStatus, DebtType } from '@/lib/types';
 
-const TYPE_FILTERS: { key: DebtType | ''; label: string }[] = [
+const DIRECTION_FILTERS: { key: DebtDirection | ''; label: string }[] = [
   { key: '', label: 'Toutes' },
-  { key: 'CUSTOMER', label: 'Clients (à recevoir)' },
-  { key: 'ONLINE_SELLER', label: 'Vendeurs (à recevoir)' },
-  { key: 'SUPPLIER', label: 'Fournisseurs (à payer)' },
-  { key: 'TROSA_SINOA', label: 'Trosa (à payer)' },
+  { key: 'RECEIVABLE', label: 'Clients (à recevoir)' },
+  { key: 'PAYABLE', label: 'Fournisseurs (à payer)' },
 ];
 
 const STATUS_FILTERS: { key: DebtStatus | ''; label: string }[] = [
@@ -24,11 +22,14 @@ const STATUS_FILTERS: { key: DebtStatus | ''; label: string }[] = [
   { key: 'PAID', label: 'Réglées' },
 ];
 
+// Un seul libellé par sens (§18, fusion à l'affichage) : les vendeurs en
+// ligne sont des clients, la trosa sinoa est traitée comme une dette
+// fournisseur.
 const TYPE_LABELS: Record<DebtType, string> = {
   CUSTOMER: 'Client (à recevoir)',
-  ONLINE_SELLER: 'Vendeur (à recevoir)',
+  ONLINE_SELLER: 'Client (à recevoir)',
   SUPPLIER: 'Fournisseur (à payer)',
-  TROSA_SINOA: 'Trosa sinoa (à payer au fournisseur)',
+  TROSA_SINOA: 'Fournisseur (à payer)',
 };
 
 const STATUS_STYLES: Record<DebtStatus, { label: string; className: string; text: string }> = {
@@ -73,8 +74,8 @@ function DebtRow({ debt, onPress }: { debt: DebtItem; onPress: () => void }) {
 }
 
 /** §51 — filtre reçu dans l'URL par les raccourcis « Paiement client/fournisseur ». */
-function parseType(value?: string): DebtType | '' {
-  return TYPE_FILTERS.some((f) => f.key === value) ? (value as DebtType) : '';
+function parseDirection(value?: string): DebtDirection | '' {
+  return DIRECTION_FILTERS.some((f) => f.key === value) ? (value as DebtDirection) : '';
 }
 
 function parseStatus(value?: string): DebtStatus | '' {
@@ -82,28 +83,28 @@ function parseStatus(value?: string): DebtStatus | '' {
 }
 
 export default function DebtsScreen() {
-  const params = useLocalSearchParams<{ type?: string; status?: string }>();
+  const params = useLocalSearchParams<{ direction?: string; status?: string }>();
   // La clé remet l'état local à zéro quand les paramètres changent : le
   // raccourci applique son filtre sans passer par un effet de synchronisation.
   return (
     <DebtsBody
-      key={`${params.type ?? ''}:${params.status ?? ''}`}
+      key={`${params.direction ?? ''}:${params.status ?? ''}`}
       initialStatus={params.status}
-      initialType={params.type}
+      initialDirection={params.direction}
     />
   );
 }
 
 function DebtsBody({
+  initialDirection,
   initialStatus,
-  initialType,
 }: {
+  initialDirection?: string;
   initialStatus?: string;
-  initialType?: string;
 }) {
-  const [type, setType] = useState<DebtType | ''>(parseType(initialType));
+  const [direction, setDirection] = useState<DebtDirection | ''>(parseDirection(initialDirection));
   const [status, setStatus] = useState<DebtStatus | ''>(parseStatus(initialStatus));
-  const debts = useDebts({ type, status });
+  const debts = useDebts({ direction, status });
 
   const openTotal = debts.items
     .filter((d) => d.status === 'OPEN' || d.status === 'PARTIAL')
@@ -113,9 +114,6 @@ function DebtsBody({
     <View className="flex-1 bg-white">
       <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }}>
         <Text className="text-xl font-bold text-slate-900">Dettes</Text>
-        <Text className="-mt-2 text-xs text-slate-500">
-          À recevoir : clients et vendeurs en ligne — À payer : fournisseurs et trosa sinoa
-        </Text>
 
         <View className="flex-row items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
           <Text className="text-xs text-slate-500">Restant dû (liste affichée)</Text>
@@ -126,12 +124,12 @@ function DebtsBody({
           contentContainerStyle={{ gap: 8 }}
           horizontal
           showsHorizontalScrollIndicator={false}>
-          {TYPE_FILTERS.map((filter) => (
+          {DIRECTION_FILTERS.map((filter) => (
             <Chip
               key={filter.key || 'all'}
               label={filter.label}
-              selected={type === filter.key}
-              onPress={() => setType(filter.key)}
+              selected={direction === filter.key}
+              onPress={() => setDirection(filter.key)}
             />
           ))}
         </ScrollView>

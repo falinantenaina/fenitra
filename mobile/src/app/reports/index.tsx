@@ -105,17 +105,12 @@ function ReportBodyView({ report }: { report: DailyReport | MonthlyReport }) {
               value={formatMoney(report.stock.value)}
             />
             <Metric
-              label="Dettes clients (à recevoir)"
-              value={formatMoney(report.debts.customer)}
+              label="Clients (à recevoir)"
+              value={formatMoney(Number(report.debts.customer) + Number(report.debts.onlineSeller))}
             />
             <Metric
-              label="Vendeurs en ligne (à recevoir)"
-              value={formatMoney(report.debts.onlineSeller)}
-            />
-            <Metric label="Fournisseurs (à payer)" value={formatMoney(report.debts.supplier)} />
-            <Metric
-              label="Trosa sinoa (à payer au fournisseur)"
-              value={formatMoney(report.debts.trosaSinoa)}
+              label="Fournisseurs (à payer)"
+              value={formatMoney(Number(report.debts.supplier) + Number(report.debts.trosaSinoa))}
             />
             <Metric
               label="Argent propre engagé"

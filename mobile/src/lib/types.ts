@@ -619,13 +619,14 @@ export interface AdjustStockResult {
 /* ════════════ Dettes (6e) ════════════ */
 
 export type DebtType = 'CUSTOMER' | 'ONLINE_SELLER' | 'SUPPLIER' | 'TROSA_SINOA';
+export type DebtDirection = 'PAYABLE' | 'RECEIVABLE';
 export type DebtStatus = 'OPEN' | 'PARTIAL' | 'PAID' | 'CANCELLED';
 
 /** Ligne de `GET /debts`. */
 export interface DebtItem {
   id: string;
   type: DebtType;
-  direction: 'PAYABLE' | 'RECEIVABLE';
+  direction: DebtDirection;
   origin: string;
   status: DebtStatus;
   party: { id: string; name: string; phone: string | null } | null;
@@ -683,15 +684,13 @@ export interface DebtPaymentBody {
   notes?: string | null;
 }
 
-/** Corps de `POST /trosa-sinoa` (A1 : on ne doit pas, la caisse sort à la création). */
-export interface CreateTrosaBody {
-  type: 'TROSA_SINOA';
-  partyName: string;
+/** Corps de `POST /debts` — dette fournisseur à payer (caisse +X, passif au passif). */
+export interface CreateSupplierDebtBody {
+  type: 'SUPPLIER';
+  supplierId: string;
   amount: number;
-  paidAmount?: number;
   reason?: string;
   date?: string;
-  method?: string | null;
 }
 
 /* ════════════ Finances (6e) ════════════ */
@@ -769,6 +768,8 @@ export interface CreateVersementBody {
   motif: string;
   method?: string | null;
   comment?: string | null;
+  /** Dette à payer à régler explicitement (sinon détection automatique côté serveur). */
+  debtId?: string;
 }
 
 /** Ligne de `GET /personal-capital`. */
@@ -785,7 +786,7 @@ export interface CapitalItem {
   user: { id: string; name: string } | null;
 }
 
-/** Corps de `POST /personal-capital` (A5 : ni bénéfice, ni trosa). */
+/** Corps de `POST /personal-capital` (A5 : ni bénéfice, ni dette à payer). */
 export interface CreateCapitalBody {
   type: 'IN' | 'OUT';
   amount: number;

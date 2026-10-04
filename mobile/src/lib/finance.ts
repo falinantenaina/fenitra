@@ -4,7 +4,7 @@ import type {
   AdjustStockBody,
   CreateCapitalBody,
   CreateExpenseBody,
-  CreateTrosaBody,
+  CreateSupplierDebtBody,
   CreateVersementBody,
   DebtPaymentBody,
 } from '@/lib/types';
@@ -77,6 +77,7 @@ export const versementFormSchema = z.object({
   motif: z.string().trim().min(3, 'Motif requis').max(300, 'Motif trop long'),
   method: z.string().optional(),
   comment: z.string().trim().max(1000, 'Commentaire trop long').optional(),
+  debtId: z.string().optional(),
 });
 
 export type VersementFormValues = z.infer<typeof versementFormSchema>;
@@ -89,6 +90,7 @@ export function buildVersementPayload(form: VersementFormValues): CreateVersemen
     motif: form.motif,
     ...(form.method ? { method: form.method } : {}),
     ...(form.comment ? { comment: form.comment } : {}),
+    ...(form.debtId ? { debtId: form.debtId } : {}),
   };
 }
 
@@ -123,27 +125,27 @@ export function buildCapitalPayload(form: CapitalFormValues): CreateCapitalBody 
   };
 }
 
-/* ════════════ Trosa sinoa (A1 : dette dont je suis redevable) ════════════ */
+/* ════════════ Dette fournisseur (A1 : argent que je dois) ════════════ */
 
-export const trosaFormSchema = z.object({
-  partyName: z.string().trim().min(2, 'Nom requis').max(120, 'Nom trop long'),
+export const supplierDebtFormSchema = z.object({
+  supplierId: z.string().min(1, 'Fournisseur requis'),
   amount: z
     .number({ invalid_type_error: 'Montant invalide' })
     .int('Montant entier en ariary')
     .min(1, 'Montant minimal : 1 Ar'),
   date: dateField,
-  reason: z.string().trim().min(3, 'Motif requis').max(300, 'Motif trop long'),
+  reason: z.string().trim().max(300, 'Motif trop long').optional(),
 });
 
-export type TrosaFormValues = z.infer<typeof trosaFormSchema>;
+export type SupplierDebtFormValues = z.infer<typeof supplierDebtFormSchema>;
 
-export function buildTrosaPayload(form: TrosaFormValues): CreateTrosaBody {
+export function buildSupplierDebtPayload(form: SupplierDebtFormValues): CreateSupplierDebtBody {
   return {
-    type: 'TROSA_SINOA',
-    partyName: form.partyName,
+    type: 'SUPPLIER',
+    supplierId: form.supplierId,
     amount: form.amount,
     date: form.date,
-    reason: form.reason,
+    ...(form.reason ? { reason: form.reason } : {}),
   };
 }
 

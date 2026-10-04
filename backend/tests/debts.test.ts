@@ -79,6 +79,25 @@ describe('Dettes & règlements', () => {
     expect(entry).toMatchObject({ amount: 120000, cashDelta: 120000 });
   });
 
+  it('filtre la liste par direction : à recevoir / à payer', async () => {
+    const payable = await admin.get('/debts?direction=PAYABLE');
+    expect(payable.status).toBe(200);
+    expect(payable.body.items.length).toBeGreaterThan(0);
+    expect(
+      payable.body.items.every((d: { direction: string }) => d.direction === 'PAYABLE'),
+    ).toBe(true);
+
+    const receivable = await admin.get('/debts?direction=RECEIVABLE');
+    expect(receivable.status).toBe(200);
+    expect(receivable.body.items.length).toBeGreaterThan(0);
+    expect(
+      receivable.body.items.every((d: { direction: string }) => d.direction === 'RECEIVABLE'),
+    ).toBe(true);
+
+    const invalid = await admin.get('/debts?direction=IN');
+    expect(invalid.status).toBe(400);
+  });
+
   it('impose direction PAYABLE pour une trosa sinoa (A1)', async () => {
     const res = await manager.post('/debts').send({ type: 'TROSA_SINOA', partyName: 'Rakoto', amount: 50000 });
 

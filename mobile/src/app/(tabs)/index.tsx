@@ -92,14 +92,20 @@ export default function HomeScreen() {
               label: 'Paiement client',
               icon: ACTION_ICONS.payCustomer,
               onPress: () =>
-                router.push({ pathname: '/dettes', params: { type: 'CUSTOMER', status: 'OPEN' } }),
+                router.push({
+                  pathname: '/dettes',
+                  params: { direction: 'RECEIVABLE', status: 'OPEN' },
+                }),
             },
             {
               key: 'paySupplier',
               label: 'Paiement fournisseur',
               icon: ACTION_ICONS.paySupplier,
               onPress: () =>
-                router.push({ pathname: '/dettes', params: { type: 'SUPPLIER', status: 'OPEN' } }),
+                router.push({
+                  pathname: '/dettes',
+                  params: { direction: 'PAYABLE', status: 'OPEN' },
+                }),
             },
             {
               key: 'capital',
@@ -225,13 +231,13 @@ export default function HomeScreen() {
               value={formatMoney(d.money.volaMiodina)}
             />
             <KpiCard
-              hint="à recevoir — clients + vendeurs en ligne"
+              hint="à recevoir — tous mes clients"
               onPress={() => open('receivables')}
               title="Créances"
               value={formatMoney(d.money.receivables)}
             />
             <KpiCard
-              hint="à payer — fournisseurs + trosa sinoa"
+              hint="à payer — mes fournisseurs"
               onPress={() => open('payables')}
               title="Dettes à payer"
               value={formatMoney(d.money.payable)}
@@ -277,27 +283,15 @@ export default function HomeScreen() {
             />
             <KpiCard
               hint="à recevoir"
-              onPress={() => open('debtsCustomer')}
+              onPress={() => open('receivables')}
               title="Dettes clients"
-              value={formatMoney(d.debts.customer)}
-            />
-            <KpiCard
-              hint="à recevoir"
-              onPress={() => open('debtsOnlineSeller')}
-              title="Vendeurs en ligne"
-              value={formatMoney(d.debts.onlineSeller)}
+              value={formatMoney(Number(d.debts.customer) + Number(d.debts.onlineSeller))}
             />
             <KpiCard
               hint="à payer"
-              onPress={() => open('debtsSupplier')}
+              onPress={() => open('payables')}
               title="Fournisseurs"
-              value={formatMoney(d.debts.supplier)}
-            />
-            <KpiCard
-              hint="à payer, comme les fournisseurs"
-              onPress={() => open('debtsTrosa')}
-              title="Trosa sinoa"
-              value={formatMoney(d.debts.trosaSinoa)}
+              value={formatMoney(Number(d.debts.supplier) + Number(d.debts.trosaSinoa))}
             />
           </Section>
 
