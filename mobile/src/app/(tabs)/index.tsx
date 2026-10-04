@@ -9,7 +9,7 @@ import { PeriodTabs } from '@/components/period-tabs';
 import { apiMessage } from '@/lib/api';
 import { formatMoney, formatQuantity } from '@/lib/format';
 import { useDashboard } from '@/lib/queries';
-import type { IndicatorKey, PeriodKey } from '@/lib/types';
+import type { CustomRange, IndicatorKey, PeriodKey } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
 const LABEL_CA = "Chiffre d'affaires";
@@ -35,15 +35,21 @@ function Section({ title, children }: PropsWithChildren<{ title: string }>) {
 export default function HomeScreen() {
   const logout = useAuth((state) => state.logout);
   const [period, setPeriod] = useState<PeriodKey>('today');
+  const [range, setRange] = useState<CustomRange | null>(null);
   const [drill, setDrill] = useState<IndicatorKey | null>(null);
 
-  const dashboard = useDashboard(period);
+  const selectPeriod = (next: { key: PeriodKey; range?: CustomRange }) => {
+    setPeriod(next.key);
+    setRange(next.range ?? null);
+  };
+
+  const dashboard = useDashboard(period, range);
   const d = dashboard.data;
   const open = (indicator: IndicatorKey) => setDrill(indicator);
 
   return (
     <View className="flex-1 bg-slate-50">
-      <PeriodTabs onChange={setPeriod} value={period} />
+      <PeriodTabs onChange={selectPeriod} range={range} value={period} />
 
       {dashboard.isPending ? (
         <View className="flex-1 items-center justify-center gap-2">
@@ -239,7 +245,12 @@ export default function HomeScreen() {
         </ScrollView>
       ) : null}
 
-      <DrilldownModal indicator={drill} period={period} onClose={() => setDrill(null)} />
+      <DrilldownModal
+        indicator={drill}
+        onClose={() => setDrill(null)}
+        period={period}
+        range={range}
+      />
     </View>
   );
 }

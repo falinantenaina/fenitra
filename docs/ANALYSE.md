@@ -1248,7 +1248,7 @@ sans jeton → 401.
 ## 18. Mobile — tableau de bord (Phase 6b)
 
 **Écran** `(tabs)/index.tsx` : filtre de période (`today`, `yesterday`,
-`last7d`, `week`, `month`, `prevMonth`, `year`) → `GET /api/dashboard?period=`,
+`last7d`, `week`, `month`, `prevMonth`, `year`, `custom`) → `GET /api/dashboard?period=`,
 puis trois groupes de cartes :
 
 | Section | Cartes | Dérillable |
@@ -1256,6 +1256,15 @@ puis trois groupes de cartes :
 | Activité de la période | CA, bénéfice brut, bénéfice net, coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
 | Situation à la date | caisse, variation de caisse, vola miodina, créances, passifs, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
 | Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, vendeurs en ligne, fournisseurs, dettes totales, trosa sinoa | ✔ tous, sauf « vendus » (compteur d'unités) |
+
+Le filtre `components/period-tabs.tsx` expose les sept presets **plus un
+éditeur « Personnalisé »** (`Du` / `Au`, champ `AAAA-MM-JJ` réutilisant
+`components/date-field.tsx`, extrait de l'écran Rapports). Une période
+personnalisée n'est émise **qu'après validation** — format, date réelle
+(`2026-02-31` refusé) et ordre chronologique — car `period=custom` sans
+`from`/`to` fait échouer la requête. Les bornes voyagent jusqu'à
+`useDashboard` et `useDrilldown`, donc le dérillage reste calé sur ce que
+l'utilisateur voit.
 
 Une bannière affiche `integrity.ok` (écart d'identité doit être `0`).
 

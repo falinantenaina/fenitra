@@ -3,12 +3,14 @@ import { ActivityIndicator, FlatList, Modal, Pressable, Text, View } from 'react
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { useDrilldown } from '@/lib/queries';
-import type { DrillEntry, IndicatorKey, PeriodKey } from '@/lib/types';
+import type { CustomRange, DrillEntry, IndicatorKey, PeriodKey } from '@/lib/types';
 
 interface DrilldownModalProps {
   /** `null` = modal fermée. */
   indicator: IndicatorKey | null;
   period: PeriodKey;
+  /** Bornes de `period=custom`, reprises pour que le dérillage suive l'écran. */
+  range?: CustomRange | null;
   onClose: () => void;
 }
 
@@ -38,9 +40,9 @@ function EntryRow({ entry }: { entry: DrillEntry }) {
   );
 }
 
-export function DrilldownModal({ indicator, period, onClose }: DrilldownModalProps) {
+export function DrilldownModal({ indicator, period, range, onClose }: DrilldownModalProps) {
   const open = indicator !== null;
-  const query = useDrilldown(indicator ?? 'ca', period, open);
+  const query = useDrilldown(indicator ?? 'ca', period, range, open);
 
   return (
     <Modal

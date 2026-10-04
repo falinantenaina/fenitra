@@ -35,6 +35,12 @@ export type IndicatorKey =
 /** `period` = écritures de la période · `toDate` = état cumulé à la date de fin. */
 export type DrillScope = 'period' | 'toDate';
 
+/** Bornes d'une période personnalisée (`period=custom&from&to`, inclusives). */
+export interface CustomRange {
+  from: string;
+  to: string;
+}
+
 export interface DashboardPeriod {
   key: string;
   from: string;

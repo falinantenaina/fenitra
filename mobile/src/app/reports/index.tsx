@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { DateField } from '@/components/date-field';
 import { ListFooter } from '@/components/list-footer';
 import { Section } from '@/components/section';
 import { todayISO } from '@/lib/finance';
@@ -38,43 +39,6 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
     <View className="w-[48%] gap-0.5 rounded-xl bg-slate-50 px-3 py-2.5">
       <Text className="text-xs text-slate-500">{label}</Text>
       <Text className={`text-sm font-bold ${color}`}>{value}</Text>
-    </View>
-  );
-}
-
-function DateField({
-  label,
-  value,
-  onChange,
-  onToday,
-}: {
-  label: string;
-  value: string;
-  onChange: (next: string) => void;
-  onToday?: () => void;
-}) {
-  return (
-    <View className="flex-1 flex-row items-end gap-2">
-      <View className="flex-1 gap-1">
-        <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Text>
-        <TextInput
-          autoCapitalize="none"
-          className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
-          keyboardType="numbers-and-punctuation"
-          onChangeText={(next) => onChange(next.trim())}
-          placeholder="AAAA-MM-JJ"
-          placeholderTextColor="#94A3B8"
-          selectionColor="#208AEF"
-          value={value}
-        />
-      </View>
-      {onToday ? (
-        <Pressable
-          className="h-10 items-center justify-center rounded-xl bg-slate-100 px-3"
-          onPress={onToday}>
-          <Text className="text-sm font-medium text-slate-700">Aujourd&apos;hui</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }

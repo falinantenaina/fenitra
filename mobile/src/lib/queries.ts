@@ -30,6 +30,7 @@ import type {
   CreateTrosaBody,
   CreateUserBody,
   CreateVersementBody,
+  CustomRange,
   DashboardResponse,
   DailyReport,
   DebtDetail,
@@ -73,11 +74,16 @@ import type {
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
-export function useDashboard(period: PeriodKey): UseQueryResult<DashboardResponse> {
+export function useDashboard(
+  period: PeriodKey,
+  range?: CustomRange | null,
+): UseQueryResult<DashboardResponse> {
   return useQuery<DashboardResponse>({
-    queryKey: ['dashboard', period],
+    queryKey: ['dashboard', period, range?.from ?? '', range?.to ?? ''],
     queryFn: async () => {
-      const { data } = await api.get<DashboardResponse>('/dashboard', { params: { period } });
+      const { data } = await api.get<DashboardResponse>('/dashboard', {
+        params: { period, ...(range ? { from: range.from, to: range.to } : {}) },
+      });
       return data;
     },
     staleTime: 15_000,
@@ -88,15 +94,16 @@ export function useDashboard(period: PeriodKey): UseQueryResult<DashboardRespons
 export function useDrilldown(
   indicator: IndicatorKey,
   period: PeriodKey,
+  range?: CustomRange | null,
   enabled = true,
 ): UseQueryResult<DrilldownResponse> {
   return useQuery<DrilldownResponse>({
-    queryKey: ['drilldown', indicator, period],
+    queryKey: ['drilldown', indicator, period, range?.from ?? '', range?.to ?? ''],
     enabled,
     queryFn: async () => {
       const { data } = await api.get<DrilldownResponse>(
         `/dashboard/${indicator}/transactions`,
-        { params: { period } },
+        { params: { period, ...(range ? { from: range.from, to: range.to } : {}) } },
       );
       return data;
     },
