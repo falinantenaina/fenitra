@@ -13,6 +13,7 @@ let variantB = '';
 let arrivalA = '';
 let arrivalB = '';
 let lotA = '';
+let draftId = '';
 
 const payloadA = () => ({
   supplierId,
@@ -293,5 +294,118 @@ describe('Arrivages & stock', () => {
     expect(res.body.items.some((m: { type: string }) => m.type === 'IN')).toBe(true);
     expect(res.body.items.some((m: { type: string }) => m.type === 'ADJUSTMENT')).toBe(true);
     expect(res.body.items.some((m: { type: string }) => m.type === 'REVERSAL')).toBe(true);
+  });
+
+  it('crée un brouillon à ventiler sans aucun impact', async () => {
+    const summaryBefore = await admin.get(`/suppliers/${supplierId}/summary`);
+
+    const res = await admin.post('/arrivals/drafts').send({
+      supplierId,
+      cartons: [{ reference: 'BROUILLON-1', totalCost: 120000, notes: 'Sans pointures' }],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('DRAFT');
+    expect(res.body.totalCost).toBe('120000.00');
+    expect(res.body.totalQty).toBe(0);
+    expect(res.body.paidAmount).toBe('0.00');
+    expect(res.body.cartons).toHaveLength(1);
+    expect(res.body.cartons[0].totalCost).toBe('120000.00');
+    expect(res.body.cartons[0].items).toEqual([]);
+    expect(res.body.lots).toEqual([]);
+    expect(res.body.debt).toBeNull();
+    expect(res.body.payments).toEqual([]);
+    draftId = res.body.id;
+
+    // aucun impact comptable
+    const ledger = await prisma.ledgerEntry.count({ where: { refType: 'ARRIVAL', refId: draftId } });
+    expect(ledger).toBe(0);
+
+    // le résumé fournisseur n'inclut pas les brouillons
+    const summaryAfter = await admin.get(`/suppliers/${supplierId}/summary`);
+    expect(summaryAfter.body.arrivals.count).toBe(summaryBefore.body.arrivals.count);
+  });
+
+  it('liste les brouillons avec ?status=DRAFT', async () => {
+    const res = await admin.get('/arrivals?status=DRAFT&limit=100');
+    expect(res.status).toBe(200);
+    expect(res.body.items.some((a: { id: string; status: string }) => a.id === draftId && a.status === 'DRAFT')).toBe(true);
+  });
+
+  it('ventile le brouillon : réception → lignes, lots, dette et paiement', async () => {
+    const res = await admin.post(`/arrivals/${draftId}/receive`).send({
+      supplierId,
+      cartons: [
+        { reference: 'BROUILLON-1', items: [{ variantId: variantB, quantity: 3, unitCost: 25000 }] },
+      ],
+      payment: { amount: 30000 },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.status).toBe('RECEIVED');
+    expect(res.body.reference).toMatch(/^ARR-\d{4}$/);
+    expect(res.body.totalQty).toBe(3);
+    expect(res.body.totalCost).toBe('75000.00');
+    expect(res.body.paidAmount).toBe('30000.00');
+    expect(res.body.unpaidAmount).toBe('45000.00');
+    expect(res.body.cartons).toHaveLength(1);
+    expect(res.body.cartons[0].items).toHaveLength(1);
+    expect(res.body.lots).toHaveLength(1);
+    expect(res.body.lots[0].initialQty).toBe(3);
+    expect(res.body.debt).not.toBeNull();
+    expect(res.body.debt.status).toBe('PARTIAL');
+    expect(res.body.debt.remainingAmount).toBe('45000.00');
+    expect(res.body.payments).toHaveLength(1);
+
+    const movements = await prisma.stockMovement.findMany({
+      where: { refType: 'ARRIVAL', refId: draftId },
+    });
+    expect(movements).toHaveLength(1);
+    expect(movements[0]!.type).toBe('IN');
+  });
+
+  it('refuse la réception hors brouillon (déjà reçu, déjà annulé)', async () => {
+    const again = await admin.post(`/arrivals/${draftId}/receive`).send(payloadA());
+    expect(again.status).toBe(422);
+    expect(again.body.error.message).toContain('déjà réceptionné');
+
+    const draft = await admin.post('/arrivals/drafts').send({ supplierId, cartons: [{ totalCost: 5000 }] });
+    expect(draft.status).toBe(201);
+    await admin.post(`/arrivals/${draft.body.id}/cancel`).send({ reason: 'Fausse manip' });
+
+    const res = await admin.post(`/arrivals/${draft.body.id}/receive`).send(payloadA());
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toContain('annulé');
+  });
+
+  it('annule un brouillon directement, sans contre-passation', async () => {
+    const draft = await admin.post('/arrivals/drafts').send({ supplierId, cartons: [{ totalCost: 9000 }] });
+    expect(draft.status).toBe(201);
+
+    const res = await admin.post(`/arrivals/${draft.body.id}/cancel`).send({ reason: 'Brouillon inutile' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('CANCELLED');
+    expect(res.body.lots).toEqual([]);
+
+    const ledger = await prisma.ledgerEntry.findMany({
+      where: { refType: 'ARRIVAL', refId: draft.body.id },
+    });
+    expect(ledger).toHaveLength(0);
+  });
+
+  it('valide les brouillons (400) et interdit brouillon/réception au caissier (403)', async () => {
+    const noCarton = await admin.post('/arrivals/drafts').send({ supplierId, cartons: [] });
+    expect(noCarton.status).toBe(400);
+
+    const noAmount = await admin
+      .post('/arrivals/drafts')
+      .send({ supplierId, cartons: [{ reference: 'X' }] });
+    expect(noAmount.status).toBe(400);
+
+    const forbidden = await cashier
+      .post('/arrivals/drafts')
+      .send({ supplierId, cartons: [{ totalCost: 1000 }] });
+    expect(forbidden.status).toBe(403);
+
+    const forbiddenReceive = await cashier.post(`/arrivals/${draftId}/receive`).send(payloadA());
+    expect(forbiddenReceive.status).toBe(403);
   });
 });

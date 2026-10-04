@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { CreateArrivalBody } from '@/lib/types';
+import type { CreateArrivalBody, CreateArrivalDraftBody } from '@/lib/types';
 
 const maxMoney = 10_000_000_000;
 const nonNegativeInt = z.number().int().min(0).max(maxMoney);
@@ -16,9 +16,11 @@ export type GridCell = z.infer<typeof gridCellSchema>;
 export const cartonDraftSchema = z.object({
   reference: z.string().trim().max(40).optional(),
   notes: z.string().trim().max(500).optional(),
-  activeProductId: z.string().min(1, 'Choisissez un modèle'),
+  activeProductId: z.string(),
   usedProductIds: z.array(z.string()),
   items: z.record(z.string(), gridCellSchema),
+  /** Mode brouillon : montant déclaré du carton, sans ventilation par pointure. */
+  amount: nonNegativeInt,
 });
 export type CartonDraft = z.infer<typeof cartonDraftSchema>;
 
@@ -37,6 +39,8 @@ export const arrivalFormSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date attendue au format AAAA-MM-JJ'),
     notes: z.string().trim().max(1000).optional(),
     cartons: z.array(cartonDraftSchema).min(1, 'Au moins un carton est requis'),
+    /** Brouillon : montant par carton, grille et financement masqués. */
+    draft: z.boolean(),
     payment: z.object({
       enabled: z.boolean(),
       amount: nonNegativeInt,
@@ -50,9 +54,32 @@ export const arrivalFormSchema = z
     }),
   })
   .superRefine((form, ctx) => {
+    // Brouillon à ventiler : uniquement le montant déclaré par carton — pas de
+    // pointures, pas de paiement, pas de financement (aucun impact comptable).
+    if (form.draft) {
+      form.cartons.forEach((carton, index) => {
+        if (!(carton.amount >= 1)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['cartons', index, 'amount'],
+            message: `Carton ${index + 1} : montant déclaré requis.`,
+          });
+        }
+      });
+      return;
+    }
+
     let total = 0;
 
     form.cartons.forEach((carton, index) => {
+      if (!carton.activeProductId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['cartons', index, 'activeProductId'],
+          message: `Carton ${index + 1} : choisissez un modèle.`,
+        });
+        return;
+      }
       const lines = Object.values(carton.items).filter((cell) => cell.quantity > 0);
       if (lines.length === 0) {
         ctx.addIssue({
@@ -120,6 +147,13 @@ export function cartonTotals(carton: CartonDraft): { quantity: number; cost: num
 }
 
 export function formTotals(form: ArrivalFormValues): { quantity: number; cost: number } {
+  // Mode brouillon : le total est la somme des montants déclarés.
+  if (form.draft) {
+    return form.cartons.reduce(
+      (acc, carton) => ({ quantity: 0, cost: acc.cost + (carton.amount || 0) }),
+      { quantity: 0, cost: 0 },
+    );
+  }
   return form.cartons.reduce(
     (acc, carton) => {
       const t = cartonTotals(carton);
@@ -169,5 +203,19 @@ export function buildArrivalPayload(form: ArrivalFormValues): CreateArrivalBody 
           },
         }
       : {}),
+  };
+}
+
+/** Transforme les brouillons (records) en corps `POST /arrivals/drafts`. */
+export function buildDraftPayload(form: ArrivalFormValues): CreateArrivalDraftBody {
+  return {
+    supplierId: form.supplierId,
+    date: form.date,
+    ...(form.notes?.trim() ? { notes: form.notes.trim() } : {}),
+    cartons: form.cartons.map((carton, index) => ({
+      reference: carton.reference?.trim() || `Carton ${index + 1}`,
+      totalCost: carton.amount,
+      ...(carton.notes?.trim() ? { notes: carton.notes.trim() } : {}),
+    })),
   };
 }

@@ -43,6 +43,24 @@ export const createArrivalSchema = z.object({
 
 export type CreateArrivalInput = z.infer<typeof createArrivalSchema>;
 
+const draftCartonSchema = z.object({
+  reference: z.string().trim().min(1).max(40).optional(),
+  date: z.coerce.date().optional(),
+  notes: z.string().trim().max(500).nullish(),
+  /** Montant déclaré du carton — la ventilation par pointure vient après. */
+  totalCost: z.number().int().min(1, 'Montant du carton requis'),
+});
+
+/** Brouillon à ventiler : sans pointures, sans paiement, sans financement. */
+export const createArrivalDraftSchema = z.object({
+  supplierId: z.string().min(1, 'Fournisseur requis'),
+  date: z.coerce.date().optional(),
+  notes: z.string().trim().max(1000).nullish(),
+  cartons: z.array(draftCartonSchema).min(1, 'Au moins un carton est requis').max(50),
+});
+
+export type CreateArrivalDraftInput = z.infer<typeof createArrivalDraftSchema>;
+
 export const arrivalListQuery = listQuerySchema.extend({
   supplierId: z.string().min(1).optional(),
   status: z.enum(['DRAFT', 'RECEIVED', 'CANCELLED']).optional(),

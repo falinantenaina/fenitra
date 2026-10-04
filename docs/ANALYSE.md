@@ -965,10 +965,12 @@ GET|POST /online-sellers      GET|PUT|DELETE /online-sellers/:id
 
 ### Arrivages, cartons, lots
 ```
-GET    /arrivals?from&to&supplierId&page
+GET    /arrivals?from&to&supplierId&status&q&page
 POST   /arrivals                           ← transaction complète (§55)
+POST   /arrivals/drafts                    ← brouillon à ventiler (montant par carton, aucun impact)
 GET    /arrivals/:id                       ← cartons + lignes + lots + dette + paiements + financements
-POST   /arrivals/:id/cancel                { reason } → contre-passation
+POST   /arrivals/:id/receive               ← ventile un brouillon (grille → lots → dette)
+POST   /arrivals/:id/cancel                { reason } → contre-passation (brouillon : simple retrait)
 POST   /arrivals/:id/payments              → règlement de dette fournisseur
 GET    /arrivals/reference-preview
 
@@ -1405,6 +1407,20 @@ invalidation `arrivals`/`dashboard`/`stock`/`debts`, `Alert`, retour en arrière
 l'ouverture et sauvegardé à chaque changement (`watch`), vidé après une écriture
 réussie. Survite à une perte de focus, pas au redémarrage (pas de persistance
 disque).
+
+**Mode brouillon à ventiler (Lot 3)** : interrupteur « Brouillon (à ventiler) »
+dans l'en-tête — il masque la grille et le paiement/financement et remplace la
+saisie pointures par **un montant par carton** (`carton.amount` →
+`buildDraftPayload` → `POST /arrivals/drafts`). Validation dédiée dans
+`superRefine` (montant ≥ 1 par carton, aucune exigence de modèle ni de lignes),
+`formTotals` additionne alors les montants. Enregistrement → `status = DRAFT`,
+`totalQty = 0` : aucun lot, dette ni écriture (le résumé fournisseur exclut les
+`DRAFT`). La **ventilation** part du détail (`arrivals/[id]` → bandeau ambre →
+« Ventiler l'arrivage » → `/arrival/new?draftId=`) : le formulaire se recharge
+depuis `GET /arrivals/:id` (fournisseur, date, notes, montants des cartons),
+masque l'interrupteur et soumet `POST /arrivals/:id/receive` (idempotent) avec
+la grille ventilée — les cartons brouillon sont remplacés, la référence
+`ARR-xxxx` est conservée.
 
 **Prix groupé** : `src/components/price-bulk-modal.tsx` — « Appliquer un prix
 d'achat » pré-sélectionne les lignes déjà chiffrées, coche/décoche Tout/Aucun,

@@ -7,11 +7,20 @@ import { conflict } from '../../lib/errors';
 import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelSchema,
+  createArrivalDraftSchema,
   createArrivalSchema,
   idParamSchema,
   arrivalListQuery,
 } from './arrivals.schemas';
-import { cancelArrival, createArrival, listArrivals, loadArrival, previewArrivalReference } from './arrivals.service';
+import {
+  cancelArrival,
+  createArrival,
+  createArrivalDraft,
+  listArrivals,
+  loadArrival,
+  previewArrivalReference,
+  receiveArrival,
+} from './arrivals.service';
 
 export const arrivalsRouter = Router();
 
@@ -31,6 +40,16 @@ arrivalsRouter.get(
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, arrivalListQuery);
     res.json(await listArrivals(query));
+  }),
+);
+
+/** POST /api/arrivals/drafts — brouillon à ventiler (aucun impact stock/caisse) */
+arrivalsRouter.post(
+  '/drafts',
+  managerOrAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, createArrivalDraftSchema);
+    res.status(201).json(await createArrivalDraft(body, req.user!.id));
   }),
 );
 
@@ -70,6 +89,36 @@ arrivalsRouter.get(
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadArrival(prisma, id));
+  }),
+);
+
+/** POST /api/arrivals/:id/receive — ventile un brouillon, idempotent si `Idempotency-Key` */
+arrivalsRouter.post(
+  '/:id/receive',
+  managerOrAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParamSchema);
+    const body = parseBody(req, createArrivalSchema);
+    const key = idempotencyKey(req);
+    const endpoint = 'POST /arrivals/:id/receive';
+    const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
+
+    if (claim?.kind === 'replay') {
+      res.status(claim.statusCode).json(claim.body);
+      return;
+    }
+    if (claim?.kind === 'pending') {
+      throw conflict('Une soumission identique est déjà en cours — réessayez.');
+    }
+
+    try {
+      const arrival = await receiveArrival(id, body, req.user!.id);
+      if (key) await finishIdempotent(key, endpoint, 201, arrival, req.user!.id);
+      res.status(201).json(arrival);
+    } catch (error) {
+      if (key) await releaseIdempotent(key, req.user!.id);
+      throw error;
+    }
   }),
 );
 

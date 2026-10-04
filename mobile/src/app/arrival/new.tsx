@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { useFieldArray, useForm, type FieldPath } from 'react-hook-form';
 import {
   ActivityIndicator,
@@ -21,6 +21,7 @@ import { apiMessage } from '@/lib/api';
 import {
   arrivalFormSchema,
   buildArrivalPayload,
+  buildDraftPayload,
   cartonTotals,
   emptyCell,
   formTotals,
@@ -30,14 +31,18 @@ import {
   type GridCell,
 } from '@/lib/arrival';
 import { formatMoney } from '@/lib/format';
+import { pick } from '@/lib/params';
 import {
+  useArrival,
   useCreateArrival,
+  useCreateArrivalDraft,
   useCreateProduct,
   useCreateVariantsBulk,
   usePaymentMethods,
   useProduct,
   useProductSearch,
   useProducts,
+  useReceiveArrival,
   useSizeList,
   useSuppliers,
 } from '@/lib/queries';
@@ -77,6 +82,7 @@ function Chip({
 interface CartonCardProps {
   index: number;
   carton: CartonDraft;
+  draft: boolean;
   products: ProductListItem[] | undefined;
   productsPending: boolean;
   onPatch: (patch: Partial<CartonDraft>) => void;
@@ -87,6 +93,7 @@ interface CartonCardProps {
 function CartonCard({
   index,
   carton,
+  draft,
   products,
   productsPending,
   onPatch,
@@ -149,6 +156,55 @@ function CartonCard({
     }
     onPatch({ items, usedProductIds: used });
   };
+
+  // Mode brouillon : montant déclaré par carton, sans modèle ni pointures.
+  if (draft) {
+    return (
+      <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-sm font-bold text-slate-900">Carton {index + 1}</Text>
+          <View className="flex-row items-center gap-3">
+            <Text className="text-xs text-slate-400">{formatMoney(carton.amount)}</Text>
+            {removable ? (
+              <Pressable
+                accessibilityLabel={`Supprimer le carton ${index + 1}`}
+                className="h-7 w-7 items-center justify-center rounded-md bg-red-50"
+                onPress={onRemove}>
+                <Ionicons color="#DC2626" name="trash-outline" size={15} />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        <View className="gap-1.5">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Montant déclaré (Ar)
+          </Text>
+          <TextInput
+            className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
+            keyboardType="numeric"
+            onChangeText={(raw) => onPatch({ amount: Number(raw.replace(/[^0-9]/g, '')) || 0 })}
+            placeholder="0"
+            placeholderTextColor="#94A3B8"
+            selectionColor="#208AEF"
+            value={carton.amount ? String(carton.amount) : ''}
+          />
+          <Text className="text-xs text-slate-400">
+            Sans pointures : le détail se saisira à la réception.
+          </Text>
+        </View>
+
+        <TextInput
+          className="h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
+          onChangeText={(notes) => onPatch({ notes })}
+          placeholder="Notes du carton (facultatif)"
+          placeholderTextColor="#94A3B8"
+          selectionColor="#208AEF"
+          value={carton.notes ?? ''}
+        />
+      </View>
+    );
+  }
 
   return (
     <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
@@ -327,6 +383,15 @@ export default function NewArrivalScreen() {
   const products = useProducts();
   const methods = usePaymentMethods();
   const createArrival = useCreateArrival();
+  const createDraft = useCreateArrivalDraft();
+  const receiveArrival = useReceiveArrival();
+
+  // Ventilation : ouverte depuis un brouillon (`arrivals/[id]` → `?draftId=`).
+  const params = useLocalSearchParams<{ draftId?: string }>();
+  const draftId = pick(params.draftId) || null;
+  const receiving = draftId !== null;
+  const draftArrival = useArrival(receiving ? draftId : null);
+  const loadedDraftId = useRef<string | null>(null);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -344,7 +409,10 @@ export default function NewArrivalScreen() {
       supplierId: '',
       date: todayISO(),
       notes: '',
-      cartons: [{ reference: '', activeProductId: '', usedProductIds: [], items: {} }],
+      cartons: [
+        { reference: '', activeProductId: '', usedProductIds: [], items: {}, amount: 0 },
+      ],
+      draft: false,
       payment: { enabled: false, amount: 0, method: undefined },
       funding: { enabled: false, source: 'OWN_CAPITAL', amount: 0, notes: '' },
     },
@@ -353,18 +421,49 @@ export default function NewArrivalScreen() {
 
   const { append, remove, fields } = useFieldArray({ control, name: 'cartons' });
 
-  // Brouillon : reposé à l'ouverture, sauvegardé à chaque frappe.
+  // Brouillon de saisie : reposé à l'ouverture, sauvegardé à chaque frappe.
+  // En ventilation, la saisie suit le brouillon du serveur, pas la saisie locale.
   useEffect(() => {
+    if (receiving) return;
     const saved = useArrivalDraft.getState().values;
     if (saved) reset(saved);
-  }, [reset]);
+  }, [reset, receiving]);
 
   useEffect(() => {
+    if (receiving) return;
     const subscription = watch((values) => {
       if (values) useArrivalDraft.getState().save(values as ArrivalFormValues);
     });
     return () => subscription.unsubscribe();
-  }, [watch]);
+  }, [watch, receiving]);
+
+  // Pré-remplissage du formulaire depuis le brouillon à ventiler.
+  useEffect(() => {
+    const draft = draftArrival.data;
+    if (!draft || loadedDraftId.current === draft.id) return;
+    loadedDraftId.current = draft.id;
+    reset({
+      supplierId: draft.supplier.id,
+      date: todayISO(new Date(draft.date)),
+      notes: draft.notes ?? '',
+      draft: false,
+      cartons: draft.cartons.map((carton) => ({
+        reference: carton.reference,
+        notes: carton.notes ?? '',
+        amount: Math.round(Number(carton.totalCost)),
+        activeProductId: products.data?.[0]?.id ?? '',
+        usedProductIds: [],
+        items: {},
+      })),
+      payment: { enabled: false, amount: 0, method: undefined },
+      funding: { enabled: false, source: 'OWN_CAPITAL', amount: 0, notes: '' },
+    });
+  }, [draftArrival.data, reset, products.data]);
+
+  // Brouillon injoignable (déjà ventilé/annulé) : on bloque la soumission.
+  useEffect(() => {
+    if (receiving && draftArrival.isError) setSubmitError(apiMessage(draftArrival.error));
+  }, [receiving, draftArrival.isError, draftArrival.error]);
 
   const values = watch();
   const supplierId = values.supplierId;
@@ -391,6 +490,13 @@ export default function NewArrivalScreen() {
 
   const totals = formTotals(values);
   const formError = firstErrorMessage(errors) ?? submitError;
+  const draftMode = values.draft && !receiving;
+  const pending =
+    isSubmitting ||
+    createArrival.isPending ||
+    createDraft.isPending ||
+    receiveArrival.isPending ||
+    (receiving && draftArrival.isPending);
 
   const patchCarton = (index: number, patch: Partial<CartonDraft>) => {
     (Object.keys(patch) as (keyof CartonDraft)[]).forEach((key) => {
@@ -414,9 +520,43 @@ export default function NewArrivalScreen() {
     if (next) setValue('funding.amount', totals.cost);
   };
 
+  const toggleDraft = () => {
+    const next = !values.draft;
+    setValue('draft', next);
+    if (next) {
+      setValue('payment.enabled', false);
+      setValue('funding.enabled', false);
+    }
+  };
+
   const onSubmit = handleSubmit(async (formValues) => {
     setSubmitError(null);
     try {
+      if (receiving && draftId) {
+        const created = await receiveArrival.mutateAsync({
+          id: draftId,
+          body: buildArrivalPayload(formValues),
+        });
+        useArrivalDraft.getState().clear();
+        Alert.alert(
+          'Brouillon ventilé',
+          `${created.reference}\n${created.totalQty} pièce(s) — ${formatMoney(created.totalCost)}`,
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
+        return;
+      }
+
+      if (formValues.draft) {
+        const created = await createDraft.mutateAsync(buildDraftPayload(formValues));
+        useArrivalDraft.getState().clear();
+        Alert.alert(
+          'Brouillon enregistré',
+          `${created.reference}\n${formValues.cartons.length} carton(s) — à ventiler depuis les arrivages`,
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
+        return;
+      }
+
       const created = await createArrival.mutateAsync(buildArrivalPayload(formValues));
       useArrivalDraft.getState().clear();
       Alert.alert(
@@ -508,11 +648,31 @@ export default function NewArrivalScreen() {
               value={values.notes ?? ''}
             />
           </View>
+
+          {!receiving ? (
+            <Pressable
+              className="flex-row items-center justify-between border-t border-slate-100 pt-3"
+              onPress={toggleDraft}>
+              <View className="flex-1 pr-3">
+                <Text className="text-sm font-semibold text-slate-900">Brouillon (à ventiler)</Text>
+                <Text className="text-xs text-slate-500">
+                  Montant par carton, sans pointures — ni stock ni dette avant réception
+                </Text>
+              </View>
+              <Ionicons
+                color={values.draft ? '#16A34A' : '#CBD5E1'}
+                name={values.draft ? 'checkbox-outline' : 'square-outline'}
+                size={24}
+              />
+            </Pressable>
+          ) : null}
         </View>
 
         <View className="gap-3">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Cartons — quantité et prix d&apos;achat par pointure
+            {draftMode
+              ? 'Cartons — montant déclaré par carton'
+              : 'Cartons — quantité et prix d\'achat par pointure'}
           </Text>
 
           {fields.map((field, index) => {
@@ -521,6 +681,7 @@ export default function NewArrivalScreen() {
             return (
               <CartonCard
                 carton={carton}
+                draft={draftMode}
                 index={index}
                 key={field.id}
                 onPatch={(patch) => patchCarton(index, patch)}
@@ -540,6 +701,7 @@ export default function NewArrivalScreen() {
                 activeProductId: products.data?.[0]?.id ?? '',
                 usedProductIds: [],
                 items: {},
+                amount: 0,
               })
             }>
             <Ionicons color="#208AEF" name="add" size={18} />
@@ -547,6 +709,7 @@ export default function NewArrivalScreen() {
           </Pressable>
         </View>
 
+        {draftMode ? null : (
         <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
           <Pressable className="flex-row items-center justify-between" onPress={togglePayment}>
             <View className="flex-1 pr-3">
@@ -663,25 +826,34 @@ export default function NewArrivalScreen() {
             </View>
           ) : null}
         </View>
+        )}
       </ScrollView>
 
       <View className="gap-3 border-t border-slate-200 bg-white px-4 py-3">
         <View className="flex-row items-center justify-between">
           <Text className="text-sm text-slate-500">
-            {totals.quantity} pièce(s) · {values.cartons.length} carton(s)
+            {draftMode
+              ? `${values.cartons.length} carton(s) — brouillon`
+              : `${totals.quantity} pièce(s) · ${values.cartons.length} carton(s)`}
           </Text>
           <Text className="text-lg font-bold text-slate-900">{formatMoney(totals.cost)}</Text>
         </View>
         <Pressable
           className={`h-12 items-center justify-center rounded-xl ${
-            isSubmitting || createArrival.isPending ? 'bg-slate-400' : 'bg-brand'
+            pending ? 'bg-slate-400' : 'bg-brand'
           }`}
-          disabled={isSubmitting || createArrival.isPending}
+          disabled={pending}
           onPress={() => void onSubmit()}>
-          {isSubmitting || createArrival.isPending ? (
+          {pending ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text className="text-base font-semibold text-white">Enregistrer l&apos;arrivage</Text>
+            <Text className="text-base font-semibold text-white">
+              {receiving
+                ? 'Ventiler et réceptionner'
+                : draftMode
+                  ? 'Enregistrer le brouillon'
+                  : 'Enregistrer l\'arrivage'}
+            </Text>
           )}
         </Pressable>
       </View>

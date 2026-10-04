@@ -312,7 +312,7 @@ export interface PaymentMethod {
 
 export type FundingSource = 'OWN_CAPITAL' | 'TROSA_SINOA' | 'SALES_CASH' | 'SUPPLIER_CREDIT';
 
-/** Corps de `POST /arrivals`. */
+/** Corps de `POST /arrivals` (réception complète). */
 export interface CreateArrivalBody {
   supplierId: string;
   date: string;
@@ -324,6 +324,14 @@ export interface CreateArrivalBody {
   }[];
   payment?: { amount: number; method?: string };
   funding?: { source: FundingSource; amount: number; notes?: string };
+}
+
+/** Corps de `POST /arrivals/drafts` — brouillon à ventiler (montant par carton). */
+export interface CreateArrivalDraftBody {
+  supplierId: string;
+  date: string;
+  notes?: string;
+  cartons: { reference: string; notes?: string; totalCost: number }[];
 }
 
 /* ════════════ Référentiels (vente) ════════════ */

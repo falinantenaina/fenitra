@@ -95,7 +95,8 @@ suppliersRouter.get(
 
     const [arrivals, debts, openCount, payments] = await Promise.all([
       prisma.arrival.aggregate({
-        where: { supplierId: id, status: { not: 'CANCELLED' } },
+        // Les brouillons ne sont pas encore réceptionnés : hors résumé.
+        where: { supplierId: id, status: { notIn: ['CANCELLED', 'DRAFT'] } },
         _count: true,
         _sum: { totalCost: true, totalQty: true, paidAmount: true, unpaidAmount: true },
       }),

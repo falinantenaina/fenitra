@@ -152,11 +152,13 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `page`) |
+| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status`, `q`, `page`) |
 | POST | `/api/arrivals` | manager | Transaction complète (cartons → lignes → lots → dette fournisseur → financements → ledger) |
+| POST | `/api/arrivals/drafts` | manager | **Brouillon à ventiler** : cartons déclarés (montant par carton) — aucun lot, dette ni écriture |
 | GET | `/api/arrivals/reference-preview` | auth | Prochaine référence `ARR-xxxx` |
 | GET | `/api/arrivals/:id` | auth | Cartons + lignes + lots + dette + paiements + financements |
-| POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) |
+| POST | `/api/arrivals/:id/receive` | manager | **Ventilation** d'un brouillon : grille pointures → lignes → lots → dette → paiement (idempotent) |
+| POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) — sur un brouillon : simple retrait |
 | GET | `/api/stock/summary` | auth | Quantité + valeur (`variantId`, `from`, `to`) |
 | GET | `/api/stock/lots` | auth | Lots (`variantId`, `status`, `page`) |
 | GET | `/api/stock/lots/:id/movements` | auth | Mouvements d'un lot — le `lot` expose `variantId` (→ `GET /variants/:id/price-history`, §18) |

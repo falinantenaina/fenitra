@@ -5,7 +5,7 @@ import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { nextReference, peekReference } from '../../services/sequences';
 import { reverseEntries } from '../../services/ledger';
-import type { ArrivalListQuery, CreateArrivalInput } from './arrivals.schemas';
+import type { ArrivalListQuery, CreateArrivalDraftInput, CreateArrivalInput } from './arrivals.schemas';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -127,6 +127,213 @@ export async function loadArrival(db: Db, id: string) {
   };
 }
 
+/** Résultat des contrôles communs : fournisseur, variantes, références, totaux. */
+interface ArrivalPlan {
+  supplierId: string;
+  supplierName: string;
+  references: string[];
+  totalQty: number;
+  totalCost: number;
+  paid: number;
+  date: Date;
+  variantById: Map<string, { id: string; sizeId: string }>;
+}
+
+/** Contrôles partagés par la création directe et la réception d'un brouillon. */
+async function planArrival(
+  tx: Db,
+  input: CreateArrivalInput,
+  fallbackDate?: Date,
+): Promise<ArrivalPlan> {
+  const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+  if (!supplier) throw notFound('Fournisseur introuvable');
+  if (!supplier.active) throw businessRule('Ce fournisseur est désactivé');
+
+  const variantIds = [...new Set(input.cartons.flatMap((c) => c.items.map((i) => i.variantId)))];
+  const variants = await tx.productVariant.findMany({
+    where: { id: { in: variantIds } },
+    select: { id: true, sizeId: true, active: true, product: { select: { id: true, name: true } } },
+  });
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+  const unknown = variantIds.find((id) => !variantById.has(id));
+  if (unknown) throw notFound(`Variante inconnue : ${unknown}`);
+  const inactive = variants.find((v) => !v.active);
+  if (inactive) throw businessRule(`La variante ${inactive.id} est désactivée`);
+
+  const references = input.cartons.map((c, i) => c.reference ?? `C${i + 1}`);
+  if (new Set(references).size !== references.length) {
+    throw businessRule('Références de cartons en doublon dans cet arrivage');
+  }
+
+  const totalQty = input.cartons.reduce((s, c) => s + c.items.reduce((a, i) => a + i.quantity, 0), 0);
+  const totalCost = input.cartons.reduce(
+    (s, c) => s + c.items.reduce((a, i) => a + i.quantity * i.unitCost, 0),
+    0,
+  );
+  const paid = input.payment?.amount ?? 0;
+
+  if (paid > totalCost) {
+    throw businessRule(
+      `Le paiement (${money(paid)}) dépasse le montant de l'arrivage (${money(totalCost)})`,
+    );
+  }
+
+  const date = input.date ?? fallbackDate ?? new Date();
+  return {
+    supplierId: supplier.id,
+    supplierName: supplier.name,
+    references,
+    totalQty,
+    totalCost,
+    paid,
+    date,
+    variantById: new Map(variants.map((v) => [v.id, { id: v.id, sizeId: v.sizeId }])),
+  };
+}
+
+/** Cartons → lignes → lots → mouvements → dette → paiement → journal → financement. */
+async function fillArrival(
+  tx: Db,
+  arrival: { id: string; reference: string },
+  plan: ArrivalPlan,
+  input: CreateArrivalInput,
+  userId: string | null,
+) {
+  for (const [index, carton] of input.cartons.entries()) {
+    const cartonQty = carton.items.reduce((a, i) => a + i.quantity, 0);
+    const cartonCost = carton.items.reduce((a, i) => a + i.quantity * i.unitCost, 0);
+
+    const created = await tx.arrivalCarton.create({
+      data: {
+        reference: plan.references[index]!,
+        arrivalId: arrival.id,
+        date: carton.date ?? plan.date,
+        notes: carton.notes ?? null,
+        totalCost: cartonCost,
+        totalQty: cartonQty,
+      },
+    });
+
+    for (const item of carton.items) {
+      const variant = plan.variantById.get(item.variantId)!;
+      const lineTotal = item.quantity * item.unitCost;
+
+      const arrivalItem = await tx.arrivalItem.create({
+        data: {
+          cartonId: created.id,
+          variantId: variant.id,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          lineTotal,
+        },
+      });
+
+      const lot = await tx.stockLot.create({
+        data: {
+          code: await nextReference(tx, 'lot'),
+          arrivalId: arrival.id,
+          cartonId: created.id,
+          arrivalItemId: arrivalItem.id,
+          supplierId: plan.supplierId,
+          variantId: variant.id,
+          sizeId: variant.sizeId,
+          initialQty: item.quantity,
+          remainingQty: item.quantity,
+          unitCost: item.unitCost,
+          totalCost: lineTotal,
+          entryDate: plan.date,
+          status: 'OPEN',
+        },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          lotId: lot.id,
+          variantId: variant.id,
+          type: 'IN',
+          delta: item.quantity,
+          unitCost: item.unitCost,
+          refType: 'ARRIVAL',
+          refId: arrival.id,
+          date: plan.date,
+          userId,
+        },
+      });
+    }
+  }
+
+  let debtId: string | null = null;
+  if (plan.paid < plan.totalCost) {
+    const debt = await tx.debt.create({
+      data: {
+        type: 'SUPPLIER',
+        direction: 'PAYABLE',
+        origin: 'ARRIVAL',
+        arrivalId: arrival.id,
+        supplierId: plan.supplierId,
+        reason:
+          plan.paid > 0
+            ? `Arrivage ${arrival.reference} — paiement partiel`
+            : `Arrivage ${arrival.reference} — non payé`,
+        initialAmount: plan.totalCost,
+        paidAmount: plan.paid,
+        remainingAmount: plan.totalCost - plan.paid,
+        date: plan.date,
+        status: plan.paid > 0 ? 'PARTIAL' : 'OPEN',
+      },
+    });
+    debtId = debt.id;
+  }
+
+  if (plan.paid > 0) {
+    const paymentRef = await nextReference(tx, 'payment');
+    const paymentDate = input.payment?.date ?? plan.date;
+    const payment = await tx.payment.create({
+      data: {
+        reference: paymentRef,
+        date: paymentDate,
+        amount: plan.paid,
+        direction: 'OUT',
+        partyType: 'SUPPLIER',
+        partyId: plan.supplierId,
+        arrivalId: arrival.id,
+        debtId,
+        method: input.payment?.method ?? null,
+        notes: input.payment?.notes ?? null,
+        userId,
+      },
+    });
+
+    await tx.ledgerEntry.create({
+      data: {
+        date: paymentDate,
+        kind: 'SUPPLIER_PAYMENT',
+        amount: plan.paid,
+        cashDelta: -plan.paid,
+        description: `Paiement fournisseur ${plan.supplierName} — arrivage ${arrival.reference}`,
+        reference: paymentRef,
+        refType: 'ARRIVAL',
+        refId: arrival.id,
+        arrivalId: arrival.id,
+        debtId,
+        paymentId: payment.id,
+        userId,
+      },
+    });
+  }
+
+  if (input.funding) {
+    await tx.fundingAllocation.create({
+      data: {
+        arrivalId: arrival.id,
+        source: input.funding.source,
+        amount: input.funding.amount,
+        notes: input.funding.notes ?? null,
+      },
+    });
+  }
+}
+
 /**
  * Enregistrement complet d'un arrivage — **une seule transaction** (§55) :
  * arrivage → cartons → lignes → lots (`unitCost` figé) → mouvements `IN`
@@ -134,39 +341,46 @@ export async function loadArrival(db: Db, id: string) {
  */
 export async function createArrival(input: CreateArrivalInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {
+    const plan = await planArrival(tx, input);
+    const reference = await nextReference(tx, 'arrival');
+
+    const arrival = await tx.arrival.create({
+      data: {
+        reference,
+        supplierId: plan.supplierId,
+        date: plan.date,
+        notes: input.notes ?? null,
+        status: 'RECEIVED',
+        totalCost: plan.totalCost,
+        totalQty: plan.totalQty,
+        paidAmount: plan.paid,
+        unpaidAmount: plan.totalCost - plan.paid,
+        createdById: userId,
+      },
+    });
+
+    await fillArrival(tx, arrival, plan, input, userId);
+    return loadArrival(tx, arrival.id);
+  });
+}
+
+/**
+ * POST /arrivals/drafts — **brouillon à ventiler** : le montant du carton est
+ * déclaré sans ventilation par pointure. Aucun lot, aucune dette, aucune
+ * écriture de journal : l'arrivage n'existe comptablement qu'après réception.
+ */
+export async function createArrivalDraft(input: CreateArrivalDraftInput, userId: string | null) {
+  return prisma.$transaction(async (tx) => {
     const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
     if (!supplier) throw notFound('Fournisseur introuvable');
     if (!supplier.active) throw businessRule('Ce fournisseur est désactivé');
-
-    const variantIds = [...new Set(input.cartons.flatMap((c) => c.items.map((i) => i.variantId)))];
-    const variants = await tx.productVariant.findMany({
-      where: { id: { in: variantIds } },
-      select: { id: true, sizeId: true, active: true, product: { select: { id: true, name: true } } },
-    });
-    const variantById = new Map(variants.map((v) => [v.id, v]));
-    const unknown = variantIds.find((id) => !variantById.has(id));
-    if (unknown) throw notFound(`Variante inconnue : ${unknown}`);
-    const inactive = variants.find((v) => !v.active);
-    if (inactive) throw businessRule(`La variante ${inactive.id} est désactivée`);
 
     const references = input.cartons.map((c, i) => c.reference ?? `C${i + 1}`);
     if (new Set(references).size !== references.length) {
       throw businessRule('Références de cartons en doublon dans cet arrivage');
     }
 
-    const totalQty = input.cartons.reduce((s, c) => s + c.items.reduce((a, i) => a + i.quantity, 0), 0);
-    const totalCost = input.cartons.reduce(
-      (s, c) => s + c.items.reduce((a, i) => a + i.quantity * i.unitCost, 0),
-      0,
-    );
-    const paid = input.payment?.amount ?? 0;
-
-    if (paid > totalCost) {
-      throw businessRule(
-        `Le paiement (${money(paid)}) dépasse le montant de l'arrivage (${money(totalCost)})`,
-      );
-    }
-
+    const totalCost = input.cartons.reduce((sum, carton) => sum + carton.totalCost, 0);
     const date = input.date ?? new Date();
     const reference = await nextReference(tx, 'arrival');
 
@@ -176,147 +390,69 @@ export async function createArrival(input: CreateArrivalInput, userId: string | 
         supplierId: supplier.id,
         date,
         notes: input.notes ?? null,
-        status: 'RECEIVED',
+        status: 'DRAFT',
         totalCost,
-        totalQty,
-        paidAmount: paid,
-        unpaidAmount: totalCost - paid,
+        totalQty: 0,
+        paidAmount: 0,
+        unpaidAmount: 0,
         createdById: userId,
       },
     });
 
     for (const [index, carton] of input.cartons.entries()) {
-      const cartonQty = carton.items.reduce((a, i) => a + i.quantity, 0);
-      const cartonCost = carton.items.reduce((a, i) => a + i.quantity * i.unitCost, 0);
-
-      const created = await tx.arrivalCarton.create({
+      await tx.arrivalCarton.create({
         data: {
           reference: references[index]!,
           arrivalId: arrival.id,
           date: carton.date ?? date,
           notes: carton.notes ?? null,
-          totalCost: cartonCost,
-          totalQty: cartonQty,
-        },
-      });
-
-      for (const item of carton.items) {
-        const variant = variantById.get(item.variantId)!;
-        const lineTotal = item.quantity * item.unitCost;
-
-        const arrivalItem = await tx.arrivalItem.create({
-          data: {
-            cartonId: created.id,
-            variantId: variant.id,
-            quantity: item.quantity,
-            unitCost: item.unitCost,
-            lineTotal,
-          },
-        });
-
-        const lot = await tx.stockLot.create({
-          data: {
-            code: await nextReference(tx, 'lot'),
-            arrivalId: arrival.id,
-            cartonId: created.id,
-            arrivalItemId: arrivalItem.id,
-            supplierId: supplier.id,
-            variantId: variant.id,
-            sizeId: variant.sizeId,
-            initialQty: item.quantity,
-            remainingQty: item.quantity,
-            unitCost: item.unitCost,
-            totalCost: lineTotal,
-            entryDate: date,
-            status: 'OPEN',
-          },
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            lotId: lot.id,
-            variantId: variant.id,
-            type: 'IN',
-            delta: item.quantity,
-            unitCost: item.unitCost,
-            refType: 'ARRIVAL',
-            refId: arrival.id,
-            date,
-            userId,
-          },
-        });
-      }
-    }
-
-    let debtId: string | null = null;
-    if (paid < totalCost) {
-      const debt = await tx.debt.create({
-        data: {
-          type: 'SUPPLIER',
-          direction: 'PAYABLE',
-          origin: 'ARRIVAL',
-          arrivalId: arrival.id,
-          supplierId: supplier.id,
-          reason: paid > 0 ? `Arrivage ${reference} — paiement partiel` : `Arrivage ${reference} — non payé`,
-          initialAmount: totalCost,
-          paidAmount: paid,
-          remainingAmount: totalCost - paid,
-          date,
-          status: paid > 0 ? 'PARTIAL' : 'OPEN',
-        },
-      });
-      debtId = debt.id;
-    }
-
-    if (paid > 0) {
-      const paymentRef = await nextReference(tx, 'payment');
-      const paymentDate = input.payment?.date ?? date;
-      const payment = await tx.payment.create({
-        data: {
-          reference: paymentRef,
-          date: paymentDate,
-          amount: paid,
-          direction: 'OUT',
-          partyType: 'SUPPLIER',
-          partyId: supplier.id,
-          arrivalId: arrival.id,
-          debtId,
-          method: input.payment?.method ?? null,
-          notes: input.payment?.notes ?? null,
-          userId,
-        },
-      });
-
-      await tx.ledgerEntry.create({
-        data: {
-          date: paymentDate,
-          kind: 'SUPPLIER_PAYMENT',
-          amount: paid,
-          cashDelta: -paid,
-          description: `Paiement fournisseur ${supplier.name} — arrivage ${reference}`,
-          reference: paymentRef,
-          refType: 'ARRIVAL',
-          refId: arrival.id,
-          arrivalId: arrival.id,
-          debtId,
-          paymentId: payment.id,
-          userId,
-        },
-      });
-    }
-
-    if (input.funding) {
-      await tx.fundingAllocation.create({
-        data: {
-          arrivalId: arrival.id,
-          source: input.funding.source,
-          amount: input.funding.amount,
-          notes: input.funding.notes ?? null,
+          totalCost: carton.totalCost,
+          totalQty: 0,
         },
       });
     }
 
     return loadArrival(tx, arrival.id);
+  });
+}
+
+/**
+ * POST /arrivals/:id/receive — **ventilation** d'un brouillon : les cartons
+ * déclarés sont remplacés par la grille ventilée, puis le chemin est celui de
+ * l'arrivage complet (lignes → lots → dette → paiement → journal).
+ */
+export async function receiveArrival(
+  id: string,
+  input: CreateArrivalInput,
+  userId: string | null,
+) {
+  return prisma.$transaction(async (tx) => {
+    const draft = await tx.arrival.findUnique({ where: { id } });
+    if (!draft) throw notFound('Arrivage introuvable');
+    if (draft.status === 'CANCELLED') throw businessRule('Cet arrivage est annulé');
+    if (draft.status !== 'DRAFT') throw businessRule('Cet arrivage est déjà réceptionné');
+
+    const plan = await planArrival(tx, input, draft.date);
+
+    // Les cartons du brouillon n'ont ni ligne ni lot : leur remplacement est anodin.
+    await tx.arrivalCarton.deleteMany({ where: { arrivalId: id } });
+
+    const arrival = await tx.arrival.update({
+      where: { id },
+      data: {
+        supplierId: plan.supplierId,
+        date: plan.date,
+        notes: input.notes ?? draft.notes,
+        status: 'RECEIVED',
+        totalCost: plan.totalCost,
+        totalQty: plan.totalQty,
+        paidAmount: plan.paid,
+        unpaidAmount: plan.totalCost - plan.paid,
+      },
+    });
+
+    await fillArrival(tx, arrival, plan, input, userId);
+    return loadArrival(tx, id);
   });
 }
 

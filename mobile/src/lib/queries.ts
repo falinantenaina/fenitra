@@ -20,6 +20,7 @@ import type {
   BulkVariantsResponse,
   CapitalItem,
   CreateArrivalBody,
+  CreateArrivalDraftBody,
   CreateCapitalBody,
   CreateCategoryBody,
   CreateExpenseBody,
@@ -758,6 +759,50 @@ export interface ArrivalCreated {
   reference: string;
   totalCost: string;
   totalQty: number;
+}
+
+/** `POST /arrivals/drafts` — brouillon à ventiler (aucun stock, dette ni écriture). */
+export function useCreateArrivalDraft() {
+  const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
+  return useMutation({
+    mutationFn: async (body: CreateArrivalDraftBody) => {
+      const { data } = await api.post<ArrivalCreated>('/arrivals/drafts', body, {
+        headers: { 'Idempotency-Key': keys.keyFor(body) },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      keys.reset();
+      void client.invalidateQueries({ queryKey: ['arrivals'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/** `POST /arrivals/:id/receive` — ventile un brouillon : lignes, lots, dette, paiement. */
+export function useReceiveArrival() {
+  const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: CreateArrivalBody }) => {
+      const { data } = await api.post<ArrivalCreated>(`/arrivals/${id}/receive`, body, {
+        headers: { 'Idempotency-Key': keys.keyFor({ id, body }) },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      keys.reset();
+      void client.invalidateQueries({ queryKey: ['arrivals'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
 }
 
 /** `POST /sales` — vente FIFO avec règlement éventuel (Idempotency-Key stable par soumission). */

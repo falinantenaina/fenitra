@@ -30,9 +30,15 @@ export default function ArrivalDetailScreen() {
 
   const onCancel = async (reason: string) => {
     if (!id) return;
+    const wasDraft = arrival.data?.status === 'DRAFT';
     try {
       await cancelArrival.mutateAsync({ id, reason });
-      Alert.alert('Arrivage annulé', 'Les lots et les écritures ont été contre-passés.');
+      Alert.alert(
+        'Arrivage annulé',
+        wasDraft
+          ? 'Brouillon annulé — aucun stock ni écriture.'
+          : 'Les lots et les écritures ont été contre-passés.',
+      );
     } catch (error) {
       Alert.alert('Annulation refusée', apiMessage(error));
     }
@@ -109,11 +115,36 @@ export default function ArrivalDetailScreen() {
         </View>
       </View>
 
+      {/* Brouillon à ventiler */}
+      {data.status === 'DRAFT' && canManage ? (
+        <View className="mt-4 gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <View className="flex-row items-center gap-2">
+            <Ionicons color="#D97706" name="document-outline" size={18} />
+            <Text className="text-sm font-semibold text-amber-800">Brouillon à ventiler</Text>
+          </View>
+          <Text className="text-xs text-amber-700">
+            Aucun stock, dette ni écriture : la ventilation saisira les pointures, le paiement et
+            le financement.
+          </Text>
+          <Pressable
+            className="h-11 items-center justify-center rounded-xl bg-brand"
+            onPress={() =>
+              router.push({ pathname: '/arrival/new', params: { draftId: data.id } })
+            }>
+            <Text className="text-sm font-semibold text-white">Ventiler l&apos;arrivage</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Annulation */}
       {canManage && data.status !== 'CANCELLED' ? (
         <View className="mt-4">
           <CancelPanel
-            hint="L'annulation exige que le stock soit intact : les lots doivent être vides d'une autre opération. Les écritures sont contre-passées."
+            hint={
+              data.status === 'DRAFT'
+                ? 'Le brouillon est simplement écarté : aucun lot ni écriture à contre-passer.'
+                : "L'annulation exige que le stock soit intact : les lots doivent être vides d'une autre opération. Les écritures sont contre-passées."
+            }
             isPending={cancelArrival.isPending}
             label="Annuler l'arrivage"
             onConfirm={(reason) => void onCancel(reason)}
