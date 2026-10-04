@@ -18,8 +18,22 @@ export type IndicatorKey =
   | 'expenses'
   | 'versements'
   | 'cash'
+  | 'cashBalance'
   | 'capital'
-  | 'profitDrawings';
+  | 'profitDrawings'
+  | 'receivables'
+  | 'payables'
+  | 'debtsCustomer'
+  | 'debtsOnlineSeller'
+  | 'debtsSupplier'
+  | 'debtsTrosa'
+  | 'debtsTotal'
+  | 'stockValue'
+  | 'vola'
+  | 'disposableProfit';
+
+/** `period` = écritures de la période · `toDate` = état cumulé à la date de fin. */
+export type DrillScope = 'period' | 'toDate';
 
 export interface DashboardPeriod {
   key: string;
@@ -96,6 +110,7 @@ export interface DrillEntry {
 export interface DrilldownResponse {
   indicator: IndicatorKey;
   label: string;
+  scope: DrillScope;
   period: DashboardPeriod;
   count: number;
   total: string;

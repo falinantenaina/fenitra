@@ -19,6 +19,25 @@ type Num = number | bigint | string | null | undefined;
 /** Client de lecture : `prisma` seul, ou un `tx` d'instantané (dashboard). */
 type Db = Prisma.TransactionClient | typeof prisma;
 
+/**
+ * Ligne de dérillage (§62) — journal financier, dette ou lot de stock.
+ * Toutes les sources sont normalisées dans ce format unique pour que
+ * `GET /dashboard/:indicator/transactions` puisse les mélanger (vola,
+ * bénéfice disponible) sans casse de contrat.
+ */
+export interface DrillRow {
+  id: string;
+  seq: bigint;
+  date: Date;
+  kind: string;
+  amount: number;
+  cashDelta: number;
+  description: string;
+  reference: string | null;
+  refType: string | null;
+  refId: string | null;
+}
+
 export function n(v: Num): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number') return v;
@@ -192,20 +211,8 @@ export async function ledgerEntriesForKinds(
   from: Date,
   to: Date,
   limit = 500,
-): Promise<
-  {
-    id: string;
-    seq: bigint;
-    date: Date;
-    kind: string;
-    amount: number;
-    cashDelta: number;
-    description: string;
-    reference: string | null;
-    refType: string | null;
-    refId: string | null;
-  }[]
-> {
+): Promise<DrillRow[]> {
+  if (kinds.length === 0) return [];
   const rows = await prisma.$queryRaw<
     {
       id: string;
@@ -240,5 +247,131 @@ export async function ledgerEntriesForKinds(
     refId: r.refId,
   }));
 }
+
+/**
+ * Dettes encore ouvertes à une date, avec le reste à payer **reconstitué à
+ * cette date** (même formule que `loadBalance` : initial − règlements −
+ * versements, hors `CANCELLED`).
+ *
+ * Les lignes à 0 (dette soldée) sont écartées : elles n'apportent rien au
+ * total et noieraient la liste.
+ */
+export async function debtDrillEntries(
+  to: Date,
+  types: string[],
+  limit = 2000,
+): Promise<DrillRow[]> {
+  if (types.length === 0) return [];
+  const rows = await prisma.$queryRaw<
+    {
+      id: string;
+      date: Date;
+      kind: string;
+      reason: string;
+      party: string | null;
+      amount: Num;
+    }[]
+  >`
+    SELECT
+      d.id,
+      d.date,
+      d.type::text AS kind,
+      d.reason,
+      COALESCE(c.name, os.name, s.name, d."partyName") AS party,
+      d."initialAmount" - COALESCE(pa.paid, 0) - COALESCE(ve.paid, 0) AS amount
+    FROM "Debt" d
+    LEFT JOIN (
+      SELECT "debtId", SUM("amount")::bigint AS paid
+      FROM "Payment"
+      WHERE "debtId" IS NOT NULL AND "date" < ${utc(to)}::timestamp
+      GROUP BY "debtId"
+    ) pa ON pa."debtId" = d.id
+    LEFT JOIN (
+      SELECT "debtId", SUM("amount")::bigint AS paid
+      FROM "Versement"
+      WHERE "debtId" IS NOT NULL AND "date" < ${utc(to)}::timestamp
+      GROUP BY "debtId"
+    ) ve ON ve."debtId" = d.id
+    LEFT JOIN "Customer" c ON c.id = d."customerId"
+    LEFT JOIN "OnlineSeller" os ON os.id = d."onlineSellerId"
+    LEFT JOIN "Supplier" s ON s.id = d."supplierId"
+    WHERE d."date" < ${utc(to)}::timestamp
+      AND d.status <> 'CANCELLED'
+      AND d.type::text = ANY(${types}::text[])
+      AND d."initialAmount" - COALESCE(pa.paid, 0) - COALESCE(ve.paid, 0) <> 0
+    ORDER BY d.date DESC, d.id DESC
+    LIMIT ${limit}`;
+
+  return rows.map((r) => ({
+    id: r.id,
+    seq: 0n,
+    date: r.date,
+    kind: r.kind,
+    amount: n(r.amount),
+    cashDelta: 0,
+    description: r.party ? `${r.reason} — ${r.party}` : r.reason,
+    reference: null,
+    refType: 'DEBT',
+    refId: r.id,
+  }));
+}
+
+/**
+ * Lots encore garnis à une date : même reconstitution de la quantité que
+ * `loadStockAt` (initial + Σ mouvements hors `IN` < date), donc
+ * `Σ amount` retombe exactement sur `stock.value` du dashboard.
+ */
+export async function stockDrillEntries(to: Date, limit = 2000): Promise<DrillRow[]> {
+  const rows = await prisma.$queryRaw<
+    {
+      id: string;
+      code: string;
+      entryDate: Date;
+      unitCost: Num;
+      qty: Num;
+      product: string;
+      size: string;
+    }[]
+  >`
+    SELECT
+      l.id,
+      l.code,
+      l."entryDate",
+      l."unitCost",
+      l.qty,
+      p.name AS product,
+      COALESCE(sz.label, sz.value::text) AS size
+    FROM (
+      SELECT
+        l.id, l.code, l."entryDate", l."unitCost", l."variantId",
+        l."initialQty" + COALESCE((
+          SELECT SUM(m.delta)
+          FROM "StockMovement" m
+          WHERE m."lotId" = l.id AND m."date" < ${utc(to)}::timestamp AND m.type <> 'IN'
+        ), 0) AS qty
+      FROM "StockLot" l
+      WHERE l.status <> 'CANCELLED'
+    ) l
+    JOIN "ProductVariant" v ON v.id = l."variantId"
+    JOIN "Product" p ON p.id = v."productId"
+    JOIN "Size" sz ON sz.id = v."sizeId"
+    WHERE GREATEST(l.qty, 0) > 0
+    ORDER BY l."entryDate" DESC, l.code DESC
+    LIMIT ${limit}`;
+
+  return rows.map((r) => ({
+    id: r.id,
+    seq: 0n,
+    date: r.entryDate,
+    kind: 'LOT',
+    amount: Math.max(n(r.qty), 0) * n(r.unitCost),
+    cashDelta: 0,
+    description: `${r.product} · taille ${r.size} · ${n(r.qty)} p. restantes`,
+    reference: r.code,
+    refType: 'STOCK_LOT',
+    refId: r.id,
+  }));
+}
+
 
 export { Prisma };

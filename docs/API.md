@@ -241,17 +241,32 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 ```json
 {
-  "activity":  { "ca", "sales", "receipts", "cogs", "grossProfit", "expenses", "netProfit" },
-  "money":     { "cash", "receivables", "payable", "workingCapital", "personalCapitalEngaged", "disposableProfit" },
-  "debts":     { "customer", "onlineSeller", "supplier", "trosaSinoa" },
+  "period":    { "key", "from", "to", "label" },
+  "activity":  { "salesCount", "ca", "receipts", "collectedAtSale", "cogs", "grossProfit", "expenses", "versementCharges", "netProfit", "cashOutflow" },
+  "money":     { "cash", "cashAtStart", "cashDelta", "receivables", "payable", "workingCapital", "volaMiodina", "personalCapitalEngaged", "personalCapitalIn", "personalCapitalOut", "profitDrawings", "disposableProfit" },
+  "debts":     { "customer", "onlineSeller", "supplier", "trosaSinoa", "total" },
   "stock":     { "quantity", "value", "availableItems", "soldItems" },
+  "integrity": { "identityDelta", "ok" },
   "meta":      { "period", "currency" }
 }
 ```
 
-Indicateurs acceptés par `/:indicator/transactions` : `ca`, `receipts`, `cogs`, `grossProfit`,
-`expenses`, `netProfit`, `cash`, `receivables`, `payable`, `workingCapital`, `personalCapital`,
-`debtCustomer`, `debtOnlineSeller`, `debtSupplier`, `debtTrosa`, `stockValue`.
+Indicateurs acceptés par `/:indicator/transactions` (21, listés par
+`GET /dashboard/indicators`) :
+
+| Source | Indicateurs |
+|---|---|
+| Journal sur la **période** (`scope: "period"`) | `ca`, `cogs`, `grossProfit`, `netProfit`, `receipts`, `expenses`, `versements`, `cash` |
+| Journal **cumulé jusqu'à la date de fin** (`scope: "toDate"`) | `cashBalance`, `capital`, `profitDrawings` |
+| Dettes ouvertes à la date de fin (`scope: "toDate"`) | `receivables`, `payables`, `debtsCustomer`, `debtsOnlineSeller`, `debtsSupplier`, `debtsTrosa`, `debtsTotal` |
+| Lots encore garnis (`scope: "toDate"`) | `stockValue` |
+| Composites (`scope: "toDate"`) | `vola`, `disposableProfit` |
+
+La réponse porte `scope` : `period` = écritures de la fenêtre demandée,
+`toDate` = état cumulé (les stocks ne se décomposent pas en flux de période).
+Dans les deux cas `total` est **garanti égal** à la valeur affichée au
+dashboard (§62, contrôle §16).
+
 
 ---
 

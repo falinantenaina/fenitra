@@ -1160,10 +1160,21 @@ Le total du dérillage est calculé **par indicateur** (`total()` dans
 `src/services/metrics/index.ts`) : les indicateurs dérivés ont besoin de signes
 par `kind` (`netProfit = CA − CMGP − dépenses − versements`, argent propre =
 injections − récupérations), sinon la somme brute des `amount` ne retombe pas
-sur la valeur affichée. Contrôlé par `backend/tests/reports.test.ts` pour
-`ca`, `cogs`, `grossProfit`, `netProfit`, `receipts`, `expenses`, `versements`
-et `cash` ; `capital` et `profitDrawings` sont affichés en cumulé au dashboard
-sans équivalent de période.
+sur la valeur affichée. Contrôlé par `backend/tests/reports.test.ts` :
+
+- **indicateurs de période** — `ca`, `cogs`, `grossProfit`, `netProfit`,
+  `receipts`, `expenses`, `versements`, `cash` : comparaison directe à la
+  valeur affichée dans une fenêtre close en 2099 ;
+- **indicateurs d'état** — `cashBalance`, `capital`, `profitDrawings`,
+  `receivables`, `payables`, `debtsCustomer`, `debtsOnlineSeller`,
+  `debtsSupplier`, `debtsTrosa`, `debtsTotal`, `stockValue`, `vola`,
+  `disposableProfit` : cumulés jusqu'à la date de fin, ils captent aussi les
+  écritures des autres fichiers de test — la lecture est donc encadrée de deux
+  lectures du dashboard (le total doit retomber sur l'une des deux) ;
+- **bénéfice disponible** : test pur sur les trois branches de la décomposition
+  (excédent de caisse, bénéfice net cumulé, plancher à 0), qui ne sont pas
+  toutes atteignables avec des données d'exécution réelles.
+
 
 ### Concurrence — quatre pièges détectés en exécution parallèle
 
@@ -1242,9 +1253,9 @@ puis trois groupes de cartes :
 
 | Section | Cartes | Dérillable |
 |---|---|---|
-| Activité de la période | CA, bénéfice brut, bénéfice net, recettes, dépenses, versements | ✔ (indicateurs de période) |
-| Situation à la date | caisse, variation de caisse, vola miodina, créances, passifs, bénéfice disponible | variation de caisse ✔ |
-| Stock et dettes | stock (pièces + valeur), dettes totales, trosa sinoa, argent propre | — (états, pas des indicateurs) |
+| Activité de la période | CA, bénéfice brut, bénéfice net, coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
+| Situation à la date | caisse, variation de caisse, vola miodina, créances, passifs, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
+| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, vendeurs en ligne, fournisseurs, dettes totales, trosa sinoa | ✔ tous, sauf « vendus » (compteur d'unités) |
 
 Une bannière affiche `integrity.ok` (écart d'identité doit être `0`).
 
@@ -1253,6 +1264,24 @@ Une bannière affiche `integrity.ok` (écart d'identité doit être `0`).
 puis la liste des écritures (date, description, `kind`, référence, montant et
 impact caisse). Le total affiché est **garanti égal** à la valeur de la carte
 (§16).
+
+Deux portées coexistent, signalées par `scope` dans la réponse et reprises dans
+le sous-titre de la modale :
+
+- `period` — écritures de la fenêtre demandée (tous les indicateurs
+  d'activité) ;
+- `toDate` — état **cumulé jusqu'à la fin de la période** : caisse, argent
+  propre, bénéfice sorti, dettes, stock, vola, bénéfice disponible. Ces
+  grandeurs sont des stocks, pas des flux : les limiter à la fenêtre afficherait
+  un total sans rapport avec la carte.
+
+Les indicateurs composites (`vola`, `disposableProfit`) ne lisent pas le
+journal en clair mais **les composantes du dashboard** : écritures de caisse
+(+ solde initial), lots, créances, passifs en négatif, argent propre et réserve.
+Le bénéfice disponible choisit la décomposition de la contrainte qui produit
+réellement la valeur affichée — `max(0, min(bénéfice net cumulé, excédent de
+caisse))` — sinon son total ne retomberait jamais sur la carte (§9).
+
 
 **Fichiers** : `src/lib/types.ts` (contrat API), `src/lib/format.ts`
 (`formatMoney` « 1 245 000 Ar », `formatQuantity`, `formatDateTime` — sans

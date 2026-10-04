@@ -93,6 +93,12 @@ export default function HomeScreen() {
               value={formatMoney(d.activity.netProfit)}
             />
             <KpiCard
+              hint="marchandises vendues"
+              onPress={() => open('cogs')}
+              title="Coût des marchandises"
+              value={formatMoney(d.activity.cogs)}
+            />
+            <KpiCard
               onPress={() => open('receipts')}
               title="Recettes encaissées"
               value={formatMoney(d.activity.receipts)}
@@ -114,6 +120,7 @@ export default function HomeScreen() {
           <Section title="Situation à la date">
             <KpiCard
               hint={`début de période ${formatMoney(d.money.cashAtStart)}`}
+              onPress={() => open('cashBalance')}
               title="Caisse"
               value={formatMoney(d.money.cash)}
             />
@@ -125,44 +132,88 @@ export default function HomeScreen() {
             />
             <KpiCard
               hint="caisse + stock + créances − passifs"
+              onPress={() => open('vola')}
               title="Vola miodina"
               tone="brand"
               value={formatMoney(d.money.volaMiodina)}
             />
             <KpiCard
               hint="clients + vendeurs en ligne"
+              onPress={() => open('receivables')}
               title="Créances"
               value={formatMoney(d.money.receivables)}
             />
             <KpiCard
               hint="fournisseurs + trosa sinoa"
+              onPress={() => open('payables')}
               title="Passifs"
               value={formatMoney(d.money.payable)}
             />
             <KpiCard
               hint="bénéfice non sorti"
+              onPress={() => open('disposableProfit')}
               title="Bénéfice disponible"
               tone={toneOf(d.money.disposableProfit)}
               value={formatMoney(d.money.disposableProfit)}
+            />
+            <KpiCard
+              hint="injecté − récupéré"
+              onPress={() => open('capital')}
+              title="Argent propre"
+              value={formatMoney(d.money.personalCapitalEngaged)}
+            />
+            <KpiCard
+              hint="cumulé depuis le début"
+              onPress={() => open('profitDrawings')}
+              title="Bénéfice sorti"
+              value={formatMoney(d.money.profitDrawings)}
             />
           </Section>
 
           <Section title="Stock et dettes">
             <KpiCard
-              hint={formatMoney(d.stock.value)}
+              hint={`${formatQuantity(d.stock.quantity)} p. restantes`}
+              onPress={() => open('stockValue')}
               title="Stock"
-              value={`${formatQuantity(d.stock.quantity)} p.`}
+              value={formatMoney(d.stock.value)}
+            />
+            <KpiCard
+              hint="unités en magasin"
+              onPress={() => open('stockValue')}
+              title="Disponibles"
+              value={`${formatQuantity(d.stock.availableItems)} p.`}
+            />
+            <KpiCard
+              hint="sorties enregistrées sur la période"
+              title="Vendus"
+              value={`${formatQuantity(d.stock.soldItems)} p.`}
+            />
+            <KpiCard
+              onPress={() => open('debtsCustomer')}
+              title="Dettes clients"
+              value={formatMoney(d.debts.customer)}
+            />
+            <KpiCard
+              onPress={() => open('debtsOnlineSeller')}
+              title="Vendeurs en ligne"
+              value={formatMoney(d.debts.onlineSeller)}
+            />
+            <KpiCard
+              onPress={() => open('debtsSupplier')}
+              title="Fournisseurs"
+              value={formatMoney(d.debts.supplier)}
             />
             <KpiCard
               hint={`dont trosa ${formatMoney(d.debts.trosaSinoa)}`}
+              onPress={() => open('debtsTotal')}
               title="Dettes totales"
               value={formatMoney(d.debts.total)}
             />
-            <KpiCard hint="ce que l'activité doit" title="Trosa sinoa" value={formatMoney(d.debts.trosaSinoa)} />
             <KpiCard
-              hint={`bénéfice sorti ${formatMoney(d.money.profitDrawings)}`}
-              title="Argent propre"
-              value={formatMoney(d.money.personalCapitalEngaged)}
+              hint="ce que l'activité doit"
+              onPress={() => open('debtsTrosa')}
+              title="Trosa sinoa"
+              value={formatMoney(d.debts.trosaSinoa)}
             />
           </Section>
 

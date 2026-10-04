@@ -56,6 +56,7 @@ export function DrilldownModal({ indicator, period, onClose }: DrilldownModalPro
             </Text>
             <Text className="text-xs text-slate-500">
               {query.data?.period.label ?? ''}
+              {query.data?.scope === 'toDate' ? ' · cumulé jusqu’à la date' : ''}
               {query.data ? ` · ${query.data.count} écriture(s)` : ''}
             </Text>
           </View>

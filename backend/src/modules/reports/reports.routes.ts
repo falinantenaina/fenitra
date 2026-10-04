@@ -149,6 +149,7 @@ dashboardRouter.get(
     res.json({
       indicator: drill.indicator,
       label: drill.label,
+      scope: drill.scope,
       period: drill.period,
       count: drill.count,
       total: money(drill.total),

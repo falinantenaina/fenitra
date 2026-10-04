@@ -8,10 +8,18 @@ import {
   type DerivedMetrics,
   type FinanceConfig,
 } from './core';
-import { ledgerEntriesForKinds, loadActivity, loadBalance } from './queries';
+import {
+  debtDrillEntries,
+  ledgerEntriesForKinds,
+  loadActivity,
+  loadBalance,
+  stockDrillEntries,
+  type DrillRow,
+} from './queries';
 import { resolvePeriod, cumulativeUntil, type PeriodKey, type PeriodRange } from '../period.service';
 
 export * from './core';
+export type { DrillRow } from './queries';
 
 export interface DashboardPeriod {
   key: PeriodKey;
@@ -170,19 +178,55 @@ export type IndicatorKey =
   | 'expenses'
   | 'versements'
   | 'cash'
+  | 'cashBalance'
   | 'capital'
-  | 'profitDrawings';
+  | 'profitDrawings'
+  | 'receivables'
+  | 'payables'
+  | 'debtsCustomer'
+  | 'debtsOnlineSeller'
+  | 'debtsSupplier'
+  | 'debtsTrosa'
+  | 'debtsTotal'
+  | 'stockValue'
+  | 'vola'
+  | 'disposableProfit';
 
-/** Écriture du journal minimale nécessaire au calcul d'un total d'indicateur. */
-interface LedgerRow {
-  kind: string;
-  amount: number;
-  cashDelta: number;
-}
+/** Date basse des sources cumulées : `date < to` sans borne inférieure. */
+const EPOCH = new Date(0);
+
+/** Lignes maximales rendues par une source cumulée (réponse bornée). */
+const CUMUL_LIMIT = 2000;
+
+const RECEIVABLE_DEBT_TYPES = ['CUSTOMER', 'ONLINE_SELLER'];
+const PAYABLE_DEBT_TYPES = ['SUPPLIER', 'TROSA_SINOA'];
+const ALL_DEBT_TYPES = [...RECEIVABLE_DEBT_TYPES, ...PAYABLE_DEBT_TYPES];
+
+/**
+ * D'où viennent les lignes d'un indicateur :
+ *
+ * - `ledger`     écritures du journal sur la **période** (from → to) ;
+ * - `ledgerTo`   écritures du journal **depuis l'origine jusqu'à `to`**
+ *                (caisse, argent propre, retraits : des ÉTATS, pas des flux) ;
+ * - `debts`      dettes encore ouvertes à `to`, avec le reste reconstitué ;
+ * - `stock`      lots encore garnis à `to` ;
+ * - `vola`       composite caisse + stock + créances − passifs (§10) ;
+ * - `disposable` bénéfice mangeable, décomposé selon la contrainte qui le
+ *                borne entre le bénéfice net cumulé et l'excédent de caisse (§9).
+ */
+export type DrillSource = 'ledger' | 'ledgerTo' | 'debts' | 'stock' | 'vola' | 'disposable';
+
+/** `period` = écritures de la période · `toDate` = état cumulé à la date de fin. */
+export type DrillScope = 'period' | 'toDate';
 
 interface IndicatorDef {
   label: string;
-  kinds: string[];
+  /** Source des lignes — défaut `ledger`. */
+  source?: DrillSource;
+  /** Source `ledger`/`ledgerTo` : kinds du journal. */
+  kinds?: string[];
+  /** Source `debts` : types de dettes retenus. */
+  debtTypes?: string[];
   /** Ne retourne que les écritures à cashDelta > 0 */
   positiveCashOnly?: boolean;
   /**
@@ -191,14 +235,157 @@ interface IndicatorDef {
    * par `kind` : sans cela, `GET /dashboard/:indicator/transactions` ne
    * retomberait pas sur la valeur affichée au dashboard (§62, contrôle §16).
    */
-  total?: (entries: LedgerRow[]) => number;
+  total?: (entries: DrillRow[]) => number;
 }
 
-const sumAmount = (entries: LedgerRow[], kind?: string): number =>
+const sumAmount = (entries: DrillRow[], kind?: string): number =>
   entries.reduce((acc, e) => (kind === undefined || e.kind === kind ? acc + e.amount : acc), 0);
 
-const sumCashDelta = (entries: LedgerRow[]): number =>
+const sumCashDelta = (entries: DrillRow[]): number =>
   entries.reduce((acc, e) => acc + e.cashDelta, 0);
+
+/** Ligne fabriquée (solde initial, argent propre, règle) — mêmes champs qu'une écriture. */
+function syntheticRow(
+  date: Date,
+  id: string,
+  kind: string,
+  amount: number,
+  description: string,
+  cashDelta = 0,
+): DrillRow {
+  return {
+    id,
+    seq: 0n,
+    date,
+    kind,
+    amount,
+    cashDelta,
+    description,
+    reference: null,
+    refType: null,
+    refId: null,
+  };
+}
+
+/** Les passifs entrent en négatif dans les composites : la vola les SOUSTRAIT. */
+const negateRows = (rows: DrillRow[]): DrillRow[] =>
+  rows.map((e) => ({
+    ...e,
+    amount: -e.amount,
+    cashDelta: -e.cashDelta,
+    description: `− ${e.description}`,
+  }));
+
+const openingRows = (date: Date, openingCashBalance: number): DrillRow[] =>
+  openingCashBalance === 0
+    ? []
+    : [
+        syntheticRow(
+          date,
+          'OPENING',
+          'OPENING',
+          openingCashBalance,
+          'Solde initial de caisse',
+          openingCashBalance,
+        ),
+      ];
+
+/**
+ * Total des indicateurs composites : le journal est signé par `cashDelta` (une
+ * vente créditée n'a pas débité la caisse de son montant), les dettes et les
+ * lots par leur `amount`. Exporté pour que les tests branchent exactement la
+ * même arithmétique que `GET /dashboard/:indicator/transactions`.
+ */
+export const sumBalance = (entries: DrillRow[]): number =>
+  entries.reduce((acc, e) => acc + (ALL_CASH_KINDS.includes(e.kind) ? e.cashDelta : e.amount), 0);
+
+/** Lignes déjà chargées d'une source composite (caisse, stock, dettes). */
+export interface CompositeParts {
+  /** Écritures de caisse **avec le solde initial en tête**. */
+  cashRows: DrillRow[];
+  stockRows: DrillRow[];
+  receivableRows: DrillRow[];
+  payableRows: DrillRow[];
+}
+
+/** VOLA MIODINA = caisse + stock + créances − passifs (§10). */
+export function volaDrillRows(parts: CompositeParts): DrillRow[] {
+  return [
+    ...parts.cashRows,
+    ...parts.stockRows,
+    ...parts.receivableRows,
+    ...negateRows(parts.payableRows),
+  ];
+}
+
+/**
+ * BÉNÉFICE DISPONIBLE (§9) = max(0, min(bénéfice net cumulé, excédent de caisse)).
+ *
+ * Les deux bornes ne sont pas interchangeables : on construit les lignes de la
+ * contrainte qui produit réellement la valeur affichée, sinon le total du
+ * dérillage ne retombe pas sur la carte (§62, contrôle §16).
+ *
+ * `cashSurplus ≤ netProfitAccumulated` dans la pratique (stock, créances,
+ * retraits et réserve sont tous ≥ 0) : la première branche est la courante, la
+ * seconde n'est atteinte que si des retraits de bénéfice ont été contre-passés.
+ */
+export function disposableDrillRows(
+  money: Pick<
+    DashboardResult['money'],
+    'cash' | 'payables' | 'personalCapitalEngaged' | 'disposableProfit'
+  >,
+  config: FinanceConfig,
+  date: Date,
+  parts: CompositeParts,
+): DrillRow[] {
+  if (money.disposableProfit <= 0) {
+    return [
+      syntheticRow(
+        date,
+        'RULE',
+        'RULE',
+        0,
+        'Plancher à 0 : un bénéfice mangeable ne peut pas être négatif',
+      ),
+    ];
+  }
+
+  const capitalRows =
+    money.personalCapitalEngaged === 0
+      ? []
+      : [
+          syntheticRow(
+            date,
+            'CAPITAL',
+            'CAPITAL',
+            -money.personalCapitalEngaged,
+            'Argent propre engagé',
+          ),
+        ];
+  const reserveRows =
+    config.workingReserve === 0
+      ? []
+      : [syntheticRow(date, 'RESERVE', 'RESERVE', -config.workingReserve, 'Réserve de rotation')];
+
+  const cashSurplus =
+    money.cash - money.payables - money.personalCapitalEngaged - config.workingReserve;
+
+  if (Math.abs(money.disposableProfit - cashSurplus) < 0.01) {
+    return [...parts.cashRows, ...negateRows(parts.payableRows), ...capitalRows, ...reserveRows];
+  }
+
+  // Bénéfice net cumulé = vola − argent propre + retraits. Les retraits de
+  // bénéfice sont déjà déduits DANS la caisse : on les retire de la ligne de
+  // caisse pour ne pas les compter une seconde fois.
+  return [
+    ...parts.cashRows.filter((e) => e.kind !== 'PROFIT_DRAWING'),
+    ...parts.stockRows,
+    ...parts.receivableRows,
+    ...negateRows(parts.payableRows),
+    ...capitalRows,
+  ];
+}
+
 
 export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   ca: { label: "Chiffre d'affaires", kinds: ['SALE'] },
@@ -225,15 +412,47 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   },
   expenses: { label: 'Dépenses', kinds: ['EXPENSE'] },
   versements: { label: 'Versements (charges)', kinds: ['VERSEMENT'] },
-  cash: { label: 'Caisse', kinds: ALL_CASH_KINDS, total: sumCashDelta },
+  cash: { label: 'Variation de caisse', kinds: ALL_CASH_KINDS, total: sumCashDelta },
+  /**
+   * Solde de caisse (état) : `Σ cashDelta` depuis l'origine + solde initial,
+   * soit exactement `money.cash` affiché sur la carte « Caisse ».
+   */
+  cashBalance: {
+    label: 'Caisse (solde)',
+    source: 'ledgerTo',
+    kinds: ALL_CASH_KINDS,
+    total: sumCashDelta,
+  },
+  // Exclusivement cumulés au dashboard : le dérillage doit l'être aussi,
+  // sinon le total du drill-down ne retombe pas sur la carte (§16).
   capital: {
     label: 'Argent propre',
+    source: 'ledgerTo',
     kinds: ['PERSONAL_CAPITAL_IN', 'PERSONAL_CAPITAL_OUT'],
     // Une sortie d'argent propre est stockée avec un `amount` positif : le total
     // est la variation nette (injections − récupérations).
     total: (es) => sumAmount(es, 'PERSONAL_CAPITAL_IN') - sumAmount(es, 'PERSONAL_CAPITAL_OUT'),
   },
-  profitDrawings: { label: 'Bénéfice sorti', kinds: ['PROFIT_DRAWING'] },
+  profitDrawings: { label: 'Bénéfice sorti', source: 'ledgerTo', kinds: ['PROFIT_DRAWING'] },
+
+  receivables: {
+    label: 'Créances',
+    source: 'debts',
+    debtTypes: RECEIVABLE_DEBT_TYPES,
+  },
+  payables: { label: 'Passifs', source: 'debts', debtTypes: PAYABLE_DEBT_TYPES },
+  debtsCustomer: { label: 'Dettes clients', source: 'debts', debtTypes: ['CUSTOMER'] },
+  debtsOnlineSeller: {
+    label: 'Dettes vendeurs en ligne',
+    source: 'debts',
+    debtTypes: ['ONLINE_SELLER'],
+  },
+  debtsSupplier: { label: 'Dettes fournisseurs', source: 'debts', debtTypes: ['SUPPLIER'] },
+  debtsTrosa: { label: 'Trosa sinoa', source: 'debts', debtTypes: ['TROSA_SINOA'] },
+  debtsTotal: { label: 'Dettes totales', source: 'debts', debtTypes: ALL_DEBT_TYPES },
+  stockValue: { label: 'Valeur du stock', source: 'stock' },
+  vola: { label: 'Vola miodina', source: 'vola', total: sumBalance },
+  disposableProfit: { label: 'Bénéfice disponible', source: 'disposable', total: sumBalance },
 };
 
 export const INDICATOR_KEYS = Object.keys(INDICATORS) as IndicatorKey[];
@@ -241,10 +460,58 @@ export const INDICATOR_KEYS = Object.keys(INDICATORS) as IndicatorKey[];
 export interface DrilldownResult {
   indicator: IndicatorKey;
   label: string;
+  scope: DrillScope;
   period: DashboardPeriod;
   count: number;
   total: number;
-  entries: Awaited<ReturnType<typeof ledgerEntriesForKinds>>;
+  entries: DrillRow[];
+}
+
+/** Assemble les lignes d'un indicateur selon sa source. */
+async function assembleRows(
+  def: IndicatorDef,
+  range: PeriodRange,
+  config: FinanceConfig,
+): Promise<{ rows: DrillRow[]; scope: DrillScope }> {
+  const source = def.source ?? 'ledger';
+
+  if (source === 'ledger') {
+    return {
+      rows: await ledgerEntriesForKinds(def.kinds ?? [], range.from, range.to),
+      scope: 'period',
+    };
+  }
+  if (source === 'ledgerTo') {
+    return {
+      rows: await ledgerEntriesForKinds(def.kinds ?? [], EPOCH, range.to, CUMUL_LIMIT),
+      scope: 'toDate',
+    };
+  }
+  if (source === 'debts') {
+    return { rows: await debtDrillEntries(range.to, def.debtTypes ?? []), scope: 'toDate' };
+  }
+  if (source === 'stock') {
+    return { rows: await stockDrillEntries(range.to), scope: 'toDate' };
+  }
+
+  // Sources composites : les valeurs affichées viennent du dashboard lui-même,
+  // les lignes ci-dessous sont ses composantes — même instantané, même total.
+  const dash = await buildDashboard(range);
+  const [cashRows, stockRows, receivableRows, payableRows] = await Promise.all([
+    ledgerEntriesForKinds(ALL_CASH_KINDS, EPOCH, range.to, CUMUL_LIMIT),
+    stockDrillEntries(range.to),
+    debtDrillEntries(range.to, RECEIVABLE_DEBT_TYPES),
+    debtDrillEntries(range.to, PAYABLE_DEBT_TYPES),
+  ]);
+  const parts: CompositeParts = {
+    cashRows: [...openingRows(range.to, config.openingCashBalance), ...cashRows],
+    stockRows,
+    receivableRows,
+    payableRows,
+  };
+
+  if (source === 'vola') return { rows: volaDrillRows(parts), scope: 'toDate' };
+  return { rows: disposableDrillRows(dash.money, config, range.to, parts), scope: 'toDate' };
 }
 
 export async function getIndicatorDrilldown(
@@ -255,16 +522,15 @@ export async function getIndicatorDrilldown(
 ): Promise<DrilldownResult> {
   const def = INDICATORS[indicator];
   const range = resolvePeriod(key, now, custom);
-  let entries = await ledgerEntriesForKinds(def.kinds, range.from, range.to);
-  if (def.positiveCashOnly) entries = entries.filter((e) => e.cashDelta > 0);
+  const { rows: all, scope } = await assembleRows(def, range, financeConfig());
 
-  const total = def.total
-    ? def.total(entries)
-    : entries.reduce((acc, e) => acc + e.amount, 0);
+  const entries = def.positiveCashOnly ? all.filter((e) => e.cashDelta > 0) : all;
+  const total = def.total ? def.total(entries) : entries.reduce((acc, e) => acc + e.amount, 0);
 
   return {
     indicator,
     label: def.label,
+    scope,
     period: {
       key: range.key,
       from: range.from.toISOString(),
@@ -276,5 +542,6 @@ export async function getIndicatorDrilldown(
     entries,
   };
 }
+
 
 export { DEFAULT_FINANCE_CONFIG };

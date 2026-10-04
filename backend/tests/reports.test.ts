@@ -4,6 +4,12 @@ import type { Response } from 'supertest';
 import { adminToken, app, as, API, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 import { buildPdf } from '../src/modules/reports/reports.service';
+import {
+  disposableDrillRows,
+  sumBalance,
+  type CompositeParts,
+  type DrillRow,
+} from '../src/services/metrics';
 
 const stamp = Date.now();
 const WIDE = 'period=custom&from=2020-01-01&to=2100-12-31';
@@ -211,6 +217,118 @@ describe('Journal, dashboard et rapports', () => {
         Number(drill.body.total),
         `${indicator} : total du dérillage ≠ valeur affichée au dashboard`,
       ).toBeCloseTo(Number(displayed), 2);
+    }
+  });
+
+  it('décompose le bénéfice disponible selon la contrainte qui le borne (§9)', () => {
+    // Borne par l'excédent de caisse (cas courant) ou par le bénéfice net
+    // cumulé : la branche ratée sortirait un total qui ne retombe pas sur la
+    // carte du dashboard (§62, contrôle §16).
+    const date = new Date('2099-06-30T00:00:00.000Z');
+    const config = { openingCashBalance: 0, workingReserve: 0 };
+    const row = (id: string, kind: string, amount: number, cashDelta = 0): DrillRow => ({
+      id,
+      seq: 0n,
+      date,
+      kind,
+      amount,
+      cashDelta,
+      description: id,
+      reference: null,
+      refType: null,
+      refId: null,
+    });
+
+    // Le journal est signé par `cashDelta` (une vente créditée n'a pas débité la
+    // caisse) : caisse = 110 − 10 = 100 malgré des montants d'écriture distincts.
+    const parts: CompositeParts = {
+      cashRows: [row('sale', 'SALE', 999_999, 110), row('draw', 'PROFIT_DRAWING', 10, -10)],
+      stockRows: [row('lot', 'LOT', 50)],
+      receivableRows: [row('recv', 'CUSTOMER', 30)],
+      payableRows: [row('pay', 'SUPPLIER', 20)],
+    };
+    const money = (disposableProfit: number) => ({
+      cash: 100,
+      payables: 20,
+      personalCapitalEngaged: 40,
+      disposableProfit,
+    });
+
+    // (a) excédent de caisse : 100 − 20 − 40 = 40 → ni stock ni créances dedans.
+    const surplus = disposableDrillRows(money(40), config, date, parts);
+    expect(sumBalance(surplus)).toBe(40);
+    expect(surplus.map((r) => r.kind)).not.toContain('LOT');
+    expect(surplus.some((r) => r.kind === 'CAPITAL')).toBe(true);
+
+    // (b) bénéfice net cumulé : 100 + 50 + 30 − 20 − 40 + 10 = 130, et les
+    // retraits (déjà déduits par la caisse) sont retirés pour ne pas doubler.
+    const cumulative = disposableDrillRows(money(130), config, date, parts);
+    expect(sumBalance(cumulative)).toBe(130);
+    expect(cumulative.map((r) => r.kind)).toContain('LOT');
+    expect(cumulative.map((r) => r.kind)).not.toContain('PROFIT_DRAWING');
+
+    // (c) plancher à 0 : une seule ligne explicative, total nul.
+    const floored = disposableDrillRows(money(0), config, date, parts);
+    expect(sumBalance(floored)).toBe(0);
+    expect(floored.map((r) => r.kind)).toEqual(['RULE']);
+  });
+
+  it('dérille les indicateurs d\'état vers leurs composantes (§62)', async () => {
+    // Les indicateurs de flux sont scellés dans la fenêtre ci-dessus. Ceux-ci
+    // sont des ÉTATS cumulés jusqu'à la date de fin : ils captent donc aussi les
+    // écritures des autres fichiers de test, écrits en parallèle. Chaque
+    // dérillage est encadré de deux lectures du dashboard — le total doit
+    // retomber sur l'une des deux, ce qui autorise une écriture entre les deux
+    // lectures mais jamais un total faux.
+    const stateful: Record<string, (b: Record<string, any>) => number> = {
+      cashBalance: (b) => Number(b.money.cash),
+      receivables: (b) => Number(b.money.receivables),
+      payables: (b) => Number(b.money.payable),
+      debtsCustomer: (b) => Number(b.debts.customer),
+      debtsOnlineSeller: (b) => Number(b.debts.onlineSeller),
+      debtsSupplier: (b) => Number(b.debts.supplier),
+      debtsTrosa: (b) => Number(b.debts.trosaSinoa),
+      debtsTotal: (b) => Number(b.debts.total),
+      stockValue: (b) => Number(b.stock.value),
+      vola: (b) => Number(b.money.volaMiodina),
+      disposableProfit: (b) => Number(b.money.disposableProfit),
+      capital: (b) => Number(b.money.personalCapitalEngaged),
+      profitDrawings: (b) => Number(b.money.profitDrawings),
+    };
+
+    const indicators = await admin.get('/dashboard/indicators');
+    expect(indicators.status).toBe(200);
+    const exposed = indicators.body.items.map((i: { key: string }) => i.key);
+    for (const key of Object.keys(stateful)) expect(exposed).toContain(key);
+
+    // Le stock est amorcé par ce fichier : sa valeur n'est jamais nulle.
+    const seeded = await admin.get(`/dashboard?${SEALED}`);
+    expect(Number(seeded.body.stock.value)).toBeGreaterThan(0);
+
+    const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
+
+    for (const [indicator, pick] of Object.entries(stateful)) {
+      let matched = false;
+      let last = { before: NaN, drill: NaN, after: NaN };
+
+      for (let attempt = 0; attempt < 3 && !matched; attempt += 1) {
+        const before = await admin.get(`/dashboard?${SEALED}`);
+        const drill = await admin.get(`/dashboard/${indicator}/transactions?${SEALED}`);
+        const after = await admin.get(`/dashboard?${SEALED}`);
+
+        expect(drill.status, indicator).toBe(200);
+        expect(drill.body.scope, indicator).toBe('toDate');
+        expect(drill.body.count, indicator).toBe(drill.body.entries.length);
+
+        last = {
+          before: pick(before.body),
+          drill: Number(drill.body.total),
+          after: pick(after.body),
+        };
+        matched = close(last.drill, last.before) || close(last.drill, last.after);
+      }
+
+      expect(matched, `${indicator} : dérillage ${JSON.stringify(last)}`).toBe(true);
     }
   });
 
