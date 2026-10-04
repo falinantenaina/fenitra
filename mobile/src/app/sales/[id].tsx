@@ -260,7 +260,9 @@ export default function SaleDetailScreen() {
             router.push({ pathname: '/dettes/[id]', params: { id: data.debt!.id } })
           }>
           <View className="flex-1">
-            <Text className="text-sm font-semibold text-slate-800">Créance client liée</Text>
+            <Text className="text-sm font-semibold text-slate-800">
+              Créance client liée (à recevoir)
+            </Text>
             <Text className="text-xs text-slate-400">
               {formatMoney(data.debt.paidAmount)} encaissé sur {formatMoney(data.debt.initialAmount)}
             </Text>

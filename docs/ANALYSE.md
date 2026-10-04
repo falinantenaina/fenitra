@@ -1254,8 +1254,13 @@ puis trois groupes de cartes :
 | Section | Cartes | Dérillable |
 |---|---|---|
 | Activité de la période | CA, bénéfice brut, bénéfice net, coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
-| Situation à la date | caisse, variation de caisse, vola miodina, créances, passifs, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
-| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, vendeurs en ligne, fournisseurs, dettes totales, trosa sinoa | ✔ tous, sauf « vendus » (compteur d'unités) |
+| Situation à la date | caisse, variation de caisse, vola miodina, créances (à recevoir), dettes à payer, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
+| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, vendeurs en ligne, fournisseurs, trosa sinoa | ✔ tous, sauf « vendus » (compteur d'unités) |
+
+Les cartes de dettes affichent leur sens : « à recevoir » (clients, vendeurs)
+ou « à payer » (fournisseurs, trosa sinoa — la trosa sinoa **est** la dette
+qu'on paie au fournisseur). Le total mélangé « Dettes totales » a disparu :
+les totaux sont « Créances (à recevoir) » et « Dettes à payer ».
 
 Le filtre `components/period-tabs.tsx` expose les sept presets **plus un
 éditeur « Personnalisé »** (`Du` / `Au`, champ `AAAA-MM-JJ` réutilisant
@@ -1492,7 +1497,12 @@ complété par le `409` du serveur ; `POST /stock/adjustments` renvoie
 **Onglet Dettes** — croisement de filtres (type : clients / vendeurs /
 fournisseurs / trosa ; statut : ouvertes / partielles / réglées) sur
 `GET /debts?type=&status=`, reste dû et montant initial par ligne, total de
-la liste affichée. `/dettes/[id]` : en-tête avec statut et échéance,
+la liste affichée. Filtres, lignes, détail et cartes du tableau de bord
+portent le **sens** de l'écriture : « à recevoir » pour clients et vendeurs,
+« à payer » pour fournisseurs et trosa sinoa (même chose : la trosa sinoa est
+la dette qu'on paie au fournisseur) ; le bouton de règlement dit « Encaisser »
+sur une créance et « Décaisser » sur une dette, selon `direction`.
+`/dettes/[id]` : en-tête avec statut et échéance,
 règlement (ADMIN/MANAGER, bouton « Solde » en un tap, modes de paiement
 de `GET /payment-methods`) vers `POST /debts/:id/payments`, puis les trois
 listes du détail : `payments[]`, `versements[]` liés (A2) et `history[]`

@@ -11,10 +11,10 @@ import type { DebtItem, DebtStatus, DebtType } from '@/lib/types';
 
 const TYPE_FILTERS: { key: DebtType | ''; label: string }[] = [
   { key: '', label: 'Toutes' },
-  { key: 'CUSTOMER', label: 'Clients' },
-  { key: 'ONLINE_SELLER', label: 'Vendeurs' },
-  { key: 'SUPPLIER', label: 'Fournisseurs' },
-  { key: 'TROSA_SINOA', label: 'Trosa' },
+  { key: 'CUSTOMER', label: 'Clients (à recevoir)' },
+  { key: 'ONLINE_SELLER', label: 'Vendeurs (à recevoir)' },
+  { key: 'SUPPLIER', label: 'Fournisseurs (à payer)' },
+  { key: 'TROSA_SINOA', label: 'Trosa (à payer)' },
 ];
 
 const STATUS_FILTERS: { key: DebtStatus | ''; label: string }[] = [
@@ -25,10 +25,10 @@ const STATUS_FILTERS: { key: DebtStatus | ''; label: string }[] = [
 ];
 
 const TYPE_LABELS: Record<DebtType, string> = {
-  CUSTOMER: 'Client',
-  ONLINE_SELLER: 'Vendeur',
-  SUPPLIER: 'Fournisseur',
-  TROSA_SINOA: 'Trosa sinoa',
+  CUSTOMER: 'Client (à recevoir)',
+  ONLINE_SELLER: 'Vendeur (à recevoir)',
+  SUPPLIER: 'Fournisseur (à payer)',
+  TROSA_SINOA: 'Trosa sinoa (à payer au fournisseur)',
 };
 
 const STATUS_STYLES: Record<DebtStatus, { label: string; className: string; text: string }> = {
@@ -113,6 +113,9 @@ function DebtsBody({
     <View className="flex-1 bg-white">
       <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }}>
         <Text className="text-xl font-bold text-slate-900">Dettes</Text>
+        <Text className="-mt-2 text-xs text-slate-500">
+          À recevoir : clients et vendeurs en ligne — À payer : fournisseurs et trosa sinoa
+        </Text>
 
         <View className="flex-row items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
           <Text className="text-xs text-slate-500">Restant dû (liste affichée)</Text>

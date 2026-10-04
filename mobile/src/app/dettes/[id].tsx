@@ -29,10 +29,10 @@ import type { DebtStatus, DebtType } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
 const TYPE_LABELS: Record<DebtType, string> = {
-  CUSTOMER: 'Créance client',
-  ONLINE_SELLER: 'Créance vendeur en ligne',
-  SUPPLIER: 'Dette fournisseur',
-  TROSA_SINOA: 'Trosa sinoa (à rembourser)',
+  CUSTOMER: 'Créance client (à recevoir)',
+  ONLINE_SELLER: 'Créance vendeur en ligne (à recevoir)',
+  SUPPLIER: 'Dette fournisseur (à payer)',
+  TROSA_SINOA: 'Trosa sinoa — à payer au fournisseur',
 };
 
 const STATUS_LABELS: Record<DebtStatus, { label: string; className: string; text: string }> = {
@@ -69,6 +69,8 @@ export default function DebtDetailScreen() {
   const data = debt.data;
   const remaining = Number(data?.remainingAmount ?? 0);
   const status = data ? STATUS_LABELS[data.status] : null;
+  // Sens du règlement : une créance s'encaisse, une dette se décaisse.
+  const receivable = data?.direction === 'RECEIVABLE';
 
   const onSubmit = handleSubmit(async (values) => {
     if (!id) return;
@@ -189,7 +191,7 @@ export default function DebtDetailScreen() {
                   const digits = raw.replace(/[^0-9]/g, '');
                   field.onChange(digits === '' ? 0 : Number(digits));
                 }}
-                placeholder="Montant reçu"
+                placeholder={receivable ? 'Montant encaissé' : 'Montant décaissé'}
                 placeholderTextColor="#94A3B8"
                 selectionColor="#208AEF"
                 value={field.value ? String(field.value) : ''}
@@ -239,7 +241,9 @@ export default function DebtDetailScreen() {
             {payDebt.isPending ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text className="font-semibold text-white">Encaisser / Décaisser</Text>
+              <Text className="font-semibold text-white">
+                {receivable ? 'Encaisser' : 'Décaisser'}
+              </Text>
             )}
           </Pressable>
         </View>

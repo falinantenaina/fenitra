@@ -225,15 +225,15 @@ export default function HomeScreen() {
               value={formatMoney(d.money.volaMiodina)}
             />
             <KpiCard
-              hint="clients + vendeurs en ligne"
+              hint="à recevoir — clients + vendeurs en ligne"
               onPress={() => open('receivables')}
               title="Créances"
               value={formatMoney(d.money.receivables)}
             />
             <KpiCard
-              hint="fournisseurs + trosa sinoa"
+              hint="à payer — fournisseurs + trosa sinoa"
               onPress={() => open('payables')}
-              title="Passifs"
+              title="Dettes à payer"
               value={formatMoney(d.money.payable)}
             />
             <KpiCard
@@ -276,28 +276,25 @@ export default function HomeScreen() {
               value={`${formatQuantity(d.stock.soldItems)} p.`}
             />
             <KpiCard
+              hint="à recevoir"
               onPress={() => open('debtsCustomer')}
               title="Dettes clients"
               value={formatMoney(d.debts.customer)}
             />
             <KpiCard
+              hint="à recevoir"
               onPress={() => open('debtsOnlineSeller')}
               title="Vendeurs en ligne"
               value={formatMoney(d.debts.onlineSeller)}
             />
             <KpiCard
+              hint="à payer"
               onPress={() => open('debtsSupplier')}
               title="Fournisseurs"
               value={formatMoney(d.debts.supplier)}
             />
             <KpiCard
-              hint={`dont trosa ${formatMoney(d.debts.trosaSinoa)}`}
-              onPress={() => open('debtsTotal')}
-              title="Dettes totales"
-              value={formatMoney(d.debts.total)}
-            />
-            <KpiCard
-              hint="ce que l'activité doit"
+              hint="à payer, comme les fournisseurs"
               onPress={() => open('debtsTrosa')}
               title="Trosa sinoa"
               value={formatMoney(d.debts.trosaSinoa)}

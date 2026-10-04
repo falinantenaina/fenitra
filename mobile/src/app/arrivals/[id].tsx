@@ -129,7 +129,9 @@ export default function ArrivalDetailScreen() {
             router.push({ pathname: '/dettes/[id]', params: { id: data.debt!.id } })
           }>
           <View className="flex-1">
-            <Text className="text-sm font-semibold text-slate-800">Dette fournisseur</Text>
+            <Text className="text-sm font-semibold text-slate-800">
+              Dette fournisseur (à payer)
+            </Text>
             <Text className="text-xs text-slate-400">
               {formatMoney(data.debt.paidAmount)} réglé sur {formatMoney(data.debt.initialAmount)}
             </Text>
