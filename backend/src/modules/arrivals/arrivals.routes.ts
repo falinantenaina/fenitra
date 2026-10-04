@@ -4,7 +4,7 @@ import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { conflict } from '../../lib/errors';
-import { beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
+import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelSchema,
   createArrivalSchema,
@@ -14,12 +14,6 @@ import {
 import { cancelArrival, createArrival, listArrivals, loadArrival, previewArrivalReference } from './arrivals.service';
 
 export const arrivalsRouter = Router();
-
-function idempotencyKey(req: { headers: Record<string, string | string[] | undefined> }): string | null {
-  const raw = req.headers['idempotency-key'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return value && value.trim() ? value.trim().slice(0, 120) : null;
-}
 
 /** GET /api/arrivals/reference-preview — prochaine référence, sans la consommer */
 arrivalsRouter.get(
@@ -48,7 +42,7 @@ arrivalsRouter.post(
     const body = parseBody(req, createArrivalSchema);
     const key = idempotencyKey(req);
     const endpoint = 'POST /arrivals';
-    const claim = key ? await beginIdempotent(key, endpoint) : null;
+    const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
 
     if (claim?.kind === 'replay') {
       res.status(claim.statusCode).json(claim.body);
@@ -60,10 +54,10 @@ arrivalsRouter.post(
 
     try {
       const arrival = await createArrival(body, req.user!.id);
-      if (key) await finishIdempotent(key, endpoint, 201, arrival);
+      if (key) await finishIdempotent(key, endpoint, 201, arrival, req.user!.id);
       res.status(201).json(arrival);
     } catch (error) {
-      if (key) await releaseIdempotent(key);
+      if (key) await releaseIdempotent(key, req.user!.id);
       throw error;
     }
   }),

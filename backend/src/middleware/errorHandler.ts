@@ -57,6 +57,18 @@ export function errorHandler(
           error: { code: 'VALIDATION_ERROR', message: 'Identifiant invalide (forme incorrecte)' },
         });
         return;
+      case 'P2010':
+      case 'P2014':
+        // Violation d'une contrainte SQL brute (CHECK, FK) : c'est une donnée
+        // refusée par le modèle, pas une panne serveur.
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Donnée refusée par une contrainte de la base',
+            details: { cause: (err.meta as { message?: string } | undefined)?.message },
+          },
+        });
+        return;
       default:
         break;
     }

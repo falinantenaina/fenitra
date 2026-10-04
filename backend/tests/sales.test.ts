@@ -185,6 +185,7 @@ describe('Ventes', () => {
 
   it('refuse un article en rupture (409)', async () => {
     const res = await admin.post('/sales').send({
+      customerId,
       items: [{ variantId: variantB, quantity: 500, unitPrice: 1000 }],
     });
     expect(res.status).toBe(409);
@@ -211,7 +212,10 @@ describe('Ventes', () => {
 
   it('rejette un doublon avec la même Idempotency-Key', async () => {
     const key = `sale-${stamp}`;
-    const payload = { items: [{ variantId: variantB, quantity: 1, unitPrice: 20000 }] };
+    const payload = {
+      customerId,
+      items: [{ variantId: variantB, quantity: 1, unitPrice: 20000 }],
+    };
     const first = await admin.post('/sales').set('Idempotency-Key', key).send(payload);
     const second = await admin.post('/sales').set('Idempotency-Key', key).send(payload);
 

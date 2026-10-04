@@ -673,6 +673,8 @@ model IdempotencyRecord {
   statusCode Int
   body       String
   createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Setting {

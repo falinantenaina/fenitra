@@ -4,7 +4,7 @@ import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { conflict } from '../../lib/errors';
-import { beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
+import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelDebtSchema,
   createDebtSchema,
@@ -26,12 +26,6 @@ import {
 
 export const debtsRouter = Router();
 export const paymentsRouter = Router();
-
-function idempotencyKey(req: { headers: Record<string, string | string[] | undefined> }): string | null {
-  const raw = req.headers['idempotency-key'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return value && value.trim() ? value.trim().slice(0, 120) : null;
-}
 
 /** GET /api/debts — liste filtrée (type, statut, tiers, période, motif) */
 debtsRouter.get(
@@ -59,7 +53,7 @@ debtsRouter.post(
     const body = parseBody(req, createDebtSchema);
     const key = idempotencyKey(req);
     const endpoint = 'POST /debts';
-    const claim = key ? await beginIdempotent(key, endpoint) : null;
+    const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
 
     if (claim?.kind === 'replay') {
       res.status(claim.statusCode).json(claim.body);
@@ -71,10 +65,10 @@ debtsRouter.post(
 
     try {
       const debt = await createDebt(body, req.user!.id);
-      if (key) await finishIdempotent(key, endpoint, 201, debt);
+      if (key) await finishIdempotent(key, endpoint, 201, debt, req.user!.id);
       res.status(201).json(debt);
     } catch (error) {
-      if (key) await releaseIdempotent(key);
+      if (key) await releaseIdempotent(key, req.user!.id);
       throw error;
     }
   }),
@@ -99,7 +93,7 @@ debtsRouter.post(
     const body = parseBody(req, debtPaymentSchema);
     const key = idempotencyKey(req);
     const endpoint = `POST /debts/${id}/payments`;
-    const claim = key ? await beginIdempotent(key, endpoint) : null;
+    const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
 
     if (claim?.kind === 'replay') {
       res.status(claim.statusCode).json(claim.body);
@@ -111,10 +105,10 @@ debtsRouter.post(
 
     try {
       const debt = await payDebt(id, body, req.user!.id);
-      if (key) await finishIdempotent(key, endpoint, 200, debt);
+      if (key) await finishIdempotent(key, endpoint, 200, debt, req.user!.id);
       res.json(debt);
     } catch (error) {
-      if (key) await releaseIdempotent(key);
+      if (key) await releaseIdempotent(key, req.user!.id);
       throw error;
     }
   }),
@@ -148,7 +142,7 @@ paymentsRouter.post(
     const body = parseBody(req, createPaymentSchema);
     const key = idempotencyKey(req);
     const endpoint = 'POST /payments';
-    const claim = key ? await beginIdempotent(key, endpoint) : null;
+    const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
 
     if (claim?.kind === 'replay') {
       res.status(claim.statusCode).json(claim.body);
@@ -160,10 +154,10 @@ paymentsRouter.post(
 
     try {
       const debt = await payDebt(body.debtId, body, req.user!.id);
-      if (key) await finishIdempotent(key, endpoint, 200, debt);
+      if (key) await finishIdempotent(key, endpoint, 200, debt, req.user!.id);
       res.json(debt);
     } catch (error) {
-      if (key) await releaseIdempotent(key);
+      if (key) await releaseIdempotent(key, req.user!.id);
       throw error;
     }
   }),

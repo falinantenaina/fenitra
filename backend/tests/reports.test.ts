@@ -129,6 +129,12 @@ describe('Journal, dashboard et rapports', () => {
   });
 
   it('dérille un indicateur vers ses écritures (§62)', async () => {
+    // Les fichiers de test tournent en parallèle sur la même base et la
+    // fenêtre est large : on encadre la lecture du dérillage par deux lectures
+    // du journal, dont le total ne fait que croître (les annulations ajoutent
+    // des lignes, elles n'en suppriment jamais).
+    const ledgerBefore = await admin.get(`/ledger?kind=SALE&${WIDE}&limit=200`);
+
     const res = await admin.get(`/dashboard/ca/transactions?${WIDE}`);
     expect(res.status).toBe(200);
     expect(res.body.indicator).toBe('ca');
@@ -136,8 +142,9 @@ describe('Journal, dashboard et rapports', () => {
     expect(Number(res.body.total)).toBeGreaterThan(0);
     expect(res.body.count).toBe(res.body.entries.length);
 
-    const all = await admin.get(`/ledger?kind=SALE&${WIDE}&limit=200`);
-    expect(res.body.count).toBe(all.body.total);
+    const ledgerAfter = await admin.get(`/ledger?kind=SALE&${WIDE}&limit=200`);
+    expect(ledgerBefore.body.total).toBeLessThanOrEqual(res.body.count);
+    expect(res.body.count).toBeLessThanOrEqual(ledgerAfter.body.total);
 
     const unknown = await admin.get('/dashboard/chuck-norris/transactions');
     expect(unknown.status).toBe(400);

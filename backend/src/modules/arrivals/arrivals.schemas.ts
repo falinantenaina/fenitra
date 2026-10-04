@@ -7,7 +7,9 @@ export { idParamSchema } from '../../lib/zod';
 const arrivalItem = z.object({
   variantId: z.string().min(1, 'Variante requise'),
   quantity: z.number().int().min(1, 'Quantité invalide').max(10000),
-  unitCost: z.number().int().min(0, 'Prix d\'achat invalide'),
+  // `StockLot_unit_cost_positive` impose unitCost > 0 : on refuse au niveau du
+  // schéma (400) plutôt que de laisser Prisma lever une P2010 (500).
+  unitCost: z.number().int().min(1, 'Prix d\'achat invalide (doit être supérieur à 0)'),
 });
 
 const cartonSchema = z.object({

@@ -4,6 +4,7 @@ import { businessRule, notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { allocateFIFO } from '../../services/fifo';
+import { reverseEntries } from '../../services/ledger';
 import { nextReference, peekReference } from '../../services/sequences';
 import type { CreateSaleInput, SaleListQuery } from './sales.schemas';
 
@@ -144,6 +145,15 @@ export async function createSale(input: CreateSaleInput, userId: string | null, 
 
     if (paid > totalAmount) {
       throw businessRule(`Le paiement (${money(paid)}) dépasse le montant de la vente (${money(totalAmount)})`);
+    }
+
+    // Une créance sans tiers serait comptée « vendeur en ligne » sans
+    // `onlineSellerId` (metrics/queries.ts, debtsSummary) — on refuse au
+    // niveau métier tant que la vente n'est pas soldée.
+    if (totalAmount - paid > 0 && !input.customerId && !input.onlineSellerId) {
+      throw businessRule(
+        'Une vente à crédit doit être rattachée à un client ou à un vendeur en ligne',
+      );
     }
 
     const date = input.date ?? new Date();
@@ -372,9 +382,9 @@ export async function addSalePayment(saleId: string, input: { amount: number; me
 
 /**
  * Annulation d'une vente : les quantités reviennent **dans les mêmes lots**
- * (`SaleItemLot`, §7), les dettes sont annulées et **chaque écriture de
- * journal positive de la vente est contre-passée** (kind identique, montants
- * négatifs) — `Σ amount WHERE kind='SALE'` reste exact.
+ * (`SaleItemLot`, §7), les dettes sont annulées et le **solde net par `kind`**
+ * des écritures de la vente est contre-passé (`reverseEntries`) —
+ * `Σ amount WHERE kind='SALE'` reste exact même après des règlements tardifs.
  */
 export async function cancelSale(saleId: string, reason: string, userId: string | null) {
   return prisma.$transaction(async (tx) => {
@@ -424,29 +434,20 @@ export async function cancelSale(saleId: string, reason: string, userId: string 
       });
     }
 
-    const entries = await tx.ledgerEntry.findMany({
-      where: { refType: 'SALE', refId: sale.id, amount: { gt: 0 } },
+    await reverseEntries(tx, 'SALE', sale.id, `Annulation ${sale.reference} — ${reason}`, userId, {
+      reference: `ANNULATION ${sale.reference}`,
     });
-    for (const e of entries) {
-      await tx.ledgerEntry.create({
-        data: {
-          date: now,
-          kind: e.kind,
-          amount: -e.amount,
-          cashDelta: -e.cashDelta,
-          description: `Annulation ${sale.reference} — ${reason}`,
-          reference: `ANNULATION ${sale.reference}`,
-          refType: 'SALE',
-          refId: sale.id,
-          saleId: e.saleId,
-          debtId: e.debtId,
-          paymentId: e.paymentId,
-          arrivalId: e.arrivalId,
-          expenseId: e.expenseId,
-          versementId: e.versementId,
-          userId,
-        },
-      });
+    // Les règlements de la dette portent `refType = 'DEBT'` : on contre-passe
+    // aussi le solde de la dette pour ne laisser aucune écriture orpheline.
+    if (sale.debt) {
+      await reverseEntries(
+        tx,
+        'DEBT',
+        sale.debt.id,
+        `Annulation vente ${sale.reference} — ${reason}`,
+        userId,
+        { reference: `ANNULATION ${sale.reference}` },
+      );
     }
 
     await tx.sale.update({

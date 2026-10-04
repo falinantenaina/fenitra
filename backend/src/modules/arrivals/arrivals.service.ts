@@ -4,6 +4,7 @@ import { businessRule, notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { nextReference, peekReference } from '../../services/sequences';
+import { reverseEntries } from '../../services/ledger';
 import type { ArrivalListQuery, CreateArrivalInput } from './arrivals.schemas';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -321,14 +322,19 @@ export async function createArrival(input: CreateArrivalInput, userId: string | 
 
 /**
  * Annulation d'un arrivage (§6) — **uniquement si le stock est intact**.
- * Toute correction passe par une contre-passation : lots annulés
- * (`REVERSAL`), dette annulée, écritures de paiement contre-passées.
+ * Toute correction passe par une contre-passation (`reverseEntries`) : lots
+ * annulés (`REVERSAL`), dette annulée, solde net des écritures de paiement
+ * contre-passé — y compris les règlements tardifs passés par `refType = 'DEBT'`.
  */
 export async function cancelArrival(id: string, reason: string, userId: string | null) {
   return prisma.$transaction(async (tx) => {
     const arrival = await tx.arrival.findUnique({
       where: { id },
-      include: { lots: true, debt: true, supplier: true },
+      include: {
+        lots: true,
+        debt: { include: { versements: { select: { id: true, personName: true, motif: true, date: true } } } },
+        supplier: true,
+      },
     });
     if (!arrival) throw notFound('Arrivage introuvable');
     if (arrival.status === 'CANCELLED') throw businessRule('Cet arrivage est déjà annulé');
@@ -336,6 +342,12 @@ export async function cancelArrival(id: string, reason: string, userId: string |
     const moved = arrival.lots.filter((l) => l.remainingQty !== l.initialQty);
     if (moved.length > 0) {
       throw businessRule("Impossible d'annuler : le stock de cet arrivage a déjà bougé");
+    }
+    if (arrival.debt && arrival.debt.versements.length > 0) {
+      const v = arrival.debt.versements[0]!;
+      throw businessRule(
+        `Un versement du ${v.date.toISOString().slice(0, 10)} règle la dette de cet arrivage — annulez d'abord le versement`,
+      );
     }
 
     const now = new Date();
@@ -365,22 +377,21 @@ export async function cancelArrival(id: string, reason: string, userId: string |
       });
     }
 
-    if (arrival.paidAmount > 0) {
-      await tx.ledgerEntry.create({
-        data: {
-          date: now,
-          kind: 'SUPPLIER_PAYMENT',
-          amount: -arrival.paidAmount,
-          cashDelta: arrival.paidAmount,
-          description: `Annulation arrivage ${arrival.reference} — ${arrival.supplier.name}`,
-          reference: `ANNULATION ${arrival.reference}`,
-          refType: 'ARRIVAL',
-          refId: arrival.id,
-          arrivalId: arrival.id,
-          debtId: arrival.debt?.id ?? null,
-          userId,
-        },
-      });
+    // Solde net par kind : paiement initial (refType ARRIVAL) + règlements
+    // tardifs de la dette (refType DEBT). `Arrival.paidAmount` n'est jamais
+    // mis à jour après la création — ne jamais recalculer depuis lui.
+    await reverseEntries(tx, 'ARRIVAL', arrival.id, `Annulation arrivage ${arrival.reference}`, userId, {
+      reference: `ANNULATION ${arrival.reference}`,
+    });
+    if (arrival.debt) {
+      await reverseEntries(
+        tx,
+        'DEBT',
+        arrival.debt.id,
+        `Annulation arrivage ${arrival.reference} — ${arrival.supplier.name}`,
+        userId,
+        { reference: `ANNULATION ${arrival.reference}` },
+      );
     }
 
     await tx.arrival.update({
