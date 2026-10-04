@@ -20,6 +20,19 @@ export interface ApiErrorBody {
 
 type RetriableConfig = InternalAxiosRequestConfig & { __retried?: boolean };
 
+/** Marque posée sur une erreur 401 dont le refresh a échoué pour raison réseau. */
+interface RefreshMarkedError {
+  __refreshInconclusive?: boolean;
+}
+
+/**
+ * `true` quand un 401 provient d'un refresh impossible à réaliser (réseau) :
+ * le refus du serveur n'est pas certain, il ne faut pas déconnecter l'utilisateur.
+ */
+export function isRefreshInconclusive(error: unknown): boolean {
+  return Boolean((error as RefreshMarkedError | null | undefined)?.__refreshInconclusive);
+}
+
 export const api = createAxios({
   baseURL: API_BASE_URL,
   timeout: 20_000,
@@ -57,7 +70,15 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !skipRefresh && config && !config.__retried && refreshHandler) {
       config.__retried = true;
-      const token = await refreshHandler();
+      let token: string | null = null;
+      try {
+        token = await refreshHandler();
+      } catch {
+        // Erreur réseau pendant le refresh : le refus du serveur n'est pas
+        // certain, on marque l'erreur pour que le caller ne déconnecte pas.
+        (error as RefreshMarkedError).__refreshInconclusive = true;
+        return Promise.reject(error);
+      }
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
         return api.request(config);
@@ -69,20 +90,40 @@ api.interceptors.response.use(
   },
 );
 
-/** Rafraîchit l'access token ; renvoie `null` si le refresh a échoué. */
-export async function refreshAccessToken(): Promise<string | null> {
+/** Refresh en cours : partagé par toutes les requêtes concurrentes (mutex). */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function runRefresh(): Promise<string | null> {
+  const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return null;
   try {
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return null;
     const { data } = await rawApi.post<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
       refreshToken,
     });
     await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
     if (data.refreshToken) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
     return data.accessToken;
-  } catch {
-    return null;
+  } catch (error) {
+    // Refus définitif du serveur (401/403) : jeton révoqué ou expiré.
+    if (isAxiosError(error) && error.response) return null;
+    // Sinon (réseau, timeout) : on propage pour que le caller ne déconnecte pas.
+    throw error;
   }
+}
+
+/**
+ * Rafraîchit l'access token ; renvoie `null` si le serveur a refusé.
+ * Plusieurs appels simultanés partagent un seul `POST /auth/refresh` — le
+ * backend révoque le refresh token utilisé, un second appel échouerait.
+ * Lève une erreur si le refresh a échoué pour raison réseau.
+ */
+export function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = runRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 /** Message lisible pour l'utilisateur, tiré du corps `{ error: { message } }`. */

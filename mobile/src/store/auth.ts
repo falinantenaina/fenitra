@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
@@ -5,6 +6,7 @@ import {
   ACCESS_TOKEN_KEY,
   REFRESH_TOKEN_KEY,
   api,
+  isRefreshInconclusive,
   refreshAccessToken,
   setRefreshHandler,
   setUnauthorizedHandler,
@@ -54,15 +56,22 @@ export const useAuth = create<AuthState>()((set, get) => ({
   user: null,
 
   hydrate: async () => {
+    const accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    if (!accessToken) {
+      set({ status: 'signedOut', user: null });
+      return;
+    }
     try {
-      const accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
-      if (!accessToken) {
-        set({ status: 'signedOut', user: null });
-        return;
-      }
       const { data } = await api.get<AuthUser>('/auth/me');
       set({ status: 'signedIn', user: data });
-    } catch {
+    } catch (error) {
+      // Réseau indisponible (ou refresh impossible) : les jetons sont encore
+      // bons, on ouvre la session sans profil et on retentera en arrière-plan.
+      if (isAxiosError(error) && (!error.response || isRefreshInconclusive(error))) {
+        set({ status: 'signedIn', user: null });
+        scheduleUserRetry(set, get);
+        return;
+      }
       await clearTokens();
       set({ status: 'signedOut', user: null });
     }
@@ -75,6 +84,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
   },
 
   logout: async () => {
+    stopUserRetry();
     const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       try {
@@ -89,10 +99,55 @@ export const useAuth = create<AuthState>()((set, get) => ({
 
   signOut: async () => {
     if (get().status === 'signedOut') return;
+    stopUserRetry();
     await clearTokens();
     set({ status: 'signedOut', user: null });
   },
 }));
+
+/** Retente `GET /auth/me` tant que le profil est absent (démarrage hors-ligne). */
+let userRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let userRetryCount = 0;
+const USER_RETRY_DELAY_MS = 4_000;
+const USER_RETRY_MAX = 15;
+
+function stopUserRetry(): void {
+  if (userRetryTimer) clearTimeout(userRetryTimer);
+  userRetryTimer = null;
+  userRetryCount = 0;
+}
+
+function scheduleUserRetry(
+  set: (partial: Partial<AuthState>) => void,
+  get: () => AuthState,
+): void {
+  if (userRetryTimer) {
+    clearTimeout(userRetryTimer);
+    userRetryTimer = null;
+  }
+  if (userRetryCount >= USER_RETRY_MAX) return;
+  const delay = Math.min(USER_RETRY_DELAY_MS * (userRetryCount < 4 ? 1 : 2), 30_000);
+  userRetryTimer = setTimeout(() => {
+    userRetryTimer = null;
+    userRetryCount += 1;
+    void (async () => {
+      if (get().status !== 'signedIn' || get().user) return;
+      try {
+        const { data } = await api.get<AuthUser>('/auth/me');
+        stopUserRetry();
+        set({ status: 'signedIn', user: data });
+      } catch (error) {
+        if (isAxiosError(error) && error.response && !isRefreshInconclusive(error)) {
+          // Refus définitif du serveur : la session est morte.
+          stopUserRetry();
+          void useAuth.getState().signOut();
+          return;
+        }
+        scheduleUserRetry(set, get);
+      }
+    })();
+  }, delay);
+}
 
 setRefreshHandler(refreshAccessToken);
 setUnauthorizedHandler(() => {

@@ -14,10 +14,21 @@ function ok(condition: boolean, label: string, extra?: unknown) {
   }
 }
 
+interface ReqOptions {
+  method?: string;
+  token?: string;
+  body?: unknown;
+}
+
+async function req(path: string, options?: ReqOptions): Promise<{ status: number; body: any }>;
 async function req(
   path: string,
-  options: { method?: string; token?: string; body?: unknown; raw?: boolean } = {},
-) {
+  options: ReqOptions & { raw: true },
+): Promise<{ status: number; bytes: Uint8Array }>;
+async function req(
+  path: string,
+  options: ReqOptions & { raw?: boolean } = {},
+): Promise<{ status: number; body?: any; bytes?: Uint8Array }> {
   const response = await fetch(`${BASE}${path}`, {
     method: options.method ?? 'GET',
     headers: {
