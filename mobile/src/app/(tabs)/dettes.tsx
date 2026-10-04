@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -72,9 +72,37 @@ function DebtRow({ debt, onPress }: { debt: DebtItem; onPress: () => void }) {
   );
 }
 
+/** §51 — filtre reçu dans l'URL par les raccourcis « Paiement client/fournisseur ». */
+function parseType(value?: string): DebtType | '' {
+  return TYPE_FILTERS.some((f) => f.key === value) ? (value as DebtType) : '';
+}
+
+function parseStatus(value?: string): DebtStatus | '' {
+  return STATUS_FILTERS.some((f) => f.key === value) ? (value as DebtStatus) : '';
+}
+
 export default function DebtsScreen() {
-  const [type, setType] = useState<DebtType | ''>('');
-  const [status, setStatus] = useState<DebtStatus | ''>('');
+  const params = useLocalSearchParams<{ type?: string; status?: string }>();
+  // La clé remet l'état local à zéro quand les paramètres changent : le
+  // raccourci applique son filtre sans passer par un effet de synchronisation.
+  return (
+    <DebtsBody
+      key={`${params.type ?? ''}:${params.status ?? ''}`}
+      initialStatus={params.status}
+      initialType={params.type}
+    />
+  );
+}
+
+function DebtsBody({
+  initialStatus,
+  initialType,
+}: {
+  initialStatus?: string;
+  initialType?: string;
+}) {
+  const [type, setType] = useState<DebtType | ''>(parseType(initialType));
+  const [status, setStatus] = useState<DebtStatus | ''>(parseStatus(initialStatus));
   const debts = useDebts({ type, status });
 
   const openTotal = debts.items

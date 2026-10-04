@@ -17,6 +17,19 @@ const LABEL_NET = 'Bénéfice net';
 const LABEL_GROSS = 'Bénéfice brut';
 const INTEGRITY_OK = 'Identité comptable vérifiée';
 
+/** §51 — actions rapides de l'accueil. */
+const ACTION_ICONS = {
+  sale: 'cart-outline',
+  expense: 'remove-circle-outline',
+  versement: 'swap-horizontal-outline',
+  arrival: 'cube-outline',
+  payCustomer: 'person-outline',
+  paySupplier: 'business-outline',
+  capital: 'wallet-outline',
+} as const;
+
+type ActionIcon = (typeof ACTION_ICONS)[keyof typeof ACTION_ICONS];
+
 function toneOf(value: string): KpiTone {
   const n = Number(value);
   if (!Number.isFinite(n) || n === 0) return 'neutral';
@@ -34,6 +47,7 @@ function Section({ title, children }: PropsWithChildren<{ title: string }>) {
 
 export default function HomeScreen() {
   const logout = useAuth((state) => state.logout);
+  const user = useAuth((state) => state.user);
   const [period, setPeriod] = useState<PeriodKey>('today');
   const [range, setRange] = useState<CustomRange | null>(null);
   const [drill, setDrill] = useState<IndicatorKey | null>(null);
@@ -46,6 +60,55 @@ export default function HomeScreen() {
   const dashboard = useDashboard(period, range);
   const d = dashboard.data;
   const open = (indicator: IndicatorKey) => setDrill(indicator);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+
+  // §51 — actions rapides : la vente est ouverte à tous, les écritures qui
+  // débitent la caisse restent réservées aux gestionnaires (RBAC §57).
+  const actions: { key: string; label: string; icon: ActionIcon; onPress: () => void }[] = [
+      { key: 'sale', label: 'Vente', icon: ACTION_ICONS.sale, onPress: () => router.push('/sale/new') },
+      ...(canManage
+        ? [
+            {
+              key: 'expense',
+              label: 'Dépense',
+              icon: ACTION_ICONS.expense,
+              onPress: () => router.push('/finance/expense'),
+            },
+            {
+              key: 'versement',
+              label: 'Versement',
+              icon: ACTION_ICONS.versement,
+              onPress: () => router.push('/finance/versement'),
+            },
+            {
+              key: 'arrival',
+              label: 'Arrivage',
+              icon: ACTION_ICONS.arrival,
+              onPress: () => router.push('/arrival/new'),
+            },
+            {
+              key: 'payCustomer',
+              label: 'Paiement client',
+              icon: ACTION_ICONS.payCustomer,
+              onPress: () =>
+                router.push({ pathname: '/dettes', params: { type: 'CUSTOMER', status: 'OPEN' } }),
+            },
+            {
+              key: 'paySupplier',
+              label: 'Paiement fournisseur',
+              icon: ACTION_ICONS.paySupplier,
+              onPress: () =>
+                router.push({ pathname: '/dettes', params: { type: 'SUPPLIER', status: 'OPEN' } }),
+            },
+            {
+              key: 'capital',
+              label: 'Argent propre',
+              icon: ACTION_ICONS.capital,
+              onPress: () => router.push('/finance/capital'),
+            },
+          ]
+        : []),
+    ];
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -78,6 +141,21 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
+
+          <Section title="Actions rapides">
+            {actions.map((action) => (
+              <Pressable
+                accessibilityRole="button"
+                className="w-[30%] items-center gap-1.5 rounded-xl border border-slate-200 bg-white py-3"
+                key={action.key}
+                onPress={action.onPress}>
+                <Ionicons color="#208AEF" name={action.icon} size={20} />
+                <Text className="text-center text-xs font-semibold text-slate-700">
+                  {action.label}
+                </Text>
+              </Pressable>
+            ))}
+          </Section>
 
           <Section title="Activité de la période">
             <KpiCard
@@ -222,20 +300,6 @@ export default function HomeScreen() {
               value={formatMoney(d.debts.trosaSinoa)}
             />
           </Section>
-
-          <Pressable
-            className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white"
-            onPress={() => router.push('/settings')}>
-            <Ionicons color="#334155" name="settings-outline" size={18} />
-            <Text className="font-semibold text-slate-700">Paramètres</Text>
-          </Pressable>
-
-          <Pressable
-            className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white"
-            onPress={() => router.push('/reports')}>
-            <Ionicons color="#334155" name="document-text-outline" size={18} />
-            <Text className="font-semibold text-slate-700">Rapports &amp; journal</Text>
-          </Pressable>
 
           <Pressable
             className="h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50"

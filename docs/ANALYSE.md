@@ -1292,6 +1292,32 @@ réellement la valeur affichée — `max(0, min(bénéfice net cumulé, excéden
 caisse))` — sinon son total ne retomberait jamais sur la carte (§9).
 
 
+**Navigation et actions rapides (§51, étape 6)** : les sept destinations du
+§51 se atteignent d'un geste. Les cinq onglets (Accueil, Ventes, Stock,
+Dettes, Finances) sont complétés par deux boutons d'en-tête (`headerRight`
+du layout des onglets) qui ouvrent **Rapports & journal** et **Paramètres**
+depuis n'importe quel onglet — les anciens boutons en pied d'accueil ont été
+retirés.
+
+L'accueil affiche une grille **« Actions rapides »** juste sous la bannière
+d'intégrité, avec les sept actions du cahier dans son ordre : Vente,
+Dépense, Versement, Arrivage, Paiement client, Paiement fournisseur, Argent
+propre. Elles mènent à `/sale/new`, `/finance/expense`,
+`/finance/versement`, `/arrival/new` et `/finance/capital` ; les deux
+paiements ouvrent l'onglet Dettes avec `?type=CUSTOMER|SUPPLIER&status=OPEN`
+(`GET /debts` filtre déjà sur ces deux paramètres). La vente est visible par
+tous les rôles (le caissier vend), les six autres n'apparaissent que pour
+ADMIN/MANAGER — le backend refuse de toute façon (`managerOrAdmin`).
+
+`dettes.tsx` lit `type`/`status` depuis l'URL : le corps de l'écran est
+monté avec une `key` dépendant des paramètres, ce qui réinitialise les chips
+quand un raccourci change de filtre — pas d'effet de synchronisation (lint
+`react-hooks/set-state-in-effect`).
+
+**Étape 6 — contrôles** : `npx tsc --noEmit` et `npx expo lint` verts
+(1 avertissement connu), backend non touché (`npm test` toujours à **207
+tests / 15 fichiers**).
+
 **Fichiers** : `src/lib/types.ts` (contrat API), `src/lib/format.ts`
 (`formatMoney` « 1 245 000 Ar », `formatQuantity`, `formatDateTime` — sans
 dépendre d'`Intl`), `src/lib/queries.ts` (React Query `useDashboard`,
