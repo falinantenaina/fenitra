@@ -1,6 +1,13 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { BarChart } from 'react-native-gifted-charts';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
+import type { BarChart } from 'react-native-gifted-charts';
 
 import { Chip } from '@/components/chip';
 import { apiMessage } from '@/lib/api';
@@ -15,6 +22,40 @@ const METRICS: { key: SeriesMetric; label: string; color: string }[] = [
 ];
 
 const AXIS_TEXT = { fontSize: 9, color: '#94A3B8' };
+
+/**
+ * `react-native-gifted-charts` lit `Platform.constants.reactNativeVersion`
+ * dès son chargement — `react-native-web` n'expose pas `constants` : le module
+ * n'est donc require que sur natif, le navigateur reçoit des barres en `View`.
+ */
+const NativeBarChart: typeof BarChart | null =
+  Platform.OS === 'web'
+    ? null
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    : require('react-native-gifted-charts').BarChart;
+
+/** Barres minimales pour le web (même hauteur que le graphique natif). */
+function WebBars({ color, values }: { color: string; values: number[] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <View
+      accessibilityLabel="Graphique journalier"
+      accessibilityRole="image"
+      className="h-[140px] flex-row items-end gap-[2px]">
+      {values.map((value, i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: color,
+            borderRadius: 2,
+            flex: 1,
+            height: Math.max(2, Math.round((value / max) * 120)),
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 
 /**
  * §3 — graphique journalier de la période, sur la bibliothèque de la stack
@@ -95,12 +136,12 @@ export function SeriesChart({
           <View className="h-[160px] items-center justify-center">
             <Text className="text-xs text-slate-500">Aucune écriture sur cette période</Text>
           </View>
-        ) : (
+        ) : NativeBarChart ? (
           <ScrollView
             contentContainerStyle={{ paddingVertical: 4 }}
             horizontal
             showsHorizontalScrollIndicator={false}>
-            <BarChart
+            <NativeBarChart
               data={points.map((p, i) => ({
                 value: values[i],
                 label: labelOf(p.date, i),
@@ -128,6 +169,8 @@ export function SeriesChart({
               xAxisLabelTextStyle={AXIS_TEXT}
             />
           </ScrollView>
+        ) : (
+          <WebBars color={color} values={values} />
         )}
       </View>
 

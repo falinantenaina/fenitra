@@ -1327,7 +1327,12 @@ compatibles Expo Go — aucun build native n'est nécessaire.
 cartes d'activité du dashboard : trois pastilles (`CA`, `Recettes`, `Sorties`),
 le total de la période, un graphique en barres défilable horizontalement
 (libellés de l'axe éclaircis : jour du mois jusqu'à 45 points, numéro de mois
-au-delà) et des états vide / chargement / erreur explicites. Aucun chiffre n'est
+au-delà) et des états vide / chargement / erreur explicites. La bibliothèque
+lit `Platform.constants.reactNativeVersion` dès son chargement, or
+`react-native-web` n'expose pas `constants` (erreur « Cannot read properties of
+undefined ») : le module n'est donc `require` que sur natif
+(`Platform.OS === 'web'` → `null`) et le navigateur reçoit des barres minimales
+en `View` (`WebBars`). Aucun chiffre n'est
 calculé côté mobile : `GET /reports/series` renvoie les points, remplis à `0`
 par le serveur, sur les mêmes prédicats que le dashboard.
 
