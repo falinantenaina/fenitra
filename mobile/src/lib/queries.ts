@@ -1,7 +1,12 @@
+import { useMemo, useRef } from 'react';
+
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
 
@@ -9,6 +14,9 @@ import { api } from '@/lib/api';
 import type {
   AdjustStockBody,
   AdjustStockResult,
+  ArrivalDetail,
+  ArrivalRow,
+  ArrivalStatus,
   CapitalItem,
   CreateArrivalBody,
   CreateCapitalBody,
@@ -47,6 +55,9 @@ import type {
   ProductDetail,
   ProductListItem,
   SaleCreated,
+  SaleDetail,
+  SaleRow,
+  SaleStatus,
   SettingsMap,
   SizeListItem,
   StockMovementFeedItem,
@@ -212,6 +223,211 @@ export function useSaleReference(): UseQueryResult<{ reference: string }> {
   });
 }
 
+/* ════════════ Listes paginées ════════════ */
+
+export type ListParams = Record<string, string | number | undefined>;
+
+/** Retire les paramètres vides : un `status=""` casserait le parseur du serveur. */
+function compact(params: ListParams): Record<string, string | number> {
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      (entry): entry is [string, string | number] =>
+        entry[1] !== undefined && entry[1] !== '',
+    ),
+  );
+}
+
+export type PagedInfinite<T> = UseInfiniteQueryResult<
+  InfiniteData<PagedResponse<T>, number>
+> & {
+  /** Toutes les pages chargées, à plat. */
+  items: T[];
+  /** Nombre total d'éléments côté serveur (page 1). */
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+};
+
+/**
+ * Liste paginée qui accumule les pages : le serveur répond
+ * `{ items, total, page, limit, totalPages }`, on expose `items` à plat
+ * et un `fetchNextPage()` déclenché par le bouton « Charger plus ».
+ */
+export function useInfiniteList<T>(
+  baseKey: readonly unknown[],
+  endpoint: string,
+  params: ListParams = {},
+  limit = 50,
+  enabled = true,
+): PagedInfinite<T> {
+  const query = useInfiniteQuery<
+    PagedResponse<T>,
+    Error,
+    InfiniteData<PagedResponse<T>, number>,
+    readonly unknown[],
+    number
+  >({
+    queryKey: [...baseKey, compact(params), limit],
+    enabled,
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const { data } = await api.get<PagedResponse<T>>(endpoint, {
+        params: { ...compact(params), limit, page: pageParam },
+      });
+      return data;
+    },
+    getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
+    staleTime: 15_000,
+  });
+
+  const pages = query.data?.pages ?? [];
+  const total = pages[0]?.total ?? 0;
+
+  return {
+    ...query,
+    items: pages.flatMap((page) => page.items),
+    total,
+    totalPages: pages[0]?.totalPages ?? 1,
+    hasMore: query.hasNextPage ?? false,
+  };
+}
+
+/* ════════════ Ventes ════════════ */
+
+export interface SaleFilter {
+  status?: SaleStatus | '';
+  q?: string;
+}
+
+/** Ventes paginées (`GET /sales`). */
+export function useSales(filter: SaleFilter = {}): PagedInfinite<SaleRow> {
+  return useInfiniteList<SaleRow>(['sales', 'list'], '/sales', {
+    status: filter.status || undefined,
+    q: filter.q?.trim(),
+  });
+}
+
+/** Détail d'une vente : lignes, lots consommés, dette et paiements (`GET /sales/:id`). */
+export function useSale(id: string | null): UseQueryResult<SaleDetail> {
+  return useQuery<SaleDetail>({
+    queryKey: ['sales', 'detail', id],
+    enabled: Boolean(id),
+    queryFn: async () => {
+      const { data } = await api.get<SaleDetail>(`/sales/${id}`);
+      return data;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** `POST /sales/:id/cancel` — restitution des lots + contre-passation. */
+export function useCancelSale() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { data } = await api.post<SaleDetail>(`/sales/${id}/cancel`, { reason });
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sales'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `POST /sales/:id/payments` — règlement partiel ou total d'une vente. */
+export function usePaySale() {
+  const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: { amount: number; method?: string | null; date?: string; notes?: string | null };
+    }) => {
+      const { data } = await api.post<SaleDetail>(`/sales/${id}/payments`, body, {
+        headers: { 'Idempotency-Key': keys.keyFor({ id, body }) },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      keys.reset();
+      void client.invalidateQueries({ queryKey: ['sales'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/* ════════════ Arrivages ════════════ */
+
+export interface ArrivalFilter {
+  status?: ArrivalStatus | '';
+  q?: string;
+}
+
+/** Arrivages paginés (`GET /arrivals`). */
+export function useArrivals(filter: ArrivalFilter = {}): PagedInfinite<ArrivalRow> {
+  return useInfiniteList<ArrivalRow>(['arrivals', 'list'], '/arrivals', {
+    status: filter.status || undefined,
+    q: filter.q?.trim(),
+  });
+}
+
+/** Détail d'un arrivage : cartons, lots, dette, paiements et financements. */
+export function useArrival(id: string | null): UseQueryResult<ArrivalDetail> {
+  return useQuery<ArrivalDetail>({
+    queryKey: ['arrivals', 'detail', id],
+    enabled: Boolean(id),
+    queryFn: async () => {
+      const { data } = await api.get<ArrivalDetail>(`/arrivals/${id}`);
+      return data;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** `POST /arrivals/:id/cancel` — contre-passation, stock intact requis. */
+export function useCancelArrival() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { data } = await api.post<ArrivalDetail>(`/arrivals/${id}/cancel`, { reason });
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['arrivals'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** Vendeurs en ligne actifs (`GET /online-sellers?active=true`). */
+export function useOnlineSellers(): UseQueryResult<Party[]> {
+  return useQuery<Party[]>({
+    queryKey: ['online-sellers'],
+    queryFn: async () => {
+      const { data } = await api.get<ListResponse<Party>>('/online-sellers', {
+        params: { active: 'true', limit: 200 },
+      });
+      return data.items;
+    },
+    staleTime: 60_000,
+  });
+}
+
 /* ════════════ Stock / dettes / finances (6e) ════════════ */
 
 export interface LotFilter {
@@ -219,19 +435,13 @@ export interface LotFilter {
   status?: '' | 'OPEN' | 'CLOSED';
 }
 
-/** Lots valorisés (`GET /stock/lots`). */
-export function useLots(filter: LotFilter): UseQueryResult<PagedResponse<LotItem>> {
+/** Lots valorisés paginés (`GET /stock/lots`). */
+export function useLots(filter: LotFilter): PagedInfinite<LotItem> {
   const q = filter.q?.trim() ?? '';
-  const status = filter.status || undefined;
-  return useQuery<PagedResponse<LotItem>>({
-    queryKey: ['stock', 'lots', q, status ?? ''],
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<LotItem>>('/stock/lots', {
-        params: { ...(q ? { q } : {}), ...(status ? { status } : {}), limit: 50 },
-      });
-      return data;
-    },
-    staleTime: 15_000,
+  const status = filter.status || '';
+  return useInfiniteList<LotItem>(['stock', 'lots'], '/stock/lots', {
+    q: q || undefined,
+    status: status || undefined,
   });
 }
 
@@ -271,19 +481,11 @@ export interface DebtFilter {
   status?: DebtStatus | '';
 }
 
-/** Dettes (`GET /debts`) — filtres type et statut. */
-export function useDebts(filter: DebtFilter = {}): UseQueryResult<PagedResponse<DebtItem>> {
-  const type = filter.type || undefined;
-  const status = filter.status || undefined;
-  return useQuery<PagedResponse<DebtItem>>({
-    queryKey: ['debts', 'list', type ?? '', status ?? ''],
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<DebtItem>>('/debts', {
-        params: { ...(type ? { type } : {}), ...(status ? { status } : {}), limit: 50 },
-      });
-      return data;
-    },
-    staleTime: 15_000,
+/** Dettes paginées (`GET /debts`) — filtres type et statut, accumulation des pages. */
+export function useDebts(filter: DebtFilter = {}): PagedInfinite<DebtItem> {
+  return useInfiniteList<DebtItem>(['debts', 'list'], '/debts', {
+    type: filter.type || undefined,
+    status: filter.status || undefined,
   });
 }
 
@@ -300,18 +502,26 @@ export function useDebt(id: string | null): UseQueryResult<DebtDetail> {
   });
 }
 
-/** Dépenses (`GET /expenses`). */
-export function useExpenses(): UseQueryResult<PagedResponse<ExpenseItem>> {
-  return useQuery<PagedResponse<ExpenseItem>>({
-    queryKey: ['expenses', 'list'],
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<ExpenseItem>>('/expenses', {
-        params: { limit: 50 },
-      });
+/** `POST /debts/:id/cancel` — contre-passation (dette créée manuellement). */
+export function useCancelDebt() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { data } = await api.post<DebtDetail>(`/debts/${id}/cancel`, { reason });
       return data;
     },
-    staleTime: 15_000,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+      void client.invalidateQueries({ queryKey: ['versements'] });
+    },
   });
+}
+
+/** Dépenses paginées (`GET /expenses`). */
+export function useExpenses(): PagedInfinite<ExpenseItem> {
+  return useInfiniteList<ExpenseItem>(['expenses', 'list'], '/expenses');
 }
 
 /** Catégories de dépenses actives (`GET /expense-categories`). */
@@ -328,32 +538,14 @@ export function useExpenseCategories(): UseQueryResult<ExpenseCategory[]> {
   });
 }
 
-/** Versements (`GET /versements`). */
-export function useVersements(): UseQueryResult<PagedResponse<VersementItem>> {
-  return useQuery<PagedResponse<VersementItem>>({
-    queryKey: ['versements', 'list'],
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<VersementItem>>('/versements', {
-        params: { limit: 50 },
-      });
-      return data;
-    },
-    staleTime: 15_000,
-  });
+/** Versements paginés (`GET /versements`). */
+export function useVersements(): PagedInfinite<VersementItem> {
+  return useInfiniteList<VersementItem>(['versements', 'list'], '/versements');
 }
 
-/** Argent propre (`GET /personal-capital`). */
-export function useCapitalMovements(): UseQueryResult<PagedResponse<CapitalItem>> {
-  return useQuery<PagedResponse<CapitalItem>>({
-    queryKey: ['capital', 'list'],
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<CapitalItem>>('/personal-capital', {
-        params: { limit: 50 },
-      });
-      return data;
-    },
-    staleTime: 15_000,
-  });
+/** Argent propre paginé (`GET /personal-capital`). */
+export function useCapitalMovements(): PagedInfinite<CapitalItem> {
+  return useInfiniteList<CapitalItem>(['capital', 'list'], '/personal-capital');
 }
 
 /* ════════════ Rapports (6f) ════════════ */
@@ -393,23 +585,15 @@ export function useMonthlyReport(
   });
 }
 
-/** Journal financier sur une plage (`GET /ledger`). */
-export function useLedger(
-  from: string,
-  to: string,
-  enabled = true,
-): UseQueryResult<PagedResponse<LedgerEntry>> {
-  return useQuery<PagedResponse<LedgerEntry>>({
-    queryKey: ['ledger', 'list', from, to],
-    enabled: enabled && Boolean(from && to),
-    queryFn: async () => {
-      const { data } = await api.get<PagedResponse<LedgerEntry>>('/ledger', {
-        params: { from, to, limit: 50 },
-      });
-      return data;
-    },
-    staleTime: 15_000,
-  });
+/** Journal financier paginé sur une plage (`GET /ledger`). */
+export function useLedger(from: string, to: string, enabled = true): PagedInfinite<LedgerEntry> {
+  return useInfiniteList<LedgerEntry>(
+    ['ledger', 'list'],
+    '/ledger',
+    { from: from || undefined, to: to || undefined },
+    50,
+    enabled && Boolean(from && to),
+  );
 }
 
 /** Agrégats du journal (`GET /ledger/summary`). */
@@ -431,23 +615,57 @@ export function useLedgerSummary(
 
 /* ════════════ Mutations ════════════ */
 
+/**
+ * Clé d'idempotence stable pour une soumission.
+ *
+ * La clé ne change que si le corps change : un retry réseau rejoue donc la
+ * *même* opération au lieu d'en créer une seconde, alors qu'une nouvelle
+ * saisie (corps différent) repart sur une clé neuve. `reset()` est appelé
+ * après un succès pour qu'une re-saisie identique crée bien un nouvel enregistrement.
+ */
+export function useIdempotencyKey(): { keyFor: (payload: unknown) => string; reset: () => void } {
+  const ref = useRef<{ payload: string; key: string } | null>(null);
+
+  return useMemo(
+    () => ({
+      keyFor: (payload: unknown) => {
+        const serialized = JSON.stringify(payload);
+        if (ref.current?.payload !== serialized) {
+          ref.current = {
+            payload: serialized,
+            key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+          };
+        }
+        return ref.current.key;
+      },
+      reset: () => {
+        ref.current = null;
+      },
+    }),
+    [],
+  );
+}
+
 /** `POST /arrivals` — enregistrement transactionnel (cartons → lots → dette). */
 export function useCreateArrival() {
   const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
   return useMutation({
     mutationFn: async (body: CreateArrivalBody) => {
-      // Une clé par tentative : un double tap ne crée jamais deux arrivages.
-      const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       const { data } = await api.post<ArrivalCreated>('/arrivals', body, {
-        headers: { 'Idempotency-Key': key },
+        headers: { 'Idempotency-Key': keys.keyFor(body) },
       });
       return data;
     },
     onSuccess: () => {
+      keys.reset();
       void client.invalidateQueries({ queryKey: ['arrivals'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
       void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -459,23 +677,26 @@ export interface ArrivalCreated {
   totalQty: number;
 }
 
-/** `POST /sales` — vente FIFO avec règlement éventuel (Idempotency-Key par tentative). */
+/** `POST /sales` — vente FIFO avec règlement éventuel (Idempotency-Key stable par soumission). */
 export function useCreateSale() {
   const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
   return useMutation({
     mutationFn: async (body: CreateSaleBody) => {
-      const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       const { data } = await api.post<SaleCreated>('/sales', body, {
-        headers: { 'Idempotency-Key': key },
+        headers: { 'Idempotency-Key': keys.keyFor(body) },
       });
       return data;
     },
     onSuccess: () => {
+      keys.reset();
       void client.invalidateQueries({ queryKey: ['sales'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['stock'] });
       void client.invalidateQueries({ queryKey: ['stock-summary'] });
       void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
       void client.invalidateQueries({ queryKey: ['sale-reference'] });
     },
   });
@@ -494,6 +715,7 @@ export function useAdjustStock() {
       void client.invalidateQueries({ queryKey: ['stock-summary'] });
       void client.invalidateQueries({ queryKey: ['expenses'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -501,15 +723,21 @@ export function useAdjustStock() {
 /** `POST /debts/:id/payments` — règlement partiel ou total d'une dette. */
 export function usePayDebt() {
   const client = useQueryClient();
+  const keys = useIdempotencyKey();
+
   return useMutation({
     mutationFn: async ({ id, body }: { id: string; body: DebtPaymentBody }) => {
-      const { data } = await api.post<DebtDetail>(`/debts/${id}/payments`, body);
+      const { data } = await api.post<DebtDetail>(`/debts/${id}/payments`, body, {
+        headers: { 'Idempotency-Key': keys.keyFor({ id, body }) },
+      });
       return data;
     },
     onSuccess: () => {
+      keys.reset();
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['versements'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -525,6 +753,8 @@ export function useCreateTrosa() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+      void client.invalidateQueries({ queryKey: ['capital'] });
     },
   });
 }
@@ -540,6 +770,7 @@ export function useCreateExpense() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['expenses'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -556,6 +787,7 @@ export function useCreateVersement() {
       void client.invalidateQueries({ queryKey: ['versements'] });
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -571,6 +803,7 @@ export function useCreateCapital() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['capital'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ListFooter } from '@/components/list-footer';
 import { formatMoney } from '@/lib/format';
 import { useDebts } from '@/lib/queries';
 import type { DebtItem, DebtStatus, DebtType } from '@/lib/types';
@@ -76,7 +77,7 @@ export default function DebtsScreen() {
   const [status, setStatus] = useState<DebtStatus | ''>('');
   const debts = useDebts({ type, status });
 
-  const openTotal = (debts.data?.items ?? [])
+  const openTotal = debts.items
     .filter((d) => d.status === 'OPEN' || d.status === 'PARTIAL')
     .reduce((sum, d) => sum + Number(d.remainingAmount), 0);
 
@@ -121,13 +122,13 @@ export default function DebtsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {debts.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
-          ) : (debts.data?.items ?? []).length === 0 ? (
+          ) : debts.items.length === 0 ? (
             <View className="items-center gap-1 px-3 py-6">
               <Ionicons color="#CBD5E1" name="wallet-outline" size={28} />
               <Text className="text-sm text-slate-400">Aucune dette pour ce filtre.</Text>
             </View>
           ) : (
-            (debts.data?.items ?? []).map((debt) => (
+            debts.items.map((debt) => (
               <DebtRow
                 key={debt.id}
                 debt={debt}
@@ -139,9 +140,13 @@ export default function DebtsScreen() {
           )}
         </View>
 
-        <Text className="text-xs text-slate-400">
-          {debts.data ? `${debts.data.total} dette(s) au total` : ''}
-        </Text>
+        <ListFooter
+          fetchNextPage={() => void debts.fetchNextPage()}
+          hasMore={debts.hasMore}
+          isFetchingNextPage={debts.isFetchingNextPage}
+          shown={debts.items.length}
+          total={debts.total}
+        />
       </ScrollView>
     </View>
   );

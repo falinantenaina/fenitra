@@ -313,6 +313,154 @@ export interface SaleCreated {
   remainingAmount: string;
 }
 
+/* ════════════ Ventes & arrivages (6f — listes et détail) ════════════ */
+
+export type SaleStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
+export type ArrivalStatus = 'DRAFT' | 'RECEIVED' | 'CANCELLED';
+
+export interface PartyRef {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
+/** Ligne de `GET /sales`. */
+export interface SaleRow {
+  id: string;
+  reference: string;
+  date: string;
+  status: SaleStatus;
+  totalAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+  cogs: string;
+  margin: string;
+  customer: PartyRef | null;
+  onlineSeller: PartyRef | null;
+}
+
+/** Ligne de `GET /arrivals`. */
+export interface ArrivalRow {
+  id: string;
+  reference: string;
+  date: string;
+  status: ArrivalStatus;
+  totalCost: string;
+  totalQty: number;
+  paidAmount: string;
+  unpaidAmount: string;
+  supplier: PartyRef;
+}
+
+export interface SaleLineItem {
+  id: string;
+  variantId: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotal: string;
+  cogs: string;
+  margin: string;
+  product: { id: string; name: string; slug: string };
+  size: { id: string; value: number; label: string | null };
+  sku: string | null;
+  lots: {
+    lotId: string;
+    code: string;
+    quantity: number;
+    unitCost: string;
+    cost: string;
+    entryDate: string;
+    status: LotStatus;
+  }[];
+}
+
+export interface SimplePayment {
+  id: string;
+  reference: string;
+  date: string;
+  amount: string;
+  direction: 'IN' | 'OUT';
+  method: string | null;
+  notes: string | null;
+}
+
+/** Réponse de `GET /sales/:id`. */
+export interface SaleDetail extends SaleRow {
+  notes: string | null;
+  paymentMethod: string | null;
+  createdBy: { id: string; name: string } | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  items: SaleLineItem[];
+  debt: {
+    id: string;
+    type: DebtType;
+    direction: 'PAYABLE' | 'RECEIVABLE';
+    origin: string;
+    reason: string | null;
+    status: DebtStatus;
+    initialAmount: string;
+    paidAmount: string;
+    remainingAmount: string;
+  } | null;
+  payments: SimplePayment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Réponse de `GET /arrivals/:id`. */
+export interface ArrivalDetail extends ArrivalRow {
+  notes: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  createdBy: { id: string; name: string } | null;
+  cartons: {
+    id: string;
+    reference: string;
+    date: string;
+    notes: string | null;
+    totalCost: string;
+    totalQty: number;
+    items: {
+      id: string;
+      variantId: string;
+      quantity: number;
+      unitCost: string;
+      lineTotal: string;
+      product: { id: string; name: string };
+      size: { id: string; value: number; label: string | null };
+      sku: string | null;
+    }[];
+  }[];
+  lots: {
+    id: string;
+    code: string;
+    variantId: string;
+    product: { id: string; name: string };
+    size: { id: string; value: number; label: string | null };
+    initialQty: number;
+    remainingQty: number;
+    unitCost: string;
+    totalCost: string;
+    value: string;
+    entryDate: string;
+    status: LotStatus;
+  }[];
+  debt: {
+    id: string;
+    reason: string | null;
+    initialAmount: string;
+    paidAmount: string;
+    remainingAmount: string;
+    status: DebtStatus;
+    direction: 'PAYABLE' | 'RECEIVABLE';
+  } | null;
+  payments: SimplePayment[];
+  fundings: { id: string; source: FundingSource; amount: string; notes: string | null }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ════════════ Stock (6e) ════════════ */
 
 export type LotStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';

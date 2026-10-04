@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { useLots, useRecentMovements, useStockSummary } from '@/lib/queries';
 import type { LotItem, StockMovementFeedItem } from '@/lib/types';
@@ -145,6 +146,17 @@ export default function StockScreen() {
           </View>
         )}
 
+        {/* Historique des arrivages */}
+        <Pressable
+          className="h-11 flex-row items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3"
+          onPress={() => router.push('/arrivals/list')}>
+          <View className="flex-row items-center gap-2">
+            <Ionicons color="#334155" name="cube-outline" size={18} />
+            <Text className="font-semibold text-slate-700">Historique des arrivages</Text>
+          </View>
+          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+        </Pressable>
+
         {/* Recherche de lots */}
         <View className="flex-row items-center gap-2 rounded-xl border border-slate-300 bg-white px-3">
           <Ionicons color="#94A3B8" name="search" size={18} />
@@ -174,19 +186,24 @@ export default function StockScreen() {
         {/* Lots */}
         <View>
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Lots · {lots.data?.total ?? 0}
+            Lots · {lots.total}
           </Text>
           <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
             {lots.isPending ? (
               <ActivityIndicator className="py-4" color="#208AEF" />
-            ) : (lots.data?.items ?? []).length === 0 ? (
+            ) : lots.items.length === 0 ? (
               <Text className="px-3 py-4 text-sm text-slate-400">Aucun lot trouvé.</Text>
             ) : (
-              (lots.data?.items ?? []).map((lot) => (
-                <LotRow key={lot.id} lot={lot} onPress={() => openLot(lot)} />
-              ))
+              lots.items.map((lot) => <LotRow key={lot.id} lot={lot} onPress={() => openLot(lot)} />)
             )}
           </View>
+          <ListFooter
+            fetchNextPage={() => void lots.fetchNextPage()}
+            hasMore={lots.hasMore}
+            isFetchingNextPage={lots.isFetchingNextPage}
+            shown={lots.items.length}
+            total={lots.total}
+          />
         </View>
 
         {/* Mouvements récents */}

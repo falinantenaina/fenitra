@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ListFooter } from '@/components/list-footer';
 import { todayISO } from '@/lib/finance';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import {
@@ -424,11 +425,20 @@ export default function ReportsScreen() {
         ) : report ? (
           <ReportBodyView report={report} />
         ) : segment === 'ledger' ? (
-          <LedgerView
-            entries={ledger.data?.items ?? []}
-            isLoading={ledger.isPending}
-            summary={summary.data}
-          />
+          <>
+            <LedgerView
+              entries={ledger.items}
+              isLoading={ledger.isPending}
+              summary={summary.data}
+            />
+            <ListFooter
+              fetchNextPage={() => void ledger.fetchNextPage()}
+              hasMore={ledger.hasMore}
+              isFetchingNextPage={ledger.isFetchingNextPage}
+              shown={ledger.items.length}
+              total={ledger.total}
+            />
+          </>
         ) : null}
       </ScrollView>
     </View>

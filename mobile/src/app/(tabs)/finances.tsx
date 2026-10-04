@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import {
   useCapitalMovements,
@@ -32,11 +33,13 @@ function ListShell({
   isLoading,
   isEmpty,
   total,
+  footer,
   children,
 }: {
   isLoading: boolean;
   isEmpty: boolean;
   total: number;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -51,17 +54,29 @@ function ListShell({
           children
         )}
       </View>
+      {footer}
     </View>
   );
 }
 
 function ExpenseList() {
   const expenses = useExpenses();
-  const items = expenses.data?.items ?? [];
 
   return (
-    <ListShell isLoading={expenses.isPending} isEmpty={items.length === 0} total={expenses.data?.total ?? 0}>
-      {items.map((expense: ExpenseItem) => (
+    <ListShell
+      isLoading={expenses.isPending}
+      isEmpty={expenses.items.length === 0}
+      total={expenses.total}
+      footer={
+        <ListFooter
+          fetchNextPage={() => void expenses.fetchNextPage()}
+          hasMore={expenses.hasMore}
+          isFetchingNextPage={expenses.isFetchingNextPage}
+          shown={expenses.items.length}
+          total={expenses.total}
+        />
+      }>
+      {expenses.items.map((expense: ExpenseItem) => (
         <View
           className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
           key={expense.id}>
@@ -82,11 +97,22 @@ function ExpenseList() {
 
 function VersementList() {
   const versements = useVersements();
-  const items = versements.data?.items ?? [];
 
   return (
-    <ListShell isLoading={versements.isPending} isEmpty={items.length === 0} total={versements.data?.total ?? 0}>
-      {items.map((versement: VersementItem) => (
+    <ListShell
+      isLoading={versements.isPending}
+      isEmpty={versements.items.length === 0}
+      total={versements.total}
+      footer={
+        <ListFooter
+          fetchNextPage={() => void versements.fetchNextPage()}
+          hasMore={versements.hasMore}
+          isFetchingNextPage={versements.isFetchingNextPage}
+          shown={versements.items.length}
+          total={versements.total}
+        />
+      }>
+      {versements.items.map((versement: VersementItem) => (
         <View
           className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
           key={versement.id}>
@@ -110,11 +136,22 @@ function VersementList() {
 
 function CapitalList() {
   const capital = useCapitalMovements();
-  const items = capital.data?.items ?? [];
 
   return (
-    <ListShell isLoading={capital.isPending} isEmpty={items.length === 0} total={capital.data?.total ?? 0}>
-      {items.map((movement: CapitalItem) => {
+    <ListShell
+      isLoading={capital.isPending}
+      isEmpty={capital.items.length === 0}
+      total={capital.total}
+      footer={
+        <ListFooter
+          fetchNextPage={() => void capital.fetchNextPage()}
+          hasMore={capital.hasMore}
+          isFetchingNextPage={capital.isFetchingNextPage}
+          shown={capital.items.length}
+          total={capital.total}
+        />
+      }>
+      {capital.items.map((movement: CapitalItem) => {
         const isIn = movement.type === 'IN';
         return (
           <View
@@ -151,11 +188,22 @@ function CapitalList() {
 
 function TrosaList({ onPress }: { onPress: (id: string) => void }) {
   const debts = useDebts({ type: 'TROSA_SINOA' });
-  const items = debts.data?.items ?? [];
 
   return (
-    <ListShell isLoading={debts.isPending} isEmpty={items.length === 0} total={debts.data?.total ?? 0}>
-      {items.map((debt) => (
+    <ListShell
+      isLoading={debts.isPending}
+      isEmpty={debts.items.length === 0}
+      total={debts.total}
+      footer={
+        <ListFooter
+          fetchNextPage={() => void debts.fetchNextPage()}
+          hasMore={debts.hasMore}
+          isFetchingNextPage={debts.isFetchingNextPage}
+          shown={debts.items.length}
+          total={debts.total}
+        />
+      }>
+      {debts.items.map((debt) => (
         <Pressable
           className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
           key={debt.id}

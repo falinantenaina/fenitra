@@ -21,6 +21,7 @@ import { formatMoney } from '@/lib/format';
 import {
   useCreateSale,
   useCustomers,
+  useOnlineSellers,
   usePaymentMethods,
   useSaleReference,
   useStockSummary,
@@ -69,6 +70,7 @@ export default function NewSaleScreen() {
     defaultValues: {
       items: [],
       customerId: '',
+      onlineSellerId: '',
       paymentMode: 'FULL',
       paymentAmount: 0,
       paymentMethod: undefined,
@@ -80,7 +82,9 @@ export default function NewSaleScreen() {
   const items = useWatch({ control, name: 'items' }) ?? [];
   const paymentMode = useWatch({ control, name: 'paymentMode' }) ?? 'FULL';
   const customerId = useWatch({ control, name: 'customerId' }) ?? '';
+  const onlineSellerId = useWatch({ control, name: 'onlineSellerId' }) ?? '';
   const paymentMethod = useWatch({ control, name: 'paymentMethod' });
+  const paymentAmount = useWatch({ control, name: 'paymentAmount' }) ?? 0;
   const notes = useWatch({ control, name: 'notes' }) ?? '';
 
   const [term, setTerm] = useState('');
@@ -89,6 +93,7 @@ export default function NewSaleScreen() {
   const createSale = useCreateSale();
   const reference = useSaleReference();
   const customers = useCustomers();
+  const onlineSellers = useOnlineSellers();
   const methods = usePaymentMethods();
   const results = useVariantSearch(debounced);
 
@@ -99,6 +104,13 @@ export default function NewSaleScreen() {
 
   const total = saleTotal(items);
   const quantity = saleQuantity(items);
+  const paid =
+    paymentMode === 'FULL'
+      ? total
+      : paymentMode === 'PARTIAL'
+        ? Math.min(paymentAmount, total)
+        : 0;
+  const needsParty = total - paid > 0 && !customerId && !onlineSellerId;
 
   const addVariant = (variant: VariantSearchItem) => {
     const index = fields.findIndex((line) => line.variantId === variant.id);
@@ -272,7 +284,7 @@ export default function NewSaleScreen() {
           </View>
         </View>
 
-        {/* Client */}
+        {/* Tiers — client ou vendeur en ligne (mutuellement exclusifs) */}
         <View className="mt-5">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Client
@@ -285,17 +297,58 @@ export default function NewSaleScreen() {
             <Chip
               label="Comptoir"
               selected={customerId === ''}
-              onPress={() => setValue('customerId', '')}
+              onPress={() => {
+                setValue('customerId', '');
+                setValue('onlineSellerId', '');
+              }}
             />
             {(customers.data ?? []).map((customer) => (
               <Chip
                 key={customer.id}
                 label={customer.name}
                 selected={customerId === customer.id}
-                onPress={() => setValue('customerId', customer.id)}
+                onPress={() => {
+                  setValue('customerId', customer.id);
+                  setValue('onlineSellerId', '');
+                }}
               />
             ))}
           </ScrollView>
+
+          <Text className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Vendeur en ligne
+          </Text>
+          <ScrollView
+            className="mt-2"
+            contentContainerStyle={{ gap: 8 }}
+            horizontal
+            showsHorizontalScrollIndicator={false}>
+            <Chip
+              label="Aucun"
+              selected={onlineSellerId === ''}
+              onPress={() => {
+                setValue('onlineSellerId', '');
+                setValue('customerId', '');
+              }}
+            />
+            {(onlineSellers.data ?? []).map((seller) => (
+              <Chip
+                key={seller.id}
+                label={seller.name}
+                selected={onlineSellerId === seller.id}
+                onPress={() => {
+                  setValue('onlineSellerId', seller.id);
+                  setValue('customerId', '');
+                }}
+              />
+            ))}
+          </ScrollView>
+
+          {errors.customerId?.message || errors.onlineSellerId?.message ? (
+            <Text className="mt-2 text-xs text-red-600">
+              {errors.customerId?.message ?? errors.onlineSellerId?.message}
+            </Text>
+          ) : null}
         </View>
 
         {/* Règlement */}
@@ -313,6 +366,13 @@ export default function NewSaleScreen() {
               />
             ))}
           </View>
+
+          {needsParty ? (
+            <Text className="mt-2 text-xs text-amber-600">
+              Une vente réglée partiellement ou à crédit doit être rattachée à un client ou à un
+              vendeur en ligne.
+            </Text>
+          ) : null}
 
           {paymentMode === 'PARTIAL' ? (
             <Controller

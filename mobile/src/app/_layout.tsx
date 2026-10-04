@@ -67,6 +67,11 @@ export default function RootLayout() {
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Détail de la dette' }}
           />
           <Stack.Screen
+            name="sales/[id]"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Détail de la vente' }}
+          />
+          <Stack.Screen name="arrivals" options={{ headerShown: false }} />
+          <Stack.Screen
             name="finance/expense"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvelle dépense' }}
           />

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -22,23 +22,9 @@ import {
   debtPaymentFormSchema,
   type DebtPaymentFormValues,
 } from '@/lib/finance';
-import { useCancelDebt, useDebt, usePayDebt, usePaymentMethods } from '@/lib/queries';
-import type { DebtStatus, DebtType } from '@/lib/types';
+import { useCancelSale, usePaySale, usePaymentMethods, useSale } from '@/lib/queries';
+import { SALE_STATUS } from '@/lib/status';
 import { useAuth } from '@/store/auth';
-
-const TYPE_LABELS: Record<DebtType, string> = {
-  CUSTOMER: 'Créance client',
-  ONLINE_SELLER: 'Créance vendeur en ligne',
-  SUPPLIER: 'Dette fournisseur',
-  TROSA_SINOA: 'Trosa sinoa (à rembourser)',
-};
-
-const STATUS_LABELS: Record<DebtStatus, { label: string; className: string; text: string }> = {
-  OPEN: { label: 'Ouverte', className: 'bg-amber-50', text: 'text-amber-700' },
-  PARTIAL: { label: 'Partielle', className: 'bg-sky-50', text: 'text-sky-700' },
-  PAID: { label: 'Réglée', className: 'bg-emerald-50', text: 'text-emerald-700' },
-  CANCELLED: { label: 'Annulée', className: 'bg-slate-100', text: 'text-slate-500' },
-};
 
 function Section({ title, count }: { title: string; count?: number }) {
   return (
@@ -53,16 +39,16 @@ function pick(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
-export default function DebtDetailScreen() {
+export default function SaleDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const id = pick(params.id) || null;
 
   const user = useAuth((state) => state.user);
-  const canPay = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
-  const debt = useDebt(id);
-  const payDebt = usePayDebt();
-  const cancelDebt = useCancelDebt();
+  const sale = useSale(id);
+  const paySale = usePaySale();
+  const cancelSale = useCancelSale();
   const methods = usePaymentMethods();
   const [method, setMethod] = useState<string | undefined>(undefined);
 
@@ -77,9 +63,8 @@ export default function DebtDetailScreen() {
     defaultValues: { amount: 0, notes: '' },
   });
 
-  const data = debt.data;
+  const data = sale.data;
   const remaining = Number(data?.remainingAmount ?? 0);
-  const status = data ? STATUS_LABELS[data.status] : null;
 
   const onSubmit = handleSubmit(async (values) => {
     if (!id) return;
@@ -88,7 +73,7 @@ export default function DebtDetailScreen() {
       return;
     }
     try {
-      await payDebt.mutateAsync({
+      await paySale.mutateAsync({
         id,
         body: buildDebtPaymentPayload({ ...values, method }),
       });
@@ -104,71 +89,79 @@ export default function DebtDetailScreen() {
   const onCancel = async (reason: string) => {
     if (!id) return;
     try {
-      await cancelDebt.mutateAsync({ id, reason });
-      Alert.alert('Dette annulée', 'Les écritures ont été contre-passées.');
+      await cancelSale.mutateAsync({ id, reason });
+      Alert.alert('Vente annulée', 'Le stock a été restitué et les écritures contre-passées.');
     } catch (error) {
       Alert.alert('Annulation refusée', apiMessage(error));
     }
   };
 
-  if (debt.isPending) {
+  if (sale.isPending) {
     return <ActivityIndicator className="mt-10 self-center" color="#208AEF" />;
   }
 
-  if (debt.isError || !data) {
+  if (sale.isError || !data) {
     return (
       <View className="flex-1 items-center justify-center gap-2 bg-slate-50 px-6">
         <Ionicons color="#CBD5E1" name="alert-circle-outline" size={32} />
-        <Text className="text-sm text-slate-500">Impossible de charger cette dette.</Text>
+        <Text className="text-sm text-slate-500">Impossible de charger cette vente.</Text>
       </View>
     );
   }
 
+  const party = data.customer ?? data.onlineSeller;
+  const status = SALE_STATUS[data.status];
+
   return (
-    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ gap: 0, padding: 16 }}>
+    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 16 }}>
       {/* En-tête */}
       <View className="gap-1 rounded-xl border border-slate-200 bg-white p-4">
         <View className="flex-row items-start justify-between gap-2">
           <View className="flex-1">
-            <Text className="text-lg font-bold text-slate-900">{data.party?.name ?? '—'}</Text>
-            <Text className="text-xs text-slate-500">{TYPE_LABELS[data.type]}</Text>
+            <Text className="text-lg font-bold text-slate-900">{data.reference}</Text>
+            <Text className="text-xs text-slate-500">
+              {party?.name ?? 'Comptoir'}
+              {data.paymentMethod ? ` · ${data.paymentMethod}` : ''}
+            </Text>
           </View>
-          {status ? (
-            <View className={`rounded-full px-2.5 py-1 ${status.className}`}>
-              <Text className={`text-xs font-semibold ${status.text}`}>{status.label}</Text>
-            </View>
-          ) : null}
+          <View className={`rounded-full px-2.5 py-1 ${status.className}`}>
+            <Text className={`text-xs font-semibold ${status.text}`}>{status.label}</Text>
+          </View>
         </View>
-        {data.reason ? <Text className="text-sm text-slate-600">{data.reason}</Text> : null}
 
         <View className="mt-3 flex-row flex-wrap gap-x-6 gap-y-1">
           <View>
-            <Text className="text-xs text-slate-400">Montant initial</Text>
+            <Text className="text-xs text-slate-400">Total</Text>
             <Text className="text-sm font-semibold text-slate-800">
-              {formatMoney(data.initialAmount)}
+              {formatMoney(data.totalAmount)}
             </Text>
           </View>
           <View>
-            <Text className="text-xs text-slate-400">Payé</Text>
+            <Text className="text-xs text-slate-400">Réglé</Text>
             <Text className="text-sm font-semibold text-slate-800">
               {formatMoney(data.paidAmount)}
             </Text>
           </View>
           <View>
-            <Text className="text-xs text-slate-400">Restant</Text>
+            <Text className="text-xs text-slate-400">Reste</Text>
             <Text className="text-sm font-bold text-slate-900">
               {formatMoney(data.remainingAmount)}
+            </Text>
+          </View>
+          <View>
+            <Text className="text-xs text-slate-400">Marge</Text>
+            <Text className="text-sm font-semibold text-slate-800">
+              {formatMoney(data.margin)}
             </Text>
           </View>
         </View>
 
         <View className="mt-2 gap-0.5 border-t border-slate-100 pt-2">
-          <Text className="text-xs text-slate-400">Ouverte le {formatDateTime(data.date)}</Text>
-          {data.dueDate ? (
-            <Text className="text-xs text-slate-400">
-              Échéance {formatDateTime(data.dueDate)}
-            </Text>
+          <Text className="text-xs text-slate-400">{formatDateTime(data.date)}</Text>
+          {data.createdBy ? (
+            <Text className="text-xs text-slate-400">Saisie par {data.createdBy.name}</Text>
           ) : null}
+          {data.notes ? <Text className="text-xs text-slate-500">{data.notes}</Text> : null}
           {data.cancelledAt ? (
             <Text className="text-xs text-red-600">
               Annulée le {formatDateTime(data.cancelledAt)} — {data.cancelReason}
@@ -178,14 +171,16 @@ export default function DebtDetailScreen() {
       </View>
 
       {/* Règlement */}
-      {canPay && data.status !== 'PAID' && data.status !== 'CANCELLED' ? (
+      {remaining > 0 && data.status !== 'CANCELLED' ? (
         <View className="mt-4 gap-2 rounded-xl border border-slate-200 bg-white p-4">
           <View className="flex-row items-center justify-between">
             <Text className="text-sm font-semibold text-slate-800">Enregistrer un règlement</Text>
             <Pressable
               className="rounded-full bg-slate-100 px-3 py-1"
               onPress={() => setValue('amount', remaining)}>
-              <Text className="text-xs font-semibold text-slate-600">Solde {formatMoney(remaining)}</Text>
+              <Text className="text-xs font-semibold text-slate-600">
+                Solde {formatMoney(remaining)}
+              </Text>
             </Pressable>
           </View>
 
@@ -243,42 +238,88 @@ export default function DebtDetailScreen() {
 
           <Pressable
             className={`h-11 items-center justify-center rounded-xl ${
-              payDebt.isPending ? 'bg-slate-300' : 'bg-brand'
+              paySale.isPending ? 'bg-slate-300' : 'bg-brand'
             }`}
-            disabled={payDebt.isPending}
+            disabled={paySale.isPending}
             onPress={() => void onSubmit()}>
-            {payDebt.isPending ? (
+            {paySale.isPending ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text className="font-semibold text-white">Encaisser / Décaisser</Text>
+              <Text className="font-semibold text-white">Encaisser</Text>
             )}
           </Pressable>
         </View>
-      ) : canPay ? (
-        <View className="mt-4 rounded-xl bg-emerald-50 px-3 py-2.5">
-          <Text className="text-xs text-emerald-700">
-            Cette dette est clôturée : aucun nouveau règlement possible.
-          </Text>
-        </View>
-      ) : (
-        <View className="mt-4 rounded-xl bg-slate-100 px-3 py-2.5">
-          <Text className="text-xs text-slate-500">
-            Le règlement est réservé aux gestionnaires et administrateurs.
-          </Text>
-        </View>
-      )}
+      ) : null}
 
-      {/* Annulation — dette créée manuellement uniquement */}
-      {canPay && data.status !== 'CANCELLED' && data.origin === 'MANUAL' ? (
+      {/* Annulation */}
+      {canManage && data.status !== 'CANCELLED' ? (
         <View className="mt-4">
           <CancelPanel
-            hint="L'annulation contre-passe les écritures de cette dette. Une dette née d'une vente ou d'un arrivage s'annule depuis son document d'origine."
-            isPending={cancelDebt.isPending}
-            label="Annuler la dette"
+            hint="L'annulation restitue les articles aux lots et contre-passe les écritures de cette vente."
+            isPending={cancelSale.isPending}
+            label="Annuler la vente"
             onConfirm={(reason) => void onCancel(reason)}
           />
         </View>
       ) : null}
+
+      {/* Créance liée */}
+      {data.debt ? (
+        <Pressable
+          className="mt-4 flex-row items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"
+          onPress={() =>
+            router.push({ pathname: '/dettes/[id]', params: { id: data.debt!.id } })
+          }>
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-slate-800">Créance client liée</Text>
+            <Text className="text-xs text-slate-400">
+              {formatMoney(data.debt.paidAmount)} encaissé sur {formatMoney(data.debt.initialAmount)}
+            </Text>
+          </View>
+          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+        </Pressable>
+      ) : null}
+
+      {/* Articles */}
+      <Section title="Articles" count={data.items.length} />
+      <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {data.items.length === 0 ? (
+          <Text className="px-3 py-4 text-sm text-slate-400">Aucun article.</Text>
+        ) : (
+          data.items.map((item) => (
+            <View
+              className="border-b border-slate-100 px-3 py-2.5 last:border-b-0"
+              key={item.id}>
+              <View className="flex-row items-start justify-between gap-3">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-slate-800">
+                    {item.product.name}
+                    <Text className="text-xs font-normal text-slate-400">
+                      {' '}
+                      · Taille {item.size.label || item.size.value}
+                    </Text>
+                  </Text>
+                  <Text className="text-xs text-slate-400">
+                    {item.quantity} × {formatMoney(item.unitPrice)}
+                    {item.sku ? ` · ${item.sku}` : ''}
+                  </Text>
+                  <Text className="text-xs text-slate-400">
+                    Marge {formatMoney(item.margin)}
+                  </Text>
+                </View>
+                <Text className="text-sm font-bold text-slate-900">
+                  {formatMoney(item.lineTotal)}
+                </Text>
+              </View>
+              {item.lots.length > 0 ? (
+                <Text className="mt-1 text-[11px] text-slate-400">
+                  {item.lots.map((lot) => `${lot.code} ×${lot.quantity}`).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          ))
+        )}
+      </View>
 
       {/* Paiements */}
       <Section title="Paiements" count={data.payments.length} />
@@ -297,7 +338,6 @@ export default function DebtDetailScreen() {
                 <Text className="text-xs text-slate-400">
                   {formatDateTime(payment.date)}
                   {payment.method ? ` · ${payment.method}` : ''}
-                  {payment.user ? ` · ${payment.user.name}` : ''}
                 </Text>
                 {payment.notes ? (
                   <Text className="text-xs text-slate-400">{payment.notes}</Text>
@@ -308,51 +348,6 @@ export default function DebtDetailScreen() {
                 name={payment.direction === 'IN' ? 'arrow-down' : 'arrow-up'}
                 size={18}
               />
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Versements liés (A2) */}
-      {data.versements.length > 0 ? (
-        <>
-          <Section title="Versements liés" count={data.versements.length} />
-          <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {data.versements.map((versement) => (
-              <View
-                className="border-b border-slate-100 px-3 py-2.5 last:border-b-0"
-                key={versement.id}>
-                <Text className="text-sm font-medium text-slate-800">
-                  {versement.personName} · {formatMoney(versement.amount)}
-                </Text>
-                <Text className="text-xs text-slate-400">
-                  {formatDateTime(versement.date)} · {versement.motif}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </>
-      ) : null}
-
-      {/* Journal */}
-      <Section title="Écritures du journal" count={data.history.length} />
-      <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-        {data.history.length === 0 ? (
-          <Text className="px-3 py-4 text-sm text-slate-400">Aucune écriture.</Text>
-        ) : (
-          data.history.map((line) => (
-            <View
-              className="border-b border-slate-100 px-3 py-2.5 last:border-b-0"
-              key={line.id}>
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-sm font-medium text-slate-800">{line.kind}</Text>
-                <Text className="text-sm font-semibold text-slate-800">
-                  {formatMoney(line.amount)}
-                </Text>
-              </View>
-              <Text className="text-xs text-slate-400" numberOfLines={2}>
-                {formatDateTime(line.date)} · {line.description}
-              </Text>
             </View>
           ))
         )}
