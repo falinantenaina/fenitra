@@ -205,7 +205,3 @@ export async function expensesSummary(query: ExpenseListQuery) {
 
   return { items, totalAmount: money(total) };
 }
-
-export function assertPositiveAmount(amount: number) {
-  if (amount < 1) throw badRequest('Le montant doit être strictement positif');
-}

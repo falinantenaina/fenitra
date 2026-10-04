@@ -15,6 +15,7 @@ import {
 
 import { CancelPanel } from '@/components/cancel-panel';
 import { Chip } from '@/components/chip';
+import { Section } from '@/components/section';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import {
@@ -22,6 +23,7 @@ import {
   debtPaymentFormSchema,
   type DebtPaymentFormValues,
 } from '@/lib/finance';
+import { pick } from '@/lib/params';
 import { useCancelDebt, useDebt, usePayDebt, usePaymentMethods } from '@/lib/queries';
 import type { DebtStatus, DebtType } from '@/lib/types';
 import { useAuth } from '@/store/auth';
@@ -39,19 +41,6 @@ const STATUS_LABELS: Record<DebtStatus, { label: string; className: string; text
   PAID: { label: 'Réglée', className: 'bg-emerald-50', text: 'text-emerald-700' },
   CANCELLED: { label: 'Annulée', className: 'bg-slate-100', text: 'text-slate-500' },
 };
-
-function Section({ title, count }: { title: string; count?: number }) {
-  return (
-    <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {title}
-      {typeof count === 'number' ? ` · ${count}` : ''}
-    </Text>
-  );
-}
-
-function pick(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
-}
 
 export default function DebtDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();

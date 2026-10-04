@@ -186,35 +186,6 @@ export async function loadStockAt(
   return { value: n(rows[0]?.value), quantity: n(rows[0]?.quantity) };
 }
 
-/**
- * Quantité restante d'un lot à une date — utilisée par les rapports
- * et par le contrôle de cohérence avec `StockLot.remainingQty`.
- */
-export async function lotQuantityAt(lotId: string, date: Date): Promise<number> {
-  const rows = await prisma.$queryRaw<{ qty: Num }[]>`
-    SELECT l."initialQty" + COALESCE((
-      SELECT SUM(m.delta)
-      FROM "StockMovement" m
-      WHERE m."lotId" = l.id AND m."date" < ${utc(date)}::timestamp AND m.type <> 'IN'
-    ), 0) AS qty
-    FROM "StockLot" l
-    WHERE l.id = ${lotId}`;
-  return n(rows[0]?.qty);
-}
-
-/** Somme de `LedgerEntry.amount` sur une période, pour un ensemble de kinds. */
-export async function sumLedgerAmount(
-  kinds: string[],
-  from: Date,
-  to: Date,
-): Promise<number> {
-  const rows = await prisma.$queryRaw<{ total: Num }[]>`
-    SELECT COALESCE(SUM("amount"), 0)::bigint AS total
-    FROM "LedgerEntry"
-    WHERE kind::text = ANY(${kinds}::text[]) AND "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp`;
-  return n(rows[0]?.total);
-}
-
 /** Écritures d'un indicateur, pour le drill-down du dashboard (§62). */
 export async function ledgerEntriesForKinds(
   kinds: string[],

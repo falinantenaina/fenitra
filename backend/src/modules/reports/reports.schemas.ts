@@ -11,8 +11,6 @@ export const dashboardQuery = z.object({
   to: z.coerce.date().optional(),
 });
 
-export type DashboardQuery = z.infer<typeof dashboardQuery>;
-
 export const ledgerQuery = listQuerySchema.extend({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -50,5 +48,3 @@ export const exportQuery = z
     message: 'year est requis pour un rapport mensuel',
     path: ['year'],
   });
-
-export type ExportQuery = z.infer<typeof exportQuery>;

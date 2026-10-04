@@ -10,24 +10,13 @@ import {
 } from 'react-native';
 
 import { CancelPanel } from '@/components/cancel-panel';
+import { Section } from '@/components/section';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
+import { pick } from '@/lib/params';
 import { useArrival, useCancelArrival } from '@/lib/queries';
 import { ARRIVAL_STATUS } from '@/lib/status';
 import { useAuth } from '@/store/auth';
-
-function Section({ title, count }: { title: string; count?: number }) {
-  return (
-    <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {title}
-      {typeof count === 'number' ? ` · ${count}` : ''}
-    </Text>
-  );
-}
-
-function pick(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
-}
 
 export default function ArrivalDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();

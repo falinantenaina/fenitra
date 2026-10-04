@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
+import { pick } from '@/lib/params';
 import { useLotMovements } from '@/lib/queries';
 import type { LotMovementItem } from '@/lib/types';
 
@@ -48,11 +49,6 @@ function MovementRow({ movement }: { movement: LotMovementItem }) {
       </Text>
     </View>
   );
-}
-
-/** `useLocalSearchParams` peut renvoyer un tableau — on garde la première valeur. */
-function pick(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
 export default function LotScreen() {

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
@@ -15,7 +15,9 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorText, Field } from '@/components/field';
 import { apiMessage } from '@/lib/api';
+import { formatMoney } from '@/lib/format';
 import {
   buildVersementPayload,
   todayISO,
@@ -47,7 +49,7 @@ export default function NewVersementScreen() {
       );
       Alert.alert(
         'Versement enregistré',
-        `${versement.personName} — ${Number(versement.amount).toLocaleString('fr-FR')} Ar`,
+        `${versement.personName} — ${formatMoney(versement.amount)}`,
         [{ text: 'OK', onPress: () => router.back() }],
       );
     } catch (error) {
@@ -190,18 +192,4 @@ export default function NewVersementScreen() {
       </View>
     </KeyboardAvoidingView>
   );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View className="mt-5 gap-1.5">
-      <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Text>
-      {children}
-    </View>
-  );
-}
-
-function ErrorText({ message }: { message?: string }) {
-  if (!message) return null;
-  return <Text className="text-xs text-red-600">{message}</Text>;
 }

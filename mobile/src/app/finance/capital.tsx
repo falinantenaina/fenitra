@@ -1,6 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import type { ReactNode } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorText, Field } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -190,18 +190,4 @@ export default function NewCapitalScreen() {
       </View>
     </KeyboardAvoidingView>
   );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View className="mt-5 gap-1.5">
-      <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Text>
-      {children}
-    </View>
-  );
-}
-
-function ErrorText({ message }: { message?: string }) {
-  if (!message) return null;
-  return <Text className="text-xs text-red-600">{message}</Text>;
 }

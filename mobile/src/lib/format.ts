@@ -16,19 +16,6 @@ export function formatMoney(value: string | number | null | undefined): string {
   return cents > 0 ? `${main},${String(cents).padStart(2, '0')} Ar` : `${main} Ar`;
 }
 
-/** Montant court pour les cartes compactes (`1,9 M Ar`). */
-export function formatMoneyShort(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-  const n = typeof value === 'string' ? Number(value) : value;
-  if (!Number.isFinite(n)) return '—';
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(1)} Md Ar`;
-  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)} M Ar`;
-  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)} k Ar`;
-  return `${sign}${Math.round(abs)} Ar`;
-}
-
 /** ISO → `02/10/2026 09:15` (heure locale de l'appareil). */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';

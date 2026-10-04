@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import type { Response } from 'superagent';
+import type { Response } from 'supertest';
 import { adminToken, app, as, API, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 import { buildPdf } from '../src/modules/reports/reports.service';

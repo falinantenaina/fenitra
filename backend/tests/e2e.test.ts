@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { Response } from 'superagent';
 import { prisma } from '../src/lib/prisma';
 import { adminToken, as, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';

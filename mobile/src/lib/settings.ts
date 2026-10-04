@@ -7,7 +7,6 @@ import type {
   CreateProductBody,
   CreateSizeBody,
   CreateUserBody,
-  PasswordBody,
   SettingsMap,
   UpdateCategoryBody,
   UpdatePartyBody,
@@ -149,11 +148,6 @@ export const buildUserPayload = (v: UserFormValues): CreateUserBody => ({
   name: v.name.trim(),
   password: v.password,
   role: v.role,
-});
-
-export const buildPasswordPayload = (v: PasswordFormValues): PasswordBody => ({
-  currentPassword: v.currentPassword,
-  newPassword: v.newPassword,
 });
 
 /** `PUT /settings` — fusion : seules les paires saisies sont envoyées. */

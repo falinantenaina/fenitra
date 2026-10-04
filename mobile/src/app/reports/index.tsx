@@ -12,6 +12,7 @@ import {
 
 import { Chip } from '@/components/chip';
 import { ListFooter } from '@/components/list-footer';
+import { Section } from '@/components/section';
 import { todayISO } from '@/lib/finance';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import {
@@ -75,15 +76,6 @@ function DateField({
         </Pressable>
       ) : null}
     </View>
-  );
-}
-
-function Section({ title, count }: { title: string; count?: number }) {
-  return (
-    <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {title}
-      {typeof count === 'number' ? ` · ${count}` : ''}
-    </Text>
   );
 }
 

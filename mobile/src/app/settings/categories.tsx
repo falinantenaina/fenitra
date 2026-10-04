@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import {
   useCreateCategory,
@@ -34,10 +35,6 @@ import { useAuth } from '@/store/auth';
 
 const inputClass =
   'h-11 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900';
-
-function FieldError({ message }: { message?: string }) {
-  return message ? <Text className="mt-1 text-xs text-red-600">{message}</Text> : null;
-}
 
 function SectionTitle({ count, title }: { count: number; title: string }) {
   return (

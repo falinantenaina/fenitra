@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -43,10 +44,6 @@ const ROLE_LABELS: Record<UserRole, string> = {
   MANAGER: 'Gestionnaire',
   CASHIER: 'Caisse',
 };
-
-function FieldError({ message }: { message?: string }) {
-  return message ? <Text className="mt-1 text-xs text-red-600">{message}</Text> : null;
-}
 
 function RoleChips({
   value,

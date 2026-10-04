@@ -15,6 +15,7 @@ import {
 
 import { CancelPanel } from '@/components/cancel-panel';
 import { Chip } from '@/components/chip';
+import { Section } from '@/components/section';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import {
@@ -22,22 +23,10 @@ import {
   debtPaymentFormSchema,
   type DebtPaymentFormValues,
 } from '@/lib/finance';
+import { pick } from '@/lib/params';
 import { useCancelSale, usePaySale, usePaymentMethods, useSale } from '@/lib/queries';
 import { SALE_STATUS } from '@/lib/status';
 import { useAuth } from '@/store/auth';
-
-function Section({ title, count }: { title: string; count?: number }) {
-  return (
-    <Text className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {title}
-      {typeof count === 'number' ? ` · ${count}` : ''}
-    </Text>
-  );
-}
-
-function pick(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
-}
 
 export default function SaleDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
