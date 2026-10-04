@@ -4,7 +4,7 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { pick } from '@/lib/params';
-import { useLotMovements } from '@/lib/queries';
+import { useLotMovements, useVariantPriceHistory } from '@/lib/queries';
 import type { LotMovementItem } from '@/lib/types';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -62,6 +62,8 @@ export default function LotScreen() {
   }>();
   const id = pick(params.id) || null;
   const { data, isPending, error } = useLotMovements(id);
+  const variantId = data?.lot.variantId ?? null;
+  const price = useVariantPriceHistory(variantId);
 
   const code = data?.lot.code ?? pick(params.code);
   const product = pick(params.product);
@@ -104,6 +106,63 @@ export default function LotScreen() {
               <Info label="Arrivage" value={pick(params.arrival) || '—'} />
             </View>
           </View>
+
+          {/* §18 — prix d'achat de la variante, entrée par entrée. */}
+          {variantId ? (
+            <View>
+              <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Prix d&apos;achat · historique · {price.data?.total ?? 0}
+              </Text>
+              <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {price.isPending ? (
+                  <ActivityIndicator className="py-4" color="#208AEF" />
+                ) : price.isError ? (
+                  <Text className="px-3 py-4 text-sm text-red-600">
+                    Impossible de charger l&apos;historique des prix.
+                  </Text>
+                ) : (price.data?.items.length ?? 0) === 0 ? (
+                  <Text className="px-3 py-4 text-sm text-slate-400">Aucune entrée.</Text>
+                ) : (
+                  price.data!.items.map((item, index) => {
+                    const previous = price.data!.items[index + 1];
+                    const delta = previous ? Number(item.unitCost) - Number(previous.unitCost) : 0;
+                    return (
+                      <View
+                        className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"
+                        key={`${item.arrivalId}-${item.cartonReference}-${index}`}>
+                        <View className="flex-1">
+                          <Text className="text-sm font-medium text-slate-800" numberOfLines={1}>
+                            {item.cartonReference} · {formatQuantity(item.quantity)} pce(s)
+                          </Text>
+                          <Text className="text-xs text-slate-400" numberOfLines={1}>
+                            {formatDateTime(item.date)}
+                            {item.reference ? ` · ${item.reference}` : ''}
+                          </Text>
+                          <Text className="text-[11px] text-slate-400">
+                            Total ligne {formatMoney(item.lineTotal)}
+                          </Text>
+                        </View>
+                        <View className="items-end">
+                          <Text className="text-sm font-bold text-slate-900">
+                            {formatMoney(item.unitCost)}
+                          </Text>
+                          {delta !== 0 ? (
+                            <Text
+                              className={`text-[11px] font-semibold ${
+                                delta > 0 ? 'text-red-600' : 'text-emerald-600'
+                              }`}>
+                              {delta > 0 ? '+' : '−'}
+                              {formatMoney(Math.abs(delta))}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </View>
+          ) : null}
 
           <View>
             <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">

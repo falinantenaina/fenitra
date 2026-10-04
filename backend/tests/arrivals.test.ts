@@ -215,6 +215,8 @@ describe('Arrivages & stock', () => {
     expect(lotMovements.body.items).toHaveLength(2);
     expect(lotMovements.body.items[1].type).toBe('ADJUSTMENT');
     expect(lotMovements.body.items[1].delta).toBe(-3);
+    // §18 — le détail du lot donne la variante, donc l'historique des prix
+    expect(lotMovements.body.lot.variantId).toBe(variantA);
   });
 
   it('refuse un ajustement supérieur au stock (409)', async () => {

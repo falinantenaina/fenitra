@@ -158,7 +158,7 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) |
 | GET | `/api/stock/summary` | auth | Quantité + valeur (`variantId`, `from`, `to`) |
 | GET | `/api/stock/lots` | auth | Lots (`variantId`, `status`, `page`) |
-| GET | `/api/stock/lots/:id/movements` | auth | Mouvements d'un lot |
+| GET | `/api/stock/lots/:id/movements` | auth | Mouvements d'un lot — le `lot` expose `variantId` (→ `GET /variants/:id/price-history`, §18) |
 | GET | `/api/stock/movements` | auth | Mouvements (`from`, `to`, `type`) |
 | POST | `/api/stock/adjustments` | manager | Casse/perte (`variantId`, `qty`, `reason`) |
 

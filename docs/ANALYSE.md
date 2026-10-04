@@ -1423,6 +1423,16 @@ filtres de statut sur `GET /stock/lots?q=&status=`, flux
 ADMIN/MANAGER. Le tap sur un lot ouvre `/stock/lot` (`GET /stock/lots/:id/movements`
 : entrées d'arrivage, sorties FIFO, retours, ajustements, avec l'auteur).
 
+**Étape 5 — historique des prix d'achat (§18)** : le détail du lot affiche
+aussi, sous l'en-tête, la section « Prix d'achat · historique » alimentée par
+`GET /variants/:id/price-history` — le `lot` du premier appel expose
+désormais `variantId` (champ ajouté à la réponse, seule extension backend de
+l'étape), puis `useVariantPriceHistory` charge les lignes de carton
+d'arrivage les plus récentes en premier : référence du carton, quantité,
+date et arrivage, prix d'achat unitaire figé à vie, total de ligne, et
+l'écart avec l'entrée précédente coloré (rouge si le prix a monté, vert s'il
+a baissé). La section ne s'affiche que si la variante est connue.
+
 **`/stock/adjust`** — même recherche d'article que la vente (debounce 300 ms),
 stepper de quantité, motif, date, et aperçu de la valeur retirée calculé sur
 la valorisation moyenne du résumé. Garde-fou côté client (`quantité ≤ stock`)
@@ -1464,6 +1474,16 @@ Backend `npm run typecheck` + `npm test` verts (**207 tests / 15 fichiers**,
 dont un test §38 : versement du 31/07/2099 à midi retrouvé par `custom`,
 `today` qui exclut l'écriture lointaine, `400` sans bornes). Mobile
 `npx tsc --noEmit` + `npx expo lint` verts (1 avertissement connu).
+
+**Étape 5 — contrôles** : backend `npm run typecheck` + `npm test` verts
+(**207 tests / 15 fichiers**, cinq passes consécutives) — `variantId` ajouté
+au `lot` de `GET /stock/lots/:id/movements` et asserté dans
+`arrivals.test.ts`. Le test « dérille les indicateurs d'état vers leurs
+composantes (§62) » accepte aussi l'intervalle balayé par ses deux lectures :
+les soldes cumulés changent en continu parce que quinze suites écrivent en
+parallèle, et l'égalité stricte partait en échec dans un essai sur deux. Le
+dérillage reste encadré de deux lectures et retombe sur l'une d'elles dès
+qu'aucune écriture n'a eu lieu pendant le bracket.
 
 **Rappels métier affichés à l'écran** : A8 (une dépense est toujours réglée →
 caisse −`amount` immédiat), A2 (le versement détecte lui-même un

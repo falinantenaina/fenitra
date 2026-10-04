@@ -69,6 +69,7 @@ import type {
   UpdateProductBody,
   UpdateUserBody,
   UserItem,
+  VariantPriceHistory,
   VariantSearchItem,
   VersementItem,
   VersementSummary,
@@ -465,6 +466,23 @@ export function useLotMovements(lotId: string | null): UseQueryResult<LotMovemen
       return data;
     },
     staleTime: 15_000,
+  });
+}
+
+/** Historique des prix d'achat d'une variante (`GET /variants/:id/price-history`) — §18. */
+export function useVariantPriceHistory(
+  variantId: string | null,
+): UseQueryResult<VariantPriceHistory> {
+  return useQuery<VariantPriceHistory>({
+    queryKey: ['variants', 'price-history', variantId],
+    enabled: Boolean(variantId),
+    queryFn: async () => {
+      const { data } = await api.get<VariantPriceHistory>(
+        `/variants/${variantId}/price-history`,
+      );
+      return data;
+    },
+    staleTime: 60_000,
   });
 }
 

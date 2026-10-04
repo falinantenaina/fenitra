@@ -553,12 +553,30 @@ export interface LotMovementsResponse {
   lot: {
     id: string;
     code: string;
+    /** Variante achetée — sert à charger l'historique des prix (§18). */
+    variantId: string;
     initialQty: number;
     remainingQty: number;
     unitCost: string;
     status: LotStatus;
   };
   items: LotMovementItem[];
+}
+
+/** Ligne d'`GET /variants/:id/price-history` (§18 — prix d'achat). */
+export interface PriceHistoryItem {
+  arrivalId: string;
+  reference: string;
+  date: string;
+  cartonReference: string;
+  quantity: number;
+  unitCost: string;
+  lineTotal: string;
+}
+
+export interface VariantPriceHistory {
+  items: PriceHistoryItem[];
+  total: number;
 }
 
 /** Corps de `POST /stock/adjustments` (casse / perte). */

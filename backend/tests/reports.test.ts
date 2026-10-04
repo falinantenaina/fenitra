@@ -288,8 +288,11 @@ describe('Journal, dashboard et rapports', () => {
     // sont des ÉTATS cumulés jusqu'à la date de fin : ils captent donc aussi les
     // écritures des autres fichiers de test, écrits en parallèle. Chaque
     // dérillage est encadré de deux lectures du dashboard — le total doit
-    // retomber sur l'une des deux, ce qui autorise une écriture entre les deux
-    // lectures mais jamais un total faux.
+    // retomber sur l'une des deux quand rien n'a bougé, et, sinon, rester dans
+    // l'intervalle balayé par les deux lectures (le dérillage est produit entre
+    // elles) : une écriture pendant le bracket déplace le solde, jamais un total
+    // faux. Cinq tentatives couvrent le cas rare où le solde monte ET descend
+    // entre les deux lectures.
     const stateful: Record<string, (b: Record<string, any>) => number> = {
       cashBalance: (b) => Number(b.money.cash),
       receivables: (b) => Number(b.money.receivables),
@@ -316,12 +319,14 @@ describe('Journal, dashboard et rapports', () => {
     expect(Number(seeded.body.stock.value)).toBeGreaterThan(0);
 
     const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
+    const between = (v: number, a: number, b: number) =>
+      v >= Math.min(a, b) - 0.01 && v <= Math.max(a, b) + 0.01;
 
     for (const [indicator, pick] of Object.entries(stateful)) {
       let matched = false;
       let last = { before: NaN, drill: NaN, after: NaN };
 
-      for (let attempt = 0; attempt < 3 && !matched; attempt += 1) {
+      for (let attempt = 0; attempt < 5 && !matched; attempt += 1) {
         const before = await admin.get(`/dashboard?${SEALED}`);
         const drill = await admin.get(`/dashboard/${indicator}/transactions?${SEALED}`);
         const after = await admin.get(`/dashboard?${SEALED}`);
@@ -335,7 +340,10 @@ describe('Journal, dashboard et rapports', () => {
           drill: Number(drill.body.total),
           after: pick(after.body),
         };
-        matched = close(last.drill, last.before) || close(last.drill, last.after);
+        matched =
+          close(last.drill, last.before) ||
+          close(last.drill, last.after) ||
+          between(last.drill, last.before, last.after);
       }
 
       expect(matched, `${indicator} : dérillage ${JSON.stringify(last)}`).toBe(true);

@@ -163,6 +163,8 @@ stockRouter.get(
       lot: {
         id: lot.id,
         code: lot.code,
+        /** §18 — sert à charger l'historique des prix d'achat de la variante. */
+        variantId: lot.variantId,
         initialQty: lot.initialQty,
         remainingQty: lot.remainingQty,
         unitCost: money(lot.unitCost),
