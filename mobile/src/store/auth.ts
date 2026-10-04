@@ -1,5 +1,4 @@
 import { isAxiosError } from 'axios';
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
 import {
@@ -11,6 +10,7 @@ import {
   setRefreshHandler,
   setUnauthorizedHandler,
 } from '@/lib/api';
+import { getItem, removeItem, setItem } from '@/lib/storage';
 
 export type RoleName = 'ADMIN' | 'MANAGER' | 'CASHIER';
 
@@ -42,13 +42,13 @@ interface AuthState {
 }
 
 async function clearTokens(): Promise<void> {
-  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  await removeItem(ACCESS_TOKEN_KEY);
+  await removeItem(REFRESH_TOKEN_KEY);
 }
 
 async function saveTokens(accessToken: string, refreshToken: string): Promise<void> {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+  await setItem(ACCESS_TOKEN_KEY, accessToken);
+  await setItem(REFRESH_TOKEN_KEY, refreshToken);
 }
 
 export const useAuth = create<AuthState>()((set, get) => ({
@@ -56,7 +56,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
   user: null,
 
   hydrate: async () => {
-    const accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    const accessToken = await getItem(ACCESS_TOKEN_KEY);
     if (!accessToken) {
       set({ status: 'signedOut', user: null });
       return;
@@ -85,7 +85,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
 
   logout: async () => {
     stopUserRetry();
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    const refreshToken = await getItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       try {
         await api.post('/auth/logout', { refreshToken });

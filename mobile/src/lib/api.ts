@@ -4,9 +4,9 @@ import {
   type AxiosError,
   type InternalAxiosRequestConfig,
 } from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import { getItem, setItem } from './storage';
 
-/** Clés de stockage des jetons (SecureStore, chiffré par le système). */
+/** Clés de stockage des jetons (SecureStore sur natif, localStorage sur web). */
 export const ACCESS_TOKEN_KEY = 'gv_access_token';
 export const REFRESH_TOKEN_KEY = 'gv_refresh_token';
 
@@ -56,7 +56,7 @@ export function setUnauthorizedHandler(handler: () => void): void {
 }
 
 api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+  const token = await getItem(ACCESS_TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -94,14 +94,14 @@ api.interceptors.response.use(
 let refreshInFlight: Promise<string | null> | null = null;
 
 async function runRefresh(): Promise<string | null> {
-  const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  const refreshToken = await getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return null;
   try {
     const { data } = await rawApi.post<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
       refreshToken,
     });
-    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
-    if (data.refreshToken) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+    await setItem(ACCESS_TOKEN_KEY, data.accessToken);
+    if (data.refreshToken) await setItem(REFRESH_TOKEN_KEY, data.refreshToken);
     return data.accessToken;
   } catch (error) {
     // Refus définitif du serveur (401/403) : jeton révoqué ou expiré.

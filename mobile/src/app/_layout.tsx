@@ -1,4 +1,4 @@
-import '../global.css';
+import '../../global.css';
 
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
