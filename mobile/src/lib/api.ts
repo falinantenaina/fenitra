@@ -3,15 +3,16 @@ import {
   isAxiosError,
   type AxiosError,
   type InternalAxiosRequestConfig,
-} from 'axios';
-import { getItem, setItem } from './storage';
+} from "axios";
+import { getItem, setItem } from "./storage";
 
 /** Clés de stockage des jetons (SecureStore sur natif, localStorage sur web). */
-export const ACCESS_TOKEN_KEY = 'gv_access_token';
-export const REFRESH_TOKEN_KEY = 'gv_refresh_token';
+export const ACCESS_TOKEN_KEY = "gv_access_token";
+export const REFRESH_TOKEN_KEY = "gv_refresh_token";
 
 /** URL de base de l'API — voir `.env.example`. */
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:4000/api';
+export const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:4000/api";
 
 /** Format d'erreur renvoyé par le backend (`errorHandler`). */
 export interface ApiErrorBody {
@@ -30,13 +31,15 @@ interface RefreshMarkedError {
  * le refus du serveur n'est pas certain, il ne faut pas déconnecter l'utilisateur.
  */
 export function isRefreshInconclusive(error: unknown): boolean {
-  return Boolean((error as RefreshMarkedError | null | undefined)?.__refreshInconclusive);
+  return Boolean(
+    (error as RefreshMarkedError | null | undefined)?.__refreshInconclusive,
+  );
 }
 
 export const api = createAxios({
   baseURL: API_BASE_URL,
   timeout: 20_000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
 });
 
 /** Instance nue (sans intercepteurs) pour le rafraîchissement du jeton. */
@@ -65,10 +68,17 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiErrorBody>) => {
     const config = error.config as RetriableConfig | undefined;
-    const url = config?.url ?? '';
-    const skipRefresh = url.includes('/auth/login') || url.includes('/auth/refresh');
+    const url = config?.url ?? "";
+    const skipRefresh =
+      url.includes("/auth/login") || url.includes("/auth/refresh");
 
-    if (error.response?.status === 401 && !skipRefresh && config && !config.__retried && refreshHandler) {
+    if (
+      error.response?.status === 401 &&
+      !skipRefresh &&
+      config &&
+      !config.__retried &&
+      refreshHandler
+    ) {
       config.__retried = true;
       let token: string | null = null;
       try {
@@ -97,7 +107,10 @@ async function runRefresh(): Promise<string | null> {
   const refreshToken = await getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return null;
   try {
-    const { data } = await rawApi.post<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+    const { data } = await rawApi.post<{
+      accessToken: string;
+      refreshToken: string;
+    }>("/auth/refresh", {
       refreshToken,
     });
     await setItem(ACCESS_TOKEN_KEY, data.accessToken);
@@ -131,9 +144,10 @@ export function apiMessage(error: unknown): string {
   if (isAxiosError(error)) {
     const data = error.response?.data as ApiErrorBody | undefined;
     if (data?.error?.message) return data.error.message;
-    if (!error.response) return 'Serveur injoignable — vérifiez la connexion réseau.';
+    if (!error.response)
+      return "Serveur injoignable — vérifiez la connexion réseau.";
     return error.message;
   }
   if (error instanceof Error) return error.message;
-  return 'Erreur inattendue';
+  return "Erreur inattendue";
 }

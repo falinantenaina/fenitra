@@ -1310,14 +1310,17 @@ depuis n'importe quel onglet — les anciens boutons en pied d'accueil ont été
 retirés.
 
 L'accueil affiche une grille **« Actions rapides »** juste sous la bannière
-d'intégrité, avec les sept actions du cahier dans son ordre : Vente,
-Dépense, Versement, Arrivage, Paiement client, Paiement fournisseur, Argent
+d'intégrité, avec les actions du cahier dans son ordre : Vente,
+Dépense, Arrivage, Paiement client, Paiement fournisseur, Argent
 propre. Elles mènent à `/sale/new`, `/finance/expense`,
-`/finance/versement`, `/arrival/new` et `/finance/capital` ; les deux
+`/arrival/new` et `/finance/capital` ; les deux
 paiements ouvrent l'onglet Dettes avec `?type=CUSTOMER|SUPPLIER&status=OPEN`
 (`GET /debts` filtre déjà sur ces deux paramètres). La vente est visible par
-tous les rôles (le caissier vend), les six autres n'apparaissent que pour
+tous les rôles (le caissier vend), les autres n'apparaissent que pour
 ADMIN/MANAGER — le backend refuse de toute façon (`managerOrAdmin`).
+L'action **Versement** a été retirée de l'interface : elle faisait double
+emploi avec le paiement fournisseur (règlement d'une dette) — les endpoints
+`/versements`, leur historique et les indicateurs de rapports restent en place.
 
 `dettes.tsx` lit `type`/`status` depuis l'URL : le corps de l'écran est
 monté avec une `key` dépendant des paramètres, ce qui réinitialise les chips
@@ -1538,14 +1541,18 @@ de `GET /payment-methods`) vers `POST /debts/:id/payments`, puis les trois
 listes du détail : `payments[]`, `versements[]` liés (A2) et `history[]`
 (écritures du journal).
 
-**Onglet Finances** — quatre segments : Dépenses (`GET /expenses`),
-Versements (`GET /versements`), Argent propre (`GET /personal-capital`) et
+**Onglet Finances** — trois segments : Dépenses (`GET /expenses`),
+Argent propre (`GET /personal-capital`) et
 Dettes à payer (`GET /debts?direction=PAYABLE`, tappable → détail de la
 dette). Le bouton « Nouveau », réservé aux gestionnaires, route vers les
-quatre formulaires `finance/expense`, `finance/versement`, `finance/capital`,
-`finance/dette-fournisseur`.
+trois formulaires `finance/expense`, `finance/capital`,
+`finance/dette-fournisseur`. Le segment **Versements** et l'écran
+`finance/versement` ont été retirés de l'interface (redondance avec le
+paiement fournisseur) : `POST/GET /versements` et les écrans de rapports
+« Versements » / « Versements par personne » restent servis par le backend.
 
-**Segment Versements (§38, étape 4)** — en haut les mêmes filtres de période
+**Segment Versements (§38, étape 4 — retiré de l'interface, conserve ici comme
+historique)** — en haut les mêmes filtres de période
 que le tableau de bord (`PeriodTabs` : presets + plage personnalisée validée,
 `period` résolu côté serveur, période par défaut « Mois »), puis le bloc
 **« Par personne »** alimenté par `GET /versements/summary` : nombre de
@@ -1584,7 +1591,7 @@ dette.
 
 **Validation** (`src/lib/finance.ts`, Zod + `zodResolver`, `mode: onSubmit`) :
 montants entiers en ariary, dates `AAAA-MM-JJ`, motifs bornés ; les builders
-(`buildAdjustPayload`, `buildExpensePayload`, `buildVersementPayload`,
+(`buildAdjustPayload`, `buildExpensePayload`,
 `buildCapitalPayload`, `buildSupplierDebtPayload`, `buildDebtPaymentPayload`)
 n'envoient que les champs renseignés. Le composant `Chip` partagé
 (`src/components/chip.tsx`) remplace la copie locale de la vente.

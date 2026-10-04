@@ -31,7 +31,6 @@ import type {
   CreateSizeBody,
   CreateSupplierDebtBody,
   CreateUserBody,
-  CreateVersementBody,
   CustomRange,
   DashboardResponse,
   DailyReport,
@@ -76,8 +75,6 @@ import type {
   UserItem,
   VariantPriceHistory,
   VariantSearchItem,
-  VersementItem,
-  VersementSummary,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -581,7 +578,6 @@ export function useCancelDebt() {
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
-      void client.invalidateQueries({ queryKey: ['versements'] });
     },
   });
 }
@@ -602,28 +598,6 @@ export function useExpenseCategories(): UseQueryResult<ExpenseCategory[]> {
       return data.items.filter((c) => c.active);
     },
     staleTime: 60_000,
-  });
-}
-
-/** Versements paginés (`GET /versements`) — §38 : `period`, `from`/`to`, `personName`. */
-export function useVersements(params: ListParams = {}): PagedInfinite<VersementItem> {
-  return useInfiniteList<VersementItem>(['versements', 'list'], '/versements', params);
-}
-
-/** Historique par personne (`GET /versements/summary`) — §38. */
-export function useVersementsSummary(
-  period: PeriodKey,
-  range?: CustomRange | null,
-): UseQueryResult<VersementSummary> {
-  return useQuery<VersementSummary>({
-    queryKey: ['versements', 'summary', period, range?.from ?? '', range?.to ?? ''],
-    queryFn: async () => {
-      const { data } = await api.get<VersementSummary>('/versements/summary', {
-        params: { period, ...(range ? { from: range.from, to: range.to } : {}) },
-      });
-      return data;
-    },
-    staleTime: 15_000,
   });
 }
 
@@ -863,7 +837,6 @@ export function usePayDebt() {
     onSuccess: () => {
       keys.reset();
       void client.invalidateQueries({ queryKey: ['debts'] });
-      void client.invalidateQueries({ queryKey: ['versements'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
     },
@@ -897,23 +870,6 @@ export function useCreateExpense() {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['expenses'] });
-      void client.invalidateQueries({ queryKey: ['dashboard'] });
-      void client.invalidateQueries({ queryKey: ['ledger'] });
-    },
-  });
-}
-
-/** `POST /versements` — le traitement (charge ou remboursement) est détecté (A2). */
-export function useCreateVersement() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: CreateVersementBody) => {
-      const { data } = await api.post<VersementItem>('/versements', body);
-      return data;
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['versements'] });
-      void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
     },

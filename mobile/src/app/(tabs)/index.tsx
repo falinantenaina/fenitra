@@ -22,7 +22,6 @@ const INTEGRITY_OK = 'Identité comptable vérifiée';
 const ACTION_ICONS = {
   sale: 'cart-outline',
   expense: 'remove-circle-outline',
-  versement: 'swap-horizontal-outline',
   arrival: 'cube-outline',
   payCustomer: 'person-outline',
   paySupplier: 'business-outline',
@@ -74,12 +73,6 @@ export default function HomeScreen() {
               label: 'Dépense',
               icon: ACTION_ICONS.expense,
               onPress: () => router.push('/finance/expense'),
-            },
-            {
-              key: 'versement',
-              label: 'Versement',
-              icon: ACTION_ICONS.versement,
-              onPress: () => router.push('/finance/versement'),
             },
             {
               key: 'arrival',

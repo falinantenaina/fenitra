@@ -5,7 +5,6 @@ import type {
   CreateCapitalBody,
   CreateExpenseBody,
   CreateSupplierDebtBody,
-  CreateVersementBody,
   DebtPaymentBody,
 } from '@/lib/types';
 
@@ -62,35 +61,6 @@ export function buildExpensePayload(form: ExpenseFormValues): CreateExpenseBody 
     description: form.description,
     ...(form.method ? { method: form.method } : {}),
     ...(form.notes ? { notes: form.notes } : {}),
-  };
-}
-
-/* ════════════ Versement (A2 : traitement détecté côté serveur) ════════════ */
-
-export const versementFormSchema = z.object({
-  personName: z.string().trim().min(2, 'Nom requis').max(120, 'Nom trop long'),
-  amount: z
-    .number({ invalid_type_error: 'Montant invalide' })
-    .int('Montant entier en ariary')
-    .min(1, 'Montant minimal : 1 Ar'),
-  date: dateField,
-  motif: z.string().trim().min(3, 'Motif requis').max(300, 'Motif trop long'),
-  method: z.string().optional(),
-  comment: z.string().trim().max(1000, 'Commentaire trop long').optional(),
-  debtId: z.string().optional(),
-});
-
-export type VersementFormValues = z.infer<typeof versementFormSchema>;
-
-export function buildVersementPayload(form: VersementFormValues): CreateVersementBody {
-  return {
-    personName: form.personName,
-    amount: form.amount,
-    date: form.date,
-    motif: form.motif,
-    ...(form.method ? { method: form.method } : {}),
-    ...(form.comment ? { comment: form.comment } : {}),
-    ...(form.debtId ? { debtId: form.debtId } : {}),
   };
 }
 

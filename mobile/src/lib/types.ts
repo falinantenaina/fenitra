@@ -736,50 +736,6 @@ export interface CreateExpenseBody {
   notes?: string | null;
 }
 
-/** Ligne de `GET /versements`. */
-export interface VersementItem {
-  id: string;
-  personName: string;
-  amount: string;
-  date: string;
-  motif: string;
-  method: string | null;
-  comment: string | null;
-  treatment: string;
-  debtId: string | null;
-  user: { id: string; name: string } | null;
-}
-
-/** §38 — agrégat par personne (`GET /versements/summary`). */
-export interface VersementSummaryItem {
-  personName: string;
-  count: number;
-  amount: string;
-  /** Total traité en charge (affecte le bénéfice net). */
-  charge: string;
-  /** Total traité en remboursement de dette. */
-  debtSettlement: string;
-  lastDate: string;
-}
-
-export interface VersementSummary {
-  items: VersementSummaryItem[];
-  totalAmount: string;
-  totalCount: number;
-}
-
-/** Corps de `POST /versements` (A2 : traitement détecté côté serveur). */
-export interface CreateVersementBody {
-  personName: string;
-  amount: number;
-  date?: string;
-  motif: string;
-  method?: string | null;
-  comment?: string | null;
-  /** Dette à payer à régler explicitement (sinon détection automatique côté serveur). */
-  debtId?: string;
-}
-
 /** Ligne de `GET /personal-capital`. */
 export interface CapitalItem {
   id: string;
