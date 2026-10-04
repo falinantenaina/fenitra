@@ -1488,12 +1488,47 @@ bouton « Rapports & journal » sur l'accueil) : trois segments —
   `GET /ledger/summary?from=&to=` (totaux, ventilation `byKind`, écritures
   avec `seq`, `kind`, `amount`, `cashDelta`, `description`).
 
-**Vue de rapport** (`ReportBodyView`) : bandeau d'intégrité (`integrity.ok`,
-`identityDelta`), les six métriques d'activité (CA, marge, bénéfice net,
-encaissements, dépenses, versements), les ventes de la période (≤ 10,
-tappable → détail de la vente), les meilleures ventes (≤ 5) et les dépenses
-par catégorie. Les montants sont affichés via `formatMoney` (le formatage
-reste tolérant `string | number`).
+**Vue de rapport** (`ReportBodyView`, `DailyReport | MonthlyReport`) : bandeau
+d'intégrité (`integrity.ok`, `identityDelta`), puis les rubriques du **§48** :
+
+- **Journalier (11 champs)** : ventes, chiffre d'affaires, recettes, coût des
+  marchandises, dépenses, versements, bénéfice brut, bénéfice net, caisse,
+  **paiements reçus**, **paiements fournisseurs**, **nouvelles dettes** ;
+- **Mensuel (18 champs)** : les neuf métriques d'activité (ventes, CA,
+  recettes, COGS, dépenses, versements, brut, net, caisse), la section
+  « Situation en fin de mois » (quantité et valeur du stock, dettes clients,
+  vendeurs en ligne, fournisseurs, trosa sinoa, argent propre engagé), les
+  « Produits les plus vendus » (quantité, bénéfice `margin`, chiffre
+  d'affaires) et les « Versements par personne » (`person`, `count`, `amount`).
+
+Puis le détail commun : ventes de la période (≤ 10, tappable → détail de la
+vente), le classement des articles — journalier sur `topProducts` (meilleures
+ventes, par chiffre d'affaires), mensuel sur `bestSellers` (par quantité, huit
+premiers) — et les dépenses par catégorie. Les montants sont affichés via
+`formatMoney` (le formatage reste tolérant `string | number`).
+
+**Champs §48 côté backend** : `buildReport` retourne désormais
+`{ report, dashboard }` (le dashboard sert à alimenter le mensuel sans être
+sérialisé), et `dailyReport` / `monthlyReport` complètent le socle commun par
+`dailyExtras` (paiements reçus / fournisseurs, nouvelles dettes) et
+`monthlyExtras` (stock, dettes par type, versements par personne) :
+
+- `paymentsReceived` = écritures `CUSTOMER_PAYMENT` + `ONLINE_SELLER_PAYMENT`
+  de la fenêtre, `paymentsSupplier` = `SUPPLIER_PAYMENT` (le journal §39 est la
+  source ; les encaissements effectués au moment de la vente sont déjà dans
+  « recettes ») ;
+- `newDebts` = `remainingAmount + règlements journalisés depuis l'ouverture`
+  des dettes **ouvertes** sur la période (`date ∈ fenêtre`, `cancelledAt` nul),
+  en écartant les écritures `refType = ARRIVAL` : on mesure ce qui est devenu
+  dû, pas l'acompte versé à l'arrivée, si bien que le chiffre reste stable
+  quand un client rembourse (§69) ;
+- `bestSellers` = copie de `topProducts` retriée par quantité décroissante ;
+  `size` peut porter `label: null` (champ Prisma nullable) ;
+- le constructeur PDF, dont les lignes sont partagées entre les deux types,
+  affiche le bloc « Paiements reçus / fournisseurs / nouvelles dettes »
+  journalier, et le mensuel affiche `SITUATION EN FIN DE MOIS`,
+  `VERSEMENTS PAR PERSONNE`, `PRODUITS LES PLUS VENDUS (benefice par produit)`
+  et `CHIFFRE D AFFAIRES PAR PRODUIT`.
 
 **Export PDF** (`src/lib/report.ts`) : bouton « Exporter en PDF » →
 `GET /reports/export.pdf?…` récupéré en `arraybuffer` (`api.get<ArrayBuffer>`),
@@ -1522,6 +1557,21 @@ ventes avec lignes), journal paginé + résumé `byKind`, export PDF quotidien
 et mensuel (statut 200, `application/pdf`, signature `%PDF`, nom
 `rapport-*.pdf`), `?download=json` (nom + rapport inclus), `401` sans
 jeton et `400` pour un `type` d'export inconnu.
+
+**Points de contrôle validés (étape 3, §48)** : backend `npm run typecheck`
+et `npm test` verts (**206 tests / 15 fichiers**, deux passes consécutives) —
+`tests/reports.test.ts` compte 16 tests, dont les deux grilles §48 : les 11
+champs journaliers sont posés sur un jour isolé (`2099-06-20`) avec une vente
+à crédit, une dépense, un versement et deux règlements de dettes —
+`paymentsReceived` et `paymentsSupplier` sont **recoupés avec
+`/ledger/summary`**, `newDebts` est figé à `40000.00` alors que la dette ne
+pèse plus que 35 000 (preuve que l'acompte est bien écarté), et le mensuel
+contrôle le classement de `bestSellers` contre les lignes de ventes du même
+rapport ; le PDF mensuel est relu octet par octet et ses rubriques
+contrôlées (`VERSEMENTS PAR PERSONNE`, `PRODUITS LES PLUS VENDUS`), le
+journalier appelé via `exportReportPdf` affichant `Caisse`, `Paiements recus`,
+`Paiements fournisseurs` et `Nouvelles dettes`.
+Mobile `npx tsc --noEmit` et `npx expo lint` verts (1 avertissement connu).
 
 ---
 

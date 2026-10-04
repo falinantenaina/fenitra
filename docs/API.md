@@ -233,9 +233,9 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET | `/api/dashboard` | auth | `period=today\|yesterday\|7d\|week\|month\|prevMonth\|year\|custom` |
 | GET | `/api/dashboard/indicators` | auth | Liste des indicateurs exposés |
 | GET | `/api/dashboard/:indicator/transactions` | auth | Dérillage (§62) : la liste de transactions derrière un indicateur |
-| GET | `/api/reports/daily` | auth | Rapport journalier (`date`) |
-| GET | `/api/reports/monthly` | auth | Rapport mensuel (`year`, `month`) : top produits, bénéfice/produit, dépenses/catégorie |
-| GET | `/api/reports/export.pdf` | auth | Export PDF (`type=daily\|monthly`) |
+| GET | `/api/reports/daily` | auth | Rapport journalier (`date`) : §48 — `paymentsReceived`, `paymentsSupplier`, `newDebts` |
+| GET | `/api/reports/monthly` | auth | Rapport mensuel (`year`, `month`) : §48 — stock, dettes par type, `bestSellers`, `versementsByPerson` |
+| GET | `/api/reports/export.pdf` | auth | Export PDF (`type=daily\|monthly`), mêmes rubriques que les rapports |
 
 `/dashboard` renvoie :
 
@@ -266,6 +266,30 @@ La réponse porte `scope` : `period` = écritures de la fenêtre demandée,
 `toDate` = état cumulé (les stocks ne se décomposent pas en flux de période).
 Dans les deux cas `total` est **garanti égal** à la valeur affichée au
 dashboard (§62, contrôle §16).
+
+`/reports/daily` et `/reports/monthly` partagent le socle `period`, `activity`,
+`money`, `integrity`, `sales`, `topProducts`, `bestSellers`,
+`expensesByCategory`, puis ajoutent les rubriques du **§48** :
+
+| §48 | Journalier (`type: "daily"`) | Mensuel (`type: "monthly"`) |
+|---|---|---|
+| Activité | `activity.{ca,receipts,cogs,expenses,versementCharges,grossProfit,netProfit}` | idem |
+| Caisse | `money.cash` | `money.cash` |
+| Encaissements / décaissements | `paymentsReceived`, `paymentsSupplier` | — |
+| Nouvelles dettes | `newDebts` | — |
+| Stock et dettes | — | `stock.{quantity,value}`, `debts.{customer,onlineSeller,supplier,trosaSinoa}` |
+| Argent propre engagé | — | `money.personalCapitalEngaged` |
+| Produits | `topProducts` (par chiffre d'affaires) | `bestSellers` (par quantité) + `topProducts` ; `margin` = bénéfice par produit |
+| Dépenses par catégorie | `expensesByCategory` | `expensesByCategory` |
+| Versements par personne | — | `versementsByPerson[] = { person, count, amount }` |
+
+- `paymentsReceived` / `paymentsSupplier` : écritures `CUSTOMER_PAYMENT`,
+  `ONLINE_SELLER_PAYMENT` / `SUPPLIER_PAYMENT` de la fenêtre — le journal est la source.
+- `newDebts` : ce qui est **devenu dû** sur la période,
+  `remainingAmount + règlements journalisés depuis l'ouverture` (stable dans le
+  temps, §69). L'acompte versé à l'ouverture d'un arrivage (`refType = ARRIVAL`)
+  est écarté : on mesure la dette créée, pas l'argent déjà sorti.
+- Les rapports sont aussi exportés en PDF avec exactement ces rubriques.
 
 
 ---

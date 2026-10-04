@@ -210,17 +210,85 @@ export function presentMoney(m: DashboardResult['money']): PresentedMoney {
   };
 }
 
+/** Ligne de vente du rapport — §48 (journalier et mensuel). */
+export interface ReportSaleLine {
+  id: string;
+  reference: string;
+  date: Date;
+  status: string;
+  totalAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+  cogs: string;
+  margin: string;
+  party: string | null;
+  items: {
+    product: { id: string; name: string };
+      size: { label: string | null } | null;
+      sku: string | null;
+    quantity: number;
+    unitPrice: string;
+    lineTotal: string;
+    cogs: string;
+    margin: string;
+  }[];
+}
+
+/** Article du rapport — `margin` = bénéfice apporté par le produit (§48). */
+export interface ReportTopProduct {
+  variantId: string;
+  sku: string | null;
+  product: { id: string; name: string } | null;
+  size: { label: string | null } | null;
+  quantity: number;
+  revenue: string;
+  cogs: string;
+  margin: string;
+  salesCount: number;
+}
+
 export interface ReportResult {
   period: { from: string; to: string; label: string };
   activity: PresentedActivity;
   money: PresentedMoney;
   integrity: DashboardResult['integrity'];
-  sales: unknown[];
-  topProducts: unknown[];
+  sales: ReportSaleLine[];
+  /** Articles classés par chiffre d'affaires. */
+  topProducts: ReportTopProduct[];
+  /** Articles classés par quantité — « produits les plus vendus » (§48). */
+  bestSellers: ReportTopProduct[];
   expensesByCategory: { category: { id: string; name: string; icon: string | null }; count: number; amount: string }[];
 }
 
-async function buildReport(range: PeriodRange, take: number): Promise<ReportResult> {
+/** §48 — rapport journalier : encaissements et dettes ouvertes sur la journée. */
+export interface DailyReportExtras {
+  /** Règlements clients + vendeurs en ligne encaissés (kind `*_PAYMENT`). */
+  paymentsReceived: string;
+  /** Règlements fournisseurs décaissés (kind `SUPPLIER_PAYMENT`). */
+  paymentsSupplier: string;
+  /** Ce qui est devenu dû sur la période (reste à payer à l'ouverture), hors annulations. */
+  newDebts: string;
+}
+
+/** §48 — rapport mensuel : états cumulés à la fin du mois + ventilations. */
+export interface MonthlyReportExtras {
+  stock: { quantity: number; value: string };
+  debts: { customer: string; onlineSeller: string; supplier: string; trosaSinoa: string };
+  versementsByPerson: { person: string; count: number; amount: string }[];
+}
+
+export type DailyReportBody = ReportResult &
+  DailyReportExtras & { type: 'daily'; date: string; label: string };
+
+export type MonthlyReportBody = ReportResult &
+  MonthlyReportExtras & { type: 'monthly'; year: number; month: number; label: string };
+
+
+/** Corps commun : le `dashboard` brut est rendu interne (jamais sérialisé). */
+async function buildReport(
+  range: PeriodRange,
+  take: number,
+): Promise<{ report: ReportResult; dashboard: DashboardResult }> {
   const dashboard = await buildDashboard(range);
 
   const [sales, rawTop] = await Promise.all([
@@ -289,7 +357,7 @@ async function buildReport(range: PeriodRange, take: number): Promise<ReportResu
     to: new Date(range.to.getTime() - 1),
   });
 
-  return {
+  const report: ReportResult = {
     period: { from: range.from.toISOString(), to: range.to.toISOString(), label: range.label },
     activity: presentActivity(dashboard.activity),
     money: presentMoney(dashboard.money),
@@ -317,20 +385,120 @@ async function buildReport(range: PeriodRange, take: number): Promise<ReportResu
       })),
     })),
     topProducts,
+    bestSellers: [...topProducts].sort(
+      (a, b) => b.quantity - a.quantity || Number(b.revenue) - Number(a.revenue),
+    ),
     expensesByCategory: expenses.items,
+  };
+
+  return { report, dashboard };
+}
+
+/**
+ * §48 (journalier) — « nouvelles dettes » : ce qui est **réellement devenu dû**
+ * sur la période.
+ *
+ * `Debt.remainingAmount` bouge à chaque règlement : on y ajoute donc les
+ * règlements journalisés depuis l'ouverture pour remonter au reste à payer du
+ * jour (`initialAmount − payé à l'ouverture`). Résultat stable dans le temps
+ * (§69) — contrairement à `remainingAmount` lu seul.
+ *
+ * Les règlements faits **à l'ouverture** d'un arrivage portent `refType =
+ * 'ARRIVAL'` : compter l'arrivée non payée, pas l'acompte déjà sorti.
+ */
+async function newDebtsIn(range: PeriodRange): Promise<number> {
+  const debts = await prisma.debt.findMany({
+    where: { date: { gte: range.from, lt: range.to }, cancelledAt: null },
+    select: { id: true, remainingAmount: true },
+  });
+  if (debts.length === 0) return 0;
+
+  const settled = await prisma.ledgerEntry.groupBy({
+    by: ['debtId'],
+    where: {
+      debtId: { in: debts.map((d) => d.id) },
+      kind: {
+        in: ['CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT', 'SUPPLIER_PAYMENT', 'TROSA_REPAY'],
+      },
+      OR: [{ refType: { not: 'ARRIVAL' } }, { refType: null }],
+    },
+    _sum: { amount: true },
+  });
+  const byDebt = new Map(settled.map((s) => [s.debtId, s._sum.amount ?? 0]));
+
+  return debts.reduce((total, d) => total + d.remainingAmount + (byDebt.get(d.id) ?? 0), 0);
+}
+
+/**
+ * §48 (journalier) — encaissements et décaissements de la période.
+ * Source : le journal financier (écritures `*_PAYMENT`).
+ */
+async function dailyExtras(range: PeriodRange): Promise<DailyReportExtras> {
+  const [payments, newDebts] = await Promise.all([
+    prisma.ledgerEntry.groupBy({
+      by: ['kind'],
+      where: {
+        date: { gte: range.from, lt: range.to },
+        kind: { in: ['CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT', 'SUPPLIER_PAYMENT'] },
+      },
+      _sum: { amount: true },
+    }),
+    newDebtsIn(range),
+  ]);
+
+  const sumOf = (kinds: string[]) =>
+    payments
+      .filter((p) => kinds.includes(p.kind))
+      .reduce((total, p) => total + (p._sum.amount ?? 0), 0);
+
+  return {
+    paymentsReceived: money(sumOf(['CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT'])),
+    paymentsSupplier: money(sumOf(['SUPPLIER_PAYMENT'])),
+    newDebts: money(newDebts),
   };
 }
 
-export async function dailyReport(query: DailyReportQuery) {
-  const { range, label, date } = dayRange(query.date);
-  const report = await buildReport(range, 200);
-  return { type: 'daily' as const, date, label, ...report };
+/** §48 (mensuel) — états cumulés à la fin du mois + versements par personne. */
+async function monthlyExtras(
+  range: PeriodRange,
+  dashboard: DashboardResult,
+): Promise<MonthlyReportExtras> {
+  const grouped = await prisma.versement.groupBy({
+    by: ['personName'],
+    where: { date: { gte: range.from, lt: range.to } },
+    _sum: { amount: true },
+    _count: { _all: true },
+  });
+
+  return {
+    stock: { quantity: dashboard.stock.quantity, value: money(dashboard.stock.value) },
+    debts: {
+      customer: money(dashboard.debts.customer),
+      onlineSeller: money(dashboard.debts.onlineSeller),
+      supplier: money(dashboard.debts.supplier),
+      trosaSinoa: money(dashboard.debts.trosaSinoa),
+    },
+    versementsByPerson: grouped
+      .map((g) => ({
+        person: g.personName,
+        count: g._count._all,
+        amount: money(g._sum.amount ?? 0),
+      }))
+      .sort((a, b) => Number(b.amount) - Number(a.amount)),
+  };
 }
 
-export async function monthlyReport(query: MonthlyReportQuery) {
+export async function dailyReport(query: DailyReportQuery): Promise<DailyReportBody> {
+  const { range, label, date } = dayRange(query.date);
+  const [{ report }, extras] = await Promise.all([buildReport(range, 200), dailyExtras(range)]);
+  return { type: 'daily', date, label, ...report, ...extras };
+}
+
+export async function monthlyReport(query: MonthlyReportQuery): Promise<MonthlyReportBody> {
   const { range, label, year, month } = monthRange(query.year, query.month);
-  const report = await buildReport(range, 500);
-  return { type: 'monthly' as const, year, month, label, ...report };
+  const { report, dashboard } = await buildReport(range, 500);
+  const extras = await monthlyExtras(range, dashboard);
+  return { type: 'monthly', year, month, label, ...report, ...extras };
 }
 
 /* ════════════════════ EXPORT PDF (sans dépendance) ════════════════════ */
@@ -410,7 +578,10 @@ export function buildPdf(title: string, lines: string[]): Buffer {
 }
 
 export async function exportReportPdf(query: { type: 'daily' | 'monthly'; date?: string; year?: number; month?: number }) {
-  const report = query.type === 'daily' ? await dailyReport({ date: query.date }) : await monthlyReport({ year: query.year, month: query.month });
+  const report =
+    query.type === 'daily'
+      ? await dailyReport({ date: query.date })
+      : await monthlyReport({ year: query.year, month: query.month });
 
   const a = report.activity;
   const lines: string[] = [
@@ -423,26 +594,74 @@ export async function exportReportPdf(query: { type: 'daily' | 'monthly'; date?:
     `Depenses : ${a.expenses} Ar`,
     `Versements (charges) : ${a.versementCharges} Ar`,
     `Benefice net : ${a.netProfit} Ar`,
+    `Caisse : ${report.money.cash} Ar`,
     '',
-    'VENTES',
-    ...report.sales.map((s) => {
-      const sale = s as { reference: string; date: string; party: string | null; totalAmount: string; margin: string };
-      return `${sale.reference}  ${new Date(sale.date).toISOString().slice(0, 16).replace('T', ' ')}  ` +
-        `${(sale.party ?? 'Comptoir').padEnd(18).slice(0, 18)}  ${sale.totalAmount.padStart(12)}  marge ${sale.margin}`;
-    }),
-    '',
-    'TOP PRODUITS',
-    ...report.topProducts.slice(0, 15).map((p) => {
-      const t = p as { product: { name: string } | null; size: { label: string } | null; quantity: number; revenue: string; margin: string };
-      const name = `${t.product?.name ?? '?'} ${t.size?.label ?? ''}`.padEnd(28).slice(0, 28);
-      return `${name} x${String(t.quantity).padStart(4)}  ${t.revenue.padStart(12)}  marge ${t.margin}`;
-    }),
-    '',
-    'DEPENSES PAR CATEGORIE',
-    ...report.expensesByCategory.map((c) => `${c.category.name.padEnd(28).slice(0, 28)} ${c.amount.padStart(12)}`),
   ];
+
+  if (report.type === 'daily') {
+    lines.push(
+      `Paiements recus : ${report.paymentsReceived} Ar`,
+      `Paiements fournisseurs : ${report.paymentsSupplier} Ar`,
+      `Nouvelles dettes : ${report.newDebts} Ar`,
+      '',
+      'VENTES',
+      ...report.sales.map(
+        (s) =>
+          `${s.reference}  ${s.date.toISOString().slice(0, 16).replace('T', ' ')}  ` +
+          `${(s.party ?? 'Comptoir').padEnd(18).slice(0, 18)}  ${s.totalAmount.padStart(12)}  marge ${s.margin}`,
+      ),
+      '',
+      'TOP PRODUITS',
+      ...productLines(report.topProducts),
+      '',
+    );
+  } else {
+    lines.push(
+      'SITUATION EN FIN DE MOIS',
+      `Valeur du stock : ${report.stock.value} Ar (${report.stock.quantity} paire(s))`,
+      `Dettes clients : ${report.debts.customer} Ar`,
+      `Dettes vendeurs en ligne : ${report.debts.onlineSeller} Ar`,
+      `Dettes fournisseurs : ${report.debts.supplier} Ar`,
+      `Trosa sinoa : ${report.debts.trosaSinoa} Ar`,
+      `Argent propre engage : ${report.money.personalCapitalEngaged} Ar`,
+      '',
+      'VERSEMENTS PAR PERSONNE',
+      ...report.versementsByPerson.map(
+        (v) =>
+          `${v.person.padEnd(24).slice(0, 24)} ${String(v.count).padStart(3)} fois  ${v.amount.padStart(12)}`,
+      ),
+      '',
+      'PRODUITS LES PLUS VENDUS (benefice par produit)',
+      ...productLines(report.bestSellers),
+      '',
+      'VENTES',
+      ...report.sales.map(
+        (s) =>
+          `${s.reference}  ${s.date.toISOString().slice(0, 16).replace('T', ' ')}  ` +
+          `${(s.party ?? 'Comptoir').padEnd(18).slice(0, 18)}  ${s.totalAmount.padStart(12)}  marge ${s.margin}`,
+      ),
+      '',
+      'CHIFFRE D AFFAIRES PAR PRODUIT',
+      ...productLines(report.topProducts),
+      '',
+    );
+  }
+
+  lines.push(
+    'DEPENSES PAR CATEGORIE',
+    ...report.expensesByCategory.map(
+      (c) => `${c.category.name.padEnd(28).slice(0, 28)} ${c.amount.padStart(12)}`,
+    ),
+  );
 
   const filename =
     report.type === 'daily' ? `rapport-${report.date}.pdf` : `rapport-${report.year}-${pad(report.month)}.pdf`;
   return { filename, buffer: buildPdf('Gestion Vente', lines), report };
+}
+
+function productLines(items: ReportTopProduct[], take = 15): string[] {
+  return items.slice(0, take).map((t) => {
+    const name = `${t.product?.name ?? '?'} ${t.size?.label ?? ''}`.padEnd(28).slice(0, 28);
+    return `${name} x${String(t.quantity).padStart(4)}  ${t.revenue.padStart(12)}  marge ${t.margin}`;
+  });
 }

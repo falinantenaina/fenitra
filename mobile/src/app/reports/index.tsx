@@ -23,7 +23,7 @@ import {
   useMonthlyReport,
 } from '@/lib/queries';
 import { exportAndShareReport, firstOfMonth } from '@/lib/report';
-import type { LedgerEntry, ReportBody } from '@/lib/types';
+import type { DailyReport, LedgerEntry, MonthlyReport } from '@/lib/types';
 
 type Segment = 'daily' | 'monthly' | 'ledger';
 
@@ -43,9 +43,13 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
   );
 }
 
-function ReportBodyView({ report }: { report: ReportBody & { label: string } }) {
+function ReportBodyView({ report }: { report: DailyReport | MonthlyReport }) {
   const tone = (value: string) => (Number(value) >= 0 ? ('up' as const) : ('down' as const));
   const shownSales = report.sales.slice(0, 10);
+  const a = report.activity;
+  const isDaily = report.type === 'daily';
+  /** §48 — le rapport mensuel classe les articles par quantité vendue. */
+  const products = isDaily ? report.topProducts : report.bestSellers;
 
   return (
     <View>
@@ -65,18 +69,52 @@ function ReportBodyView({ report }: { report: ReportBody & { label: string } }) 
         </View>
       </View>
 
+      {/* §48 : CA, recettes, COGS, dépenses, versements, bénéfices, caisse —
+          plus les trois rubriques propres au journalier. */}
       <View className="mt-3 flex-row flex-wrap justify-between gap-y-2">
-        <Metric label="Ventes" value={formatQuantity(report.activity.salesCount)} />
-        <Metric label="Chiffre d'affaires" value={formatMoney(report.activity.ca)} />
-        <Metric
-          label="Bénéfice net"
-          tone={tone(report.activity.netProfit)}
-          value={formatMoney(report.activity.netProfit)}
-        />
-        <Metric label="Recettes" value={formatMoney(report.activity.receipts)} />
-        <Metric label="Dépenses" value={formatMoney(report.activity.expenses)} />
-        <Metric label="Caisse" value={formatMoney(report.money.cash)} />
+        {(
+          [
+            { label: 'Ventes', value: formatQuantity(a.salesCount) },
+            { label: "Chiffre d'affaires", value: formatMoney(a.ca) },
+            { label: 'Recettes', value: formatMoney(a.receipts) },
+            { label: 'Coût des marchandises', value: formatMoney(a.cogs) },
+            { label: 'Dépenses', value: formatMoney(a.expenses) },
+            { label: 'Versements', value: formatMoney(a.versementCharges) },
+            { label: 'Bénéfice brut', tone: tone(a.grossProfit), value: formatMoney(a.grossProfit) },
+            { label: 'Bénéfice net', tone: tone(a.netProfit), value: formatMoney(a.netProfit) },
+            { label: 'Caisse', value: formatMoney(report.money.cash) },
+            ...(isDaily
+              ? [
+                  { label: 'Paiements reçus', value: formatMoney(report.paymentsReceived) },
+                  { label: 'Paiements fournisseur', value: formatMoney(report.paymentsSupplier) },
+                  { label: 'Nouvelles dettes', value: formatMoney(report.newDebts) },
+                ]
+              : []),
+          ] as { label: string; value: string; tone?: 'up' | 'down' }[]
+        ).map((metric) => (
+          <Metric key={metric.label} {...metric} />
+        ))}
       </View>
+
+      {report.type === 'monthly' ? (
+        <>
+          <Section title="Situation en fin de mois" />
+          <View className="mt-2 flex-row flex-wrap justify-between gap-y-2">
+            <Metric
+              label={`Stock · ${formatQuantity(report.stock.quantity)} paires`}
+              value={formatMoney(report.stock.value)}
+            />
+            <Metric label="Dettes clients" value={formatMoney(report.debts.customer)} />
+            <Metric label="Vendeurs en ligne" value={formatMoney(report.debts.onlineSeller)} />
+            <Metric label="Fournisseurs" value={formatMoney(report.debts.supplier)} />
+            <Metric label="Trosa sinoa" value={formatMoney(report.debts.trosaSinoa)} />
+            <Metric
+              label="Argent propre engagé"
+              value={formatMoney(report.money.personalCapitalEngaged)}
+            />
+          </View>
+        </>
+      ) : null}
 
       <Section title="Ventes" count={report.sales.length} />
       <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -112,12 +150,17 @@ function ReportBodyView({ report }: { report: ReportBody & { label: string } }) 
         ) : null}
       </View>
 
-      <Section title="Meilleures ventes" count={report.topProducts.length} />
+      {/* §48 : journalier = meilleures ventes ; mensuel = produits les plus
+          vendus, chacun affichant le bénéfice qu'il rapporte. */}
+      <Section
+        title={isDaily ? 'Meilleures ventes' : 'Produits les plus vendus'}
+        count={products.length}
+      />
       <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-        {report.topProducts.length === 0 ? (
+        {products.length === 0 ? (
           <Text className="px-3 py-4 text-sm text-slate-400">Aucun article vendu.</Text>
         ) : (
-          report.topProducts.slice(0, 5).map((item) => (
+          products.slice(0, 8).map((item) => (
             <View
               className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"
               key={item.variantId}>
@@ -127,7 +170,8 @@ function ReportBodyView({ report }: { report: ReportBody & { label: string } }) 
                   {item.size?.label ? ` · ${item.size.label}` : ''}
                 </Text>
                 <Text className="text-xs text-slate-400">
-                  {item.quantity} vendu(s) · {item.salesCount} vente(s)
+                  {item.quantity} vendu(s)
+                  {isDaily ? ` · ${item.salesCount} vente(s)` : ` · bénéfice ${formatMoney(item.margin)}`}
                 </Text>
               </View>
               <Text className="text-sm font-semibold text-slate-800">
@@ -158,6 +202,31 @@ function ReportBodyView({ report }: { report: ReportBody & { label: string } }) 
           ))
         )}
       </View>
+
+      {report.type === 'monthly' ? (
+        <>
+          <Section title="Versements par personne" count={report.versementsByPerson.length} />
+          <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            {report.versementsByPerson.length === 0 ? (
+              <Text className="px-3 py-4 text-sm text-slate-400">Aucun versement.</Text>
+            ) : (
+              report.versementsByPerson.map((row) => (
+                <View
+                  className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"
+                  key={row.person}>
+                  <View className="flex-1">
+                    <Text className="text-sm font-medium text-slate-800">{row.person}</Text>
+                    <Text className="text-xs text-slate-400">{row.count} fois</Text>
+                  </View>
+                  <Text className="text-sm font-semibold text-slate-800">
+                    {formatMoney(row.amount)}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }

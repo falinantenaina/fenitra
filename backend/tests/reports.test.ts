@@ -3,7 +3,7 @@ import request from 'supertest';
 import type { Response } from 'supertest';
 import { adminToken, app, as, API, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
-import { buildPdf } from '../src/modules/reports/reports.service';
+import { buildPdf, exportReportPdf } from '../src/modules/reports/reports.service';
 import {
   disposableDrillRows,
   sumBalance,
@@ -16,10 +16,14 @@ const WIDE = 'period=custom&from=2020-01-01&to=2100-12-31';
 /** Fenêtre fermée : rien d'autre que ce fichier n'y écrit (voir test §62). */
 const SEALED = 'period=custom&from=2099-06-01&to=2099-06-30';
 const SEALED_DAY = '2099-06-15';
+/** Fenêtre silencieuse du §48 : jour de la fenêtre scellée, jamais utilisé ailleurs. */
+const SILENT_DAY = '2099-06-20';
 
 let admin: AuthedRequest;
 let categoryId: string;
 let variantId: string;
+/** Dette fournisseur amorcée au `beforeAll` — sert aux règlements du §48. */
+let supplierDebtId: string | null;
 
 describe('Journal, dashboard et rapports', () => {
   beforeAll(async () => {
@@ -46,10 +50,16 @@ describe('Journal, dashboard et rapports', () => {
     categoryId = category.body.id;
     variantId = variant.body.id;
 
-    await admin.post('/arrivals').send({
+    // 6 unités : 2 pour l'amorçage, 1 pour la fenêtre §62, 1 pour le §48 —
+    // il en reste toujours (l'identité comptable exige des lots vivants).
+    const arrival = await admin.post('/arrivals').send({
       supplierId: supplier.body.id,
-      cartons: [{ items: [{ variantId: variant.body.id, quantity: 4, unitCost: 30000 }] }],
+      cartons: [{ items: [{ variantId: variant.body.id, quantity: 6, unitCost: 30000 }] }],
     });
+    if (arrival.status !== 201) {
+      throw new Error(`Amorçage arrivage ${arrival.status}: ${JSON.stringify(arrival.body)}`);
+    }
+    supplierDebtId = arrival.body.debt?.id ?? null;
 
     const sale = await admin.post('/sales').send({
       items: [{ variantId: variant.body.id, quantity: 2, unitPrice: 60000 }],
@@ -369,6 +379,142 @@ describe('Journal, dashboard et rapports', () => {
     expect(missingYear.status).toBe(400);
   });
 
+  it('couvre les 11 champs du rapport journalier (§48)', async () => {
+    // Jour isolé : rien d'autre que cette suite n'y écrit, les totaux sont
+    // donc déterministes (vente partiellement payée → dette de 40 000).
+    const customer = await admin.post('/customers').send({ name: `Client §48 ${stamp}` });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+
+    const [sale, expense, versement] = await Promise.all([
+      admin.post('/sales').send({
+        date: SILENT_DAY,
+        customerId: customer.body.id,
+        items: [{ variantId, quantity: 1, unitPrice: 60000 }],
+        payment: { amount: 20000, method: 'Espèces' },
+      }),
+      admin.post('/expenses').send({
+        categoryId,
+        amount: 4000,
+        date: SILENT_DAY,
+        description: `Rapport §48 ${stamp}`,
+      }),
+      admin.post('/versements').send({
+        personName: `Mr Kely ${stamp}`,
+        amount: 2000,
+        date: SILENT_DAY,
+        motif: 'Rapport journalier §48',
+      }),
+    ]);
+    expect(sale.status, JSON.stringify(sale.body)).toBe(201);
+    expect(expense.status, JSON.stringify(expense.body)).toBe(201);
+    expect(versement.status, JSON.stringify(versement.body)).toBe(201);
+
+    // Règlements de dettes le même jour : ils alimentent « paiements reçus »
+    // (client) et « paiements fournisseurs » (§48), sans créer de nouvelle dette.
+    const [repaid, supplierPaid] = await Promise.all([
+      admin
+        .post(`/debts/${sale.body.debt.id}/payments`)
+        .send({ amount: 5000, method: 'Espèces', date: SILENT_DAY }),
+      admin.post(`/debts/${supplierDebtId!}/payments`).send({
+        amount: 10000,
+        method: 'Espèces',
+        date: SILENT_DAY,
+      }),
+    ]);
+    expect(repaid.status, JSON.stringify(repaid.body)).toBe(200);
+    expect(supplierPaid.status, JSON.stringify(supplierPaid.body)).toBe(200);
+
+    const res = await admin.get(`/reports/daily?date=${SILENT_DAY}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ type: 'daily', date: SILENT_DAY });
+
+    // 1-7 : activité de la journée (COGS FIFO = 1 × 30 000).
+    expect(res.body.activity).toMatchObject({
+      ca: '60000.00',
+      receipts: '25000.00',
+      cogs: '30000.00',
+      expenses: '4000.00',
+      versementCharges: '2000.00',
+      grossProfit: '30000.00',
+      netProfit: '24000.00',
+    });
+    // 8-9 : règlements de dettes du jour (l'encaissement initial appartient
+    // aux « recettes », pas aux « paiements reçus »).
+    expect(res.body.paymentsReceived).toBe('5000.00');
+    expect(res.body.paymentsSupplier).toBe('10000.00');
+    // 10 : caisse en fin de journée — soldes cumulés, donc non déterministes
+    // ici (les autres suites écrivent en parallèle) : contrôle de forme.
+    expect(res.body.money.cash).toMatch(/^-?\d+\.\d{2}$/);
+    // 11 : seule la vente a ouvert une dette ce jour-là (60 000 − 20 000).
+    expect(res.body.newDebts).toBe('40000.00');
+
+    // §62 — contrôle d'indépendance : le journal recalcule les encaissements.
+    const summary = await admin.get('/ledger/summary').query({ from: SILENT_DAY, to: '2099-06-21' });
+    const amountOf = (kinds: string[]) =>
+      summary.body.byKind
+        .filter((row: { kind: string }) => kinds.includes(row.kind))
+        .reduce((total: number, row: { amount: string }) => total + Number(row.amount), 0);
+    expect(Number(res.body.paymentsReceived)).toBe(
+      amountOf(['CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT']),
+    );
+    expect(Number(res.body.paymentsSupplier)).toBe(amountOf(['SUPPLIER_PAYMENT']));
+  });
+
+  it('couvre les 18 champs du rapport mensuel (§48)', async () => {
+    const res = await admin.get('/reports/monthly?year=2099&month=6');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ type: 'monthly', year: 2099, month: 6 });
+
+    const MONEY = /^-?\d+\.\d{2}$/;
+    // 1-8 : activité + caisse.
+    expect(res.body.activity.ca).toMatch(MONEY);
+    expect(res.body.activity.receipts).toMatch(MONEY);
+    expect(res.body.activity.cogs).toMatch(MONEY);
+    expect(res.body.activity.expenses).toMatch(MONEY);
+    expect(res.body.activity.versementCharges).toMatch(MONEY);
+    expect(res.body.activity.grossProfit).toMatch(MONEY);
+    expect(res.body.activity.netProfit).toMatch(MONEY);
+    expect(res.body.money.cash).toMatch(MONEY);
+    // 9-13 : stock et dettes par type, cumulés au 30/06.
+    expect(res.body.stock.value).toMatch(MONEY);
+    for (const key of ['customer', 'onlineSeller', 'supplier', 'trosaSinoa']) {
+      expect(res.body.debts[key], `debts.${key}`).toMatch(MONEY);
+    }
+    // 14 : argent propre engagé.
+    expect(res.body.money.personalCapitalEngaged).toMatch(MONEY);
+    // 15-16 : produits les plus vendus, classés par quantité, avec leur bénéfice.
+    expect(res.body.bestSellers.length).toBeGreaterThan(0);
+    expect(res.body.bestSellers[0].margin).toMatch(MONEY);
+    for (let i = 1; i < res.body.bestSellers.length; i += 1) {
+      expect(res.body.bestSellers[i - 1].quantity).toBeGreaterThanOrEqual(
+        res.body.bestSellers[i].quantity,
+      );
+    }
+    // 17 : dépenses par catégorie.
+    expect(res.body.expensesByCategory.length).toBeGreaterThan(0);
+    // 18 : versements par personne (celui du jour silencieux).
+    const byPerson = res.body.versementsByPerson.find(
+      (row: { person: string }) => row.person === `Mr Kely ${stamp}`,
+    );
+    expect(byPerson).toMatchObject({ amount: '2000.00', count: 1 });
+
+    // §62 — un seul objet : l'agrégat « produits les plus vendus » doit
+    // retomber sur la somme des lignes de ventes du même rapport (les soldes
+    // cumulés, eux, ne se comparent pas : d'autres suites écrivent en parallèle).
+    const soldByArticle = new Map<string, number>();
+    for (const sale of res.body.sales) {
+      for (const item of sale.items) {
+        const key = `${item.product?.name ?? '?'}|${item.size?.label ?? ''}`;
+        soldByArticle.set(key, (soldByArticle.get(key) ?? 0) + item.quantity);
+      }
+    }
+    expect(soldByArticle.size).toBeGreaterThan(0);
+    for (const row of res.body.bestSellers) {
+      const key = `${row.product?.name ?? '?'}|${row.size?.label ?? ''}`;
+      expect(row.quantity, `${key} : agrégat ≠ ventes`).toBe(soldByArticle.get(key) ?? 0);
+    }
+  });
+
   it('exporte un PDF valide et le rapport JSON', async () => {
     const json = await admin.get('/reports/export.pdf?type=daily&download=json');
     expect(json.status).toBe(200);
@@ -390,6 +536,16 @@ describe('Journal, dashboard et rapports', () => {
     expect(buf.length).toBeGreaterThan(200);
     expect(buf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     expect(buf.toString('latin1').trimEnd().endsWith('%%EOF')).toBe(true);
+
+    // §48 — les rubriques propres à chaque rapport sont imprimées.
+    expect(buf.toString('latin1')).toContain('VERSEMENTS PAR PERSONNE');
+    expect(buf.toString('latin1')).toContain('PRODUITS LES PLUS VENDUS');
+    const daily = await exportReportPdf({ type: 'daily', date: SILENT_DAY });
+    const dailyText = daily.buffer.toString('latin1');
+    expect(dailyText).toContain('Paiements recus');
+    expect(dailyText).toContain('Paiements fournisseurs');
+    expect(dailyText).toContain('Nouvelles dettes');
+    expect(dailyText).toContain('Caisse');
   });
 
   it('génère un PDF paginé même avec beaucoup de lignes', () => {

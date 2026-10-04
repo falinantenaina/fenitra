@@ -179,6 +179,8 @@ export interface ReportBody {
   integrity: { identityDelta: number; ok: boolean };
   sales: ReportSalesLine[];
   topProducts: ReportTopProduct[];
+  /** Articles classés par quantité — « produits les plus vendus » (§48). */
+  bestSellers: ReportTopProduct[];
   expensesByCategory: {
     category: { id: string; name: string; icon: string | null };
     count: number;
@@ -186,17 +188,28 @@ export interface ReportBody {
   }[];
 }
 
+/** §48 — les trois rubriques propres au rapport journalier. */
 export interface DailyReport extends ReportBody {
   type: 'daily';
   date: string;
   label: string;
+  /** Règlements clients + vendeurs en ligne encaissés sur la journée. */
+  paymentsReceived: string;
+  /** Règlements fournisseurs décaissés sur la journée. */
+  paymentsSupplier: string;
+  /** Ce qui est devenu dû le jour même (hors annulations). */
+  newDebts: string;
 }
 
+/** §48 — les états et ventilations propres au rapport mensuel. */
 export interface MonthlyReport extends ReportBody {
   type: 'monthly';
   year: number;
   month: number;
   label: string;
+  stock: { quantity: number; value: string };
+  debts: { customer: string; onlineSeller: string; supplier: string; trosaSinoa: string };
+  versementsByPerson: { person: string; count: number; amount: string }[];
 }
 
 /** Écriture du journal (`GET /ledger`). */
