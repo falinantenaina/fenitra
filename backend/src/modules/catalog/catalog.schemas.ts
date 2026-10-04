@@ -61,6 +61,15 @@ export const createVariantSchema = z.object({
   sellingPrice: z.number().int().min(0).default(0),
 });
 
+/** Création en bloc de variantes par pointures (saisie rapide d'un modèle). */
+export const bulkVariantSchema = z.object({
+  sizeValues: z
+    .array(z.number().int().min(1, 'Pointure invalide').max(100, 'Pointure invalide'))
+    .min(1, 'Au moins une pointure requise')
+    .max(60, 'Trop de pointures en une seule fois'),
+  sellingPrice: z.number().int().min(0).default(0),
+});
+
 export const updateVariantSchema = z
   .object({
     sku: z.string().trim().max(64).nullish(),

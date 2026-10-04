@@ -7,6 +7,7 @@ const stamp = Date.now();
 let admin: AuthedRequest;
 let cashier: AuthedRequest;
 let productId = '';
+let bulkProductId = '';
 let size46Id = '';
 let variantId = '';
 
@@ -117,11 +118,61 @@ describe('Catalogue', () => {
     expect(res.body.error.code).toBe('FORBIDDEN');
   });
 
+  it('crée des variantes en bloc par pointures (saisie rapide)', async () => {
+    const product = await admin.post('/products').send({ name: 'Bulk Models' });
+    expect(product.status).toBe(201);
+    bulkProductId = product.body.id;
+
+    // 40 existe déjà (seed), 47 / 48 sont créées à la volée, 47 en doublon dans la requête.
+    const res = await admin
+      .post(`/products/${bulkProductId}/variants`)
+      .send({ sizeValues: [47, 40, 47, 48], sellingPrice: 50000 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(3);
+    expect(res.body.skipped).toBe(0);
+    expect(res.body.variants.map((v: { size: { value: number } }) => v.size.value)).toEqual([40, 47, 48]);
+    expect(res.body.variants[0].sellingPrice).toBe('50000.00');
+
+    const sizes = await admin.get('/sizes?limit=100');
+    expect(sizes.body.items.some((s: { value: number }) => s.value === 48)).toBe(true);
+  });
+
+  it('ignore les pointures déjà pourvues et refuse un appel sans nouvelle pointure', async () => {
+    const partial = await admin.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [40, 41] });
+    expect(partial.status).toBe(201);
+    expect(partial.body.created).toBe(1);
+    expect(partial.body.skipped).toBe(1);
+
+    const again = await admin.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [40, 41] });
+    expect(again.status).toBe(409);
+    expect(again.body.error.message).toContain('déjà pourvues');
+
+    const empty = await admin.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [] });
+    expect(empty.status).toBe(400);
+  });
+
+  it('refuse la création en bloc sur un produit inconnu (404) ou à un caissier (403)', async () => {
+    const missing = await admin.post('/products/produit-inexistant/variants').send({ sizeValues: [40] });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('NOT_FOUND');
+
+    const forbidden = await cashier.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [42] });
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.body.error.code).toBe('FORBIDDEN');
+  });
+
   it('désactive un produit (DELETE = suppression douce)', async () => {
     const res = await admin.delete(`/products/${productId}`);
     expect(res.status).toBe(204);
 
     const read = await admin.get(`/products/${productId}`);
     expect(read.body.active).toBe(false);
+  });
+
+  it('refuse la création en bloc sur un produit désactivé (409)', async () => {
+    const res = await admin.post(`/products/${productId}/variants`).send({ sizeValues: [40] });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toContain('désactivé');
   });
 });

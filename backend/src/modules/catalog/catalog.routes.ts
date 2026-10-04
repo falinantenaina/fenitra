@@ -7,6 +7,7 @@ import { conflict, notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { boolFilter, ilike, offset, pageMeta } from '../../lib/pagination';
 import {
+  bulkVariantSchema,
   createProductSchema,
   createSizeSchema,
   createVariantSchema,
@@ -96,6 +97,63 @@ productsRouter.post(
       data: { name: body.name, slug, description: body.description ?? null, imageUrl: body.imageUrl ?? null },
     });
     res.status(201).json(product);
+  }),
+);
+
+/**
+ * POST /api/products/:id/variants — création en bloc par pointures.
+ * Saisie rapide d'un modèle (arrivage) : les pointures manquantes sont créées
+ * à la volée, les combinaisons déjà pourvues sont ignorées (skipDuplicates).
+ */
+productsRouter.post(
+  '/:id/variants',
+  managerOrAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParamSchema);
+    const body = parseBody(req, bulkVariantSchema);
+
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) throw notFound('Produit introuvable');
+    if (!product.active) throw conflict('Le produit est désactivé');
+
+    const values = [...new Set(body.sizeValues)].sort((a, b) => a - b);
+
+    const created = await prisma.$transaction(async (tx) => {
+      for (const value of values) {
+        const size = await tx.size.findUnique({ where: { value } });
+        if (!size) await tx.size.create({ data: { value, order: value } });
+      }
+      const sizes = await tx.size.findMany({ where: { value: { in: values } } });
+      const result = await tx.productVariant.createMany({
+        data: sizes.map((size) => ({
+          productId: id,
+          sizeId: size.id,
+          sellingPrice: body.sellingPrice,
+        })),
+        skipDuplicates: true,
+      });
+      return result.count;
+    });
+
+    if (created === 0) throw conflict('Ces pointures sont déjà pourvues sur ce produit');
+
+    const variants = await prisma.productVariant.findMany({
+      where: { productId: id },
+      orderBy: { size: { value: 'asc' } },
+      include: { size: true },
+    });
+
+    res.status(201).json({
+      created,
+      skipped: values.length - created,
+      variants: variants.map((v) => ({
+        id: v.id,
+        sku: v.sku,
+        sellingPrice: money(v.sellingPrice),
+        active: v.active,
+        size: { id: v.size.id, value: v.size.value, label: v.size.label, order: v.size.order },
+      })),
+    });
   }),
 );
 

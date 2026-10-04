@@ -17,6 +17,7 @@ import type {
   ArrivalDetail,
   ArrivalRow,
   ArrivalStatus,
+  BulkVariantsResponse,
   CapitalItem,
   CreateArrivalBody,
   CreateCapitalBody,
@@ -166,6 +167,22 @@ export function useProducts(): UseQueryResult<ProductListItem[]> {
       return data.items;
     },
     staleTime: 60_000,
+  });
+}
+
+/** Recherche de modèle actif (`GET /products?active=true&q=`) — arrivage. */
+export function useProductSearch(term: string): UseQueryResult<PagedResponse<ProductListItem>> {
+  const q = term.trim();
+  return useQuery<PagedResponse<ProductListItem>>({
+    queryKey: ['products', 'search', q],
+    enabled: q.length > 0,
+    queryFn: async () => {
+      const { data } = await api.get<PagedResponse<ProductListItem>>('/products', {
+        params: { limit: 30, active: 'true', q },
+      });
+      return data;
+    },
+    staleTime: 10_000,
   });
 }
 
@@ -993,6 +1010,24 @@ export function useCreateProduct() {
       return data;
     },
     onSuccess: () => void client.invalidateQueries({ queryKey: ['products'] }),
+  });
+}
+
+/** `POST /products/:id/variants` — variantes en bloc par pointures (saisie rapide). */
+export function useCreateVariantsBulk() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ productId, sizeValues }: { productId: string; sizeValues: number[] }) => {
+      const { data } = await api.post<BulkVariantsResponse>(`/products/${productId}/variants`, {
+        sizeValues,
+      });
+      return data;
+    },
+    onSuccess: (_data, variables) => {
+      void client.invalidateQueries({ queryKey: ['products'] });
+      void client.invalidateQueries({ queryKey: ['product', variables.productId] });
+      void client.invalidateQueries({ queryKey: ['sizes'] });
+    },
   });
 }
 

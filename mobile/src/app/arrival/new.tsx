@@ -32,9 +32,13 @@ import {
 import { formatMoney } from '@/lib/format';
 import {
   useCreateArrival,
+  useCreateProduct,
+  useCreateVariantsBulk,
   usePaymentMethods,
   useProduct,
+  useProductSearch,
   useProducts,
+  useSizeList,
   useSuppliers,
 } from '@/lib/queries';
 import type { FundingSource, ProductListItem } from '@/lib/types';
@@ -93,6 +97,46 @@ function CartonCard({
   const [clipboard, setClipboard] = useState<PriceClipboard | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
 
+  // Recherche de modèle avec création à la volée.
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [creating, setCreating] = useState(false);
+  const results = useProductSearch(debounced);
+  const sizes = useSizeList();
+  const createProduct = useCreateProduct();
+  const createVariants = useCreateVariantsBulk();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const term = debounced.trim();
+  const searching = term.length > 0;
+  const shown = searching ? (results.data?.items ?? []) : (products ?? []);
+  const nameTaken = shown.some((p) => p.name.trim().toLowerCase() === term.toLowerCase());
+  const canCreate =
+    term.length >= 2 && searching && !nameTaken && !results.isPending && !sizes.isPending;
+
+  const createModel = async () => {
+    if (!canCreate || creating) return;
+    setCreating(true);
+    try {
+      const product = await createProduct.mutateAsync({ name: term });
+      const sizeValues = (sizes.data?.items ?? []).map((size) => size.value);
+      if (sizeValues.length > 0) {
+        await createVariants.mutateAsync({ productId: product.id, sizeValues });
+      }
+      onPatch({ activeProductId: product.id });
+      setSearch('');
+      setDebounced('');
+    } catch (error) {
+      Alert.alert('Création refusée', apiMessage(error));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const variants = (productQuery.data?.variants ?? []).filter((variant) => variant.active);
   const totals = cartonTotals(carton);
 
@@ -132,13 +176,34 @@ function CartonCard({
         <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Modèle
         </Text>
+        <View className="mb-2 flex-row items-center gap-2">
+          <TextInput
+            className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
+            onChangeText={setSearch}
+            placeholder="Rechercher ou créer un modèle…"
+            placeholderTextColor="#94A3B8"
+            selectionColor="#208AEF"
+            value={search}
+          />
+          {search ? (
+            <Pressable
+              accessibilityLabel="Effacer la recherche"
+              className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
+              onPress={() => setSearch('')}>
+              <Ionicons color="#64748B" name="close" size={16} />
+            </Pressable>
+          ) : null}
+        </View>
+
         <ScrollView contentContainerStyle={{ gap: 8 }} horizontal showsHorizontalScrollIndicator={false}>
-          {productsPending && !products ? (
+          {(searching && results.isPending) || (!searching && productsPending && !products) ? (
             <ActivityIndicator color="#208AEF" />
-          ) : (products ?? []).length === 0 ? (
-            <Text className="text-sm text-slate-500">Aucun modèle actif — créez-en un d&apos;abord.</Text>
+          ) : shown.length === 0 ? (
+            <Text className="text-sm text-slate-500">
+              {searching ? 'Aucun modèle trouvé.' : 'Aucun modèle actif — créez-en un d&apos;abord.'}
+            </Text>
           ) : (
-            (products ?? []).map((product) => {
+            shown.map((product) => {
               const active = product.id === carton.activeProductId;
               const used = carton.usedProductIds.includes(product.id);
               return (
@@ -160,9 +225,27 @@ function CartonCard({
             })
           )}
         </ScrollView>
+
+        {canCreate ? (
+          <Pressable
+            className="mt-2 flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
+            disabled={creating}
+            onPress={() => void createModel()}>
+            <Ionicons color="#208AEF" name="add" size={15} />
+            <Text className="text-sm font-semibold text-brand">
+              {creating ? 'Création…' : `Créer « ${term} »`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      {productQuery.isPending && carton.activeProductId ? (
+      {!carton.activeProductId ? (
+        <View className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4">
+          <Text className="text-sm text-slate-500">
+            Choisissez un modèle ci-dessus — ou créez-le avec la recherche.
+          </Text>
+        </View>
+      ) : productQuery.isPending ? (
         <ActivityIndicator color="#208AEF" />
       ) : (
         <SizeGrid

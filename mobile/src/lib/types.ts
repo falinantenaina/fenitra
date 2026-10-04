@@ -855,6 +855,19 @@ export interface CreateProductBody {
   description?: string;
 }
 
+/** Corps de `POST /products/:id/variants` — création en bloc par pointures. */
+export interface BulkVariantsBody {
+  sizeValues: number[];
+  sellingPrice?: number;
+}
+
+/** Réponse de `POST /products/:id/variants` : variantes du produit, triées par pointure. */
+export interface BulkVariantsResponse {
+  created: number;
+  skipped: number;
+  variants: VariantItem[];
+}
+
 export interface UpdateProductBody {
   name?: string;
   description?: string | null;

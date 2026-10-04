@@ -946,6 +946,7 @@ GET    /roles
 ### Catalogue
 ```
 GET|POST /products            GET|PUT|DELETE /products/:id
+POST     /products/:id/variants { sizeValues[] }            ← variantes en bloc (saisie rapide)
 GET|POST /sizes               GET|PUT|DELETE /sizes/:id
 GET|POST /variants            GET|PUT /variants/:id
 PUT      /variants/:id/price  { sellingPrice }             ← historique vente figé ailleurs
@@ -1371,9 +1372,18 @@ rôles `ADMIN`/`MANAGER` seulement (le backend impose `managerOrAdmin` → 403).
 1. **En-tête** : fournisseur (chips `GET /suppliers?active=true`), date
    `AAAA-MM-JJ` saisie en locale (le serveur applique `Indian/Antananarivo`),
    notes libres.
-2. **Cartons multipliables** (React Hook Form `useFieldArray`, 1 à 50) : chips des
-   modèles (`GET /products?active=true`) ; au changement de modèle la grille se
-   recharge depuis `GET /products/:id` (variantes triées par pointure).
+2. **Cartons multipliables** (React Hook Form `useFieldArray`, 1 à 50) : champ
+   de **recherche de modèle** (debounce 300 ms →
+   `GET /products?active=true&q=`) au-dessus des chips — sans recherche, les
+   chips listent les modèles actifs (`GET /products?active=true`). Quand le
+   terme saisi ne correspond à aucun modèle, le bouton **« Créer »** crée le
+   produit (`POST /products`), lui ajoute les variantes de **toutes les
+   pointures du catalogue** (`POST /products/:id/variants { sizeValues[] }` —
+   pointures manquantes créées côté serveur, doublons ignorés) puis sélectionne
+   le modèle : **modèle choisi par recherche et création à la volée**. Sans
+   modèle sélectionné, la grille est remplacée par un état vide qui invite à
+   chercher ou créer ; au changement de modèle la grille se recharge depuis
+   `GET /products/:id` (variantes triées par pointure).
    **Grille contrôlée pointure × quantité × prix d'achat** avec copier/coller
    d'une ligne et sous-total par carton.
 3. **Paiement** (montant + modes `GET /payment-methods`) et **financement**
