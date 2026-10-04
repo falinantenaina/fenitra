@@ -212,6 +212,26 @@ export interface MonthlyReport extends ReportBody {
   versementsByPerson: { person: string; count: number; amount: string }[];
 }
 
+/** §3 — indicateurs découpables en jours pour les graphiques. */
+export type SeriesMetric = 'ca' | 'receipts' | 'outflow';
+
+/** Un point par jour civil de la période (`GET /reports/series`). */
+export interface SeriesPoint {
+  /** `AAAA-MM-JJ` dans la timezone de l'entreprise. */
+  date: string;
+  value: string;
+}
+
+/** Série journalière d'un indicateur, remplie à `0` les jours sans écriture. */
+export interface ReportSeriesResponse {
+  metric: SeriesMetric;
+  label: string;
+  period: string;
+  total: string;
+  points: SeriesPoint[];
+  meta: { period: PeriodKey; from: string; to: string; timezone: string; currency: string };
+}
+
 /** Écriture du journal (`GET /ledger`). */
 export interface LedgerEntry {
   id: string;

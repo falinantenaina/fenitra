@@ -19,6 +19,7 @@ import {
   exportQuery,
   ledgerQuery,
   monthlyReportQuery,
+  seriesQuery,
 } from './reports.schemas';
 import {
   dailyReport,
@@ -28,6 +29,7 @@ import {
   monthlyReport,
   presentActivity,
   presentMoney,
+  reportSeries,
 } from './reports.service';
 
 export const ledgerRouter = Router();
@@ -194,6 +196,15 @@ reportsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json(await monthlyReport(parseQuery(req, monthlyReportQuery)));
+  }),
+);
+
+/** GET /api/reports/series?period&metric — série journalière des graphiques (§3) */
+reportsRouter.get(
+  '/series',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await reportSeries(parseQuery(req, seriesQuery)));
   }),
 );
 

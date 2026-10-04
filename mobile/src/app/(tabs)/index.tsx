@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { DrilldownModal } from '@/components/drilldown-modal';
 import { KpiCard, type KpiTone } from '@/components/kpi-card';
 import { PeriodTabs } from '@/components/period-tabs';
+import { SeriesChart } from '@/components/series-chart';
 import { apiMessage } from '@/lib/api';
 import { formatMoney, formatQuantity } from '@/lib/format';
 import { useDashboard } from '@/lib/queries';
@@ -200,6 +201,8 @@ export default function HomeScreen() {
               value={formatMoney(d.activity.versementCharges)}
             />
           </Section>
+
+          <SeriesChart period={period} range={range} />
 
           <Section title="Situation à la date">
             <KpiCard

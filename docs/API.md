@@ -242,6 +242,7 @@ bruts restent acceptés et la borne de fin y est **incluse**.
 | GET | `/api/reports/daily` | auth | Rapport journalier (`date`) : §48 — `paymentsReceived`, `paymentsSupplier`, `newDebts` |
 | GET | `/api/reports/monthly` | auth | Rapport mensuel (`year`, `month`) : §48 — stock, dettes par type, `bestSellers`, `versementsByPerson` |
 | GET | `/api/reports/export.pdf` | auth | Export PDF (`type=daily\|monthly`), mêmes rubriques que les rapports |
+| GET | `/api/reports/series` | auth | Série journalière (§3, graphiques) : `period`/`from`/`to` + `metric=ca\|receipts\|outflow` |
 
 `/dashboard` renvoie :
 
@@ -296,6 +297,26 @@ dashboard (§62, contrôle §16).
   temps, §69). L'acompte versé à l'ouverture d'un arrivage (`refType = ARRIVAL`)
   est écarté : on mesure la dette créée, pas l'argent déjà sorti.
 - Les rapports sont aussi exportés en PDF avec exactement ces rubriques.
+
+`/reports/series` découpe un indicateur de flux en jours pour les graphiques :
+
+```json
+{
+  "metric": "ca",
+  "label": "Chiffre d'affaires",
+  "period": "Mois actuel (octobre 2026)",
+  "total": "60000.00",
+  "points": [{ "date": "2026-10-01", "value": "0.00" }],
+  "meta": { "period": "month", "from": "…", "to": "…", "timezone": "Indian/Antananarivo", "currency": "MGA" }
+}
+```
+
+- `metric` : `ca` = `Σ amount(kind = 'SALE')` signé, `receipts` = cash entrant des
+  ventes et règlements, `outflow` = -cash sortant — **mêmes prédicats** que
+  `activity.ca`, `activity.receipts`, `activity.cashOutflow` : la somme des
+  `points` retombe exactement sur la valeur du dashboard pour la même période.
+- Jours civils de la timezone de l'entreprise (`meta.timezone`), remplis à `0.00` ;
+  `period=custom` exige `from`/`to` (400), au-delà de 400 jours → 400.
 
 
 ---

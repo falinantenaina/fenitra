@@ -564,6 +564,103 @@ describe('Journal, dashboard et rapports', () => {
     expect(buf.toString('latin1')).toContain('%%EOF');
   });
 
+  it('valide les paramètres de la série journalière (§3)', async () => {
+    const noToken = await request(app).get(`${API}/reports/series`);
+    expect(noToken.status).toBe(401);
+
+    const noBounds = await admin.get('/reports/series?period=custom');
+    expect(noBounds.status).toBe(400);
+
+    const badMetric = await admin.get('/reports/series?metric=netProfit');
+    expect(badMetric.status).toBe(400);
+
+    const tooLong = await admin.get(
+      '/reports/series?period=custom&from=2020-01-01&to=2100-12-31&metric=ca',
+    );
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error.message).toMatch(/trop longue/);
+
+    // `metric` sans défaut → `ca`, une seule pointe pour « hier ».
+    const yesterday = await admin.get('/reports/series?period=yesterday');
+    expect(yesterday.status).toBe(200);
+    expect(yesterday.body.metric).toBe('ca');
+    expect(yesterday.body.points).toHaveLength(1);
+  });
+
+  it('expose la série journalière des indicateurs de flux (§3 graphiques)', async () => {
+    // Fenêtre scellée (personne d'autre n'y écrit) : une vente et une dépense
+    // datées sur deux jours distincts pour éprouver le remplissage à 0.
+    const [sale, expense] = await Promise.all([
+      admin.post('/sales').send({
+        date: '2099-06-05T09:00:00.000Z',
+        items: [{ variantId, quantity: 1, unitPrice: 60000 }],
+        payment: { amount: 60000, method: 'Espèces' },
+      }),
+      admin.post('/expenses').send({
+        categoryId,
+        amount: 4000,
+        date: '2099-06-12',
+        description: `Série journalière ${stamp}`,
+      }),
+    ]);
+    expect(sale.status, JSON.stringify(sale.body)).toBe(201);
+    expect(expense.status, JSON.stringify(expense.body)).toBe(201);
+
+    const series = await admin.get(`/reports/series?${SEALED}&metric=ca`);
+    expect(series.status).toBe(200);
+    expect(series.body).toMatchObject({ metric: 'ca', label: "Chiffre d'affaires" });
+    expect(series.body.meta).toMatchObject({ period: 'custom', timezone: expect.any(String) });
+    expect(series.body.points).toHaveLength(30);
+    expect(series.body.points[0].date).toBe('2099-06-01');
+    expect(series.body.points[series.body.points.length - 1].date).toBe('2099-06-30');
+    expect(
+      series.body.points.every((p: { value: string }) => /^\d+\.\d{2}$/.test(p.value)),
+    ).toBe(true);
+
+    const byDate = Object.fromEntries(
+      series.body.points.map((p: { date: string; value: string }) => [p.date, Number(p.value)]),
+    );
+    expect(byDate['2099-06-05']).toBe(60000);
+    // Jour de dépense : aucune vente, donc 0 sur la série du CA.
+    expect(byDate['2099-06-12']).toBe(0);
+    expect(byDate['2099-06-01']).toBe(0);
+    expect(byDate['2099-06-30']).toBe(0);
+
+    // Sorties d'argent : la dépense du 12 apparaît, pas le reste du mois.
+    const outflow = await admin.get(`/reports/series?${SEALED}&metric=outflow`);
+    expect(outflow.status).toBe(200);
+    const outByDate = Object.fromEntries(
+      outflow.body.points.map((p: { date: string; value: string }) => [p.date, Number(p.value)]),
+    );
+    expect(outByDate['2099-06-12']).toBe(4000);
+    expect(outByDate['2099-06-01']).toBe(0);
+
+    // Total des trois séries = valeur affichée au dashboard (même plage,
+    // mêmes prédicats) : c'est le contrat du §3.
+    const dash = await admin.get(`/dashboard?${SEALED}`);
+    expect(dash.status).toBe(200);
+
+    const displayed: Record<string, string> = {
+      ca: dash.body.activity.ca,
+      receipts: dash.body.activity.receipts,
+      outflow: dash.body.activity.cashOutflow,
+    };
+
+    for (const [metric, value] of Object.entries(displayed)) {
+      const res = await admin.get(`/reports/series?${SEALED}&metric=${metric}`);
+      expect(res.status, metric).toBe(200);
+      const sum = res.body.points.reduce(
+        (s: number, p: { value: string }) => s + Number(p.value),
+        0,
+      );
+      expect(sum, `${metric} : total de la série ≠ valeur du dashboard`).toBeCloseTo(
+        Number(value),
+        2,
+      );
+      expect(Number(res.body.total), `${metric} : total exposé`).toBeCloseTo(sum, 2);
+    }
+  });
+
   it('identité comptable confirmée par le dashboard', async () => {
     const snapshot = await accountingIdentity();
     const { lhs, rhs, delta } = identityBalance(snapshot);

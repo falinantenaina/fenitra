@@ -188,7 +188,7 @@ Route (Zod validate) → Controller (orchestration HTTP) → Service (règles m�
 | Appels HTTP centralisés (baseURL, timeout, JWT, refresh, erreurs) | **Axios instance** |
 | Formulaires + validation | **React Hook Form + Zod** |
 | Token | **Expo SecureStore** |
-| Graphiques | `react-native-svg` + lib compatible Expo (ex. `victory-native` ou `react-native-gifted-charts`) |
+| Graphiques | `react-native-gifted-charts` (pur JS) + `react-native-svg`, installés par `npx expo install` : **les deux sont dans Expo Go**, aucune native à compiler — choix tranché à l'étape 7 (l'alternative `victory-native` exige `@shopify/react-native-skia`) |
 
 ### 3.4 Flux de données d'un chiffre du dashboard
 
@@ -1318,10 +1318,29 @@ quand un raccourci change de filtre — pas d'effet de synchronisation (lint
 (1 avertissement connu), backend non touché (`npm test` toujours à **207
 tests / 15 fichiers**).
 
+**Graphique de période (§3, étape 7)** : la stack impose une « bibliothèque de
+graphiques compatible React Native ». Le choix est tranché à l'étape 7 :
+`react-native-gifted-charts` (pur JS) posé sur `react-native-svg`, les deux
+compatibles Expo Go — aucun build native n'est nécessaire.
+
+`src/components/series-chart.tsx` affiche la **tendance journalière** sous les
+cartes d'activité du dashboard : trois pastilles (`CA`, `Recettes`, `Sorties`),
+le total de la période, un graphique en barres défilable horizontalement
+(libellés de l'axe éclaircis : jour du mois jusqu'à 45 points, numéro de mois
+au-delà) et des états vide / chargement / erreur explicites. Aucun chiffre n'est
+calculé côté mobile : `GET /reports/series` renvoie les points, remplis à `0`
+par le serveur, sur les mêmes prédicats que le dashboard.
+
+**Étape 7 — contrôles** : backend `npm run typecheck` + `npm test` à **209
+tests / 15 fichiers** (dont deux tests `/reports/series` : remplissage à 0,
+recoupement des totaux des 3 métriques avec le dashboard, 400 sur les
+paramètres) ; mobile `npx tsc --noEmit` + `npx expo lint` verts (1
+avertissement connu) et `npx expo export --platform android` (bundle Hermes).
+
 **Fichiers** : `src/lib/types.ts` (contrat API), `src/lib/format.ts`
 (`formatMoney` « 1 245 000 Ar », `formatQuantity`, `formatDateTime` — sans
 dépendre d'`Intl`), `src/lib/queries.ts` (React Query `useDashboard`,
-`useDrilldown`), `src/components/{period-tabs,kpi-card,drilldown-modal}.tsx`.
+`useDrilldown`, `useSeries`), `src/components/{period-tabs,kpi-card,drilldown-modal,series-chart}.tsx`.
 
 **Points de contrôle validés (6b)** : `npx tsc --noEmit`, `npx expo lint`,
 `npx expo export --platform android` verts ; script de vérification contre une

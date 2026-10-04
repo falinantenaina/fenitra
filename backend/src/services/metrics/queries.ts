@@ -100,6 +100,50 @@ export async function loadActivity(from: Date, to: Date, db: Db = prisma): Promi
   };
 }
 
+/** Indicateurs de flux découpables en jours pour un graphique (§3). */
+export type SeriesMetric = 'ca' | 'receipts' | 'outflow';
+
+/**
+ * Valeurs journalières d'un indicateur de flux, une ligne par jour **non vide**.
+ *
+ * Mêmes prédicats que `loadActivity` : CA = `Σ amount(kind = 'SALE')` signé,
+ * recettes = cash entrant des ventes et règlements, sorties = -cash sortant —
+ * le total d'une série est donc exactement la valeur affichée au dashboard.
+ *
+ * Le découpage en jour se fait dans la timezone du business (A13) : `date`
+ * est stocké en UTC (`timestamp` sans fuseau), on le convertit en instant puis
+ * en heure murale locale avant `date_trunc`, donc indépendamment du fuseau de
+ * session PostgreSQL.
+ */
+export async function loadSeries(
+  from: Date,
+  to: Date,
+  metric: SeriesMetric,
+  timeZone: string,
+  db: Db = prisma,
+): Promise<{ day: string; value: number }[]> {
+  const value =
+    metric === 'ca'
+      ? Prisma.sql`COALESCE(SUM("amount") FILTER (WHERE kind = 'SALE'), 0)`
+      : metric === 'receipts'
+        ? Prisma.sql`COALESCE(SUM("cashDelta") FILTER (
+            WHERE "cashDelta" > 0
+              AND kind IN ('SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT')
+          ), 0)`
+        : Prisma.sql`COALESCE(-SUM("cashDelta") FILTER (WHERE "cashDelta" < 0), 0)`;
+
+  const rows = await db.$queryRaw<{ day: string; value: Num }[]>`
+    SELECT
+      to_char(date_trunc('day', ("date" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone}), 'YYYY-MM-DD') AS day,
+      ${value} AS value
+    FROM "LedgerEntry"
+    WHERE "date" >= ${utc(from)}::timestamp AND "date" < ${utc(to)}::timestamp
+    GROUP BY 1
+    ORDER BY 1`;
+
+  return rows.map((r) => ({ day: r.day, value: n(r.value) }));
+}
+
 export async function loadBalance(
   from: Date,
   to: Date,

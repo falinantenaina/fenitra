@@ -1,18 +1,28 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { money } from '../../lib/money';
+import { badRequest } from '../../lib/errors';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
+import { env } from '../../config/env';
 import {
   buildDashboard,
   type DashboardResult,
 } from '../../services/metrics';
+import { loadSeries } from '../../services/metrics/queries';
 import {
+  resolvePeriod,
   toZonedParts,
   zonedToUtc,
   type PeriodRange,
 } from '../../services/period.service';
 import { expensesSummary } from '../finances/expenses.service';
-import type { DailyReportQuery, LedgerQuery, MonthlyReportQuery } from './reports.schemas';
+import type {
+  DailyReportQuery,
+  LedgerQuery,
+  MonthlyReportQuery,
+  SeriesMetric,
+  SeriesQuery,
+} from './reports.schemas';
 
 /* ════════════════════ JOURNAL (§39) ════════════════════ */
 
@@ -499,6 +509,87 @@ export async function monthlyReport(query: MonthlyReportQuery): Promise<MonthlyR
   const { report, dashboard } = await buildReport(range, 500);
   const extras = await monthlyExtras(range, dashboard);
   return { type: 'monthly', year, month, label, ...report, ...extras };
+}
+
+/* ══════════════════ SÉRIES POUR GRAPHIQUES (§3) ══════════════════ */
+
+const SERIES_LABELS: Record<SeriesMetric, string> = {
+  ca: "Chiffre d'affaires",
+  receipts: 'Recettes encaissées',
+  outflow: "Sorties d'argent",
+};
+
+/** Au-delà, l'axe journalier d'un graphique n'est plus lisible. */
+const MAX_SERIES_DAYS = 400;
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+export interface SeriesPoint {
+  /** Jour civil dans la timezone du business (`AAAA-MM-JJ`). */
+  date: string;
+  value: string;
+}
+
+/**
+ * Jours civils de `[from, to)` dans la timezone du business.
+ * On avance sur le **calendrier** (`Date.UTC(y, m, d + 1)`) plutôt qu'en
+ * ajoutant 24 h à un instant : ni l'heure d'avance ni celle de retard ne
+ * peuvent faire déborder la date d'un graphe.
+ */
+function civilDays(from: Date, to: Date): string[] {
+  const first = toZonedParts(from);
+  const last = toZonedParts(new Date(to.getTime() - 1));
+  const stop = `${last.year}-${pad2(last.month)}-${pad2(last.day)}`;
+
+  const days: string[] = [];
+  let { year, month, day } = first;
+  for (;;) {
+    const date = `${year}-${pad2(month)}-${pad2(day)}`;
+    if (date > stop) return days;
+    days.push(date);
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    year = next.getUTCFullYear();
+    month = next.getUTCMonth() + 1;
+    day = next.getUTCDate();
+  }
+}
+
+/**
+ * §3 — série journalière d'un indicateur de flux pour le tableau de bord.
+ * Les jours sans écriture sont remplis à `0` (axe continu) et les totaux
+ * coïncident avec ceux du dashboard : mêmes prédicats, même plage.
+ */
+export async function reportSeries(query: SeriesQuery) {
+  const range = resolvePeriod(
+    query.period,
+    new Date(),
+    query.period === 'custom' ? { from: query.from, to: query.to } : undefined,
+  );
+
+  const days = civilDays(range.from, range.to);
+  if (days.length > MAX_SERIES_DAYS) {
+    throw badRequest(
+      `Période trop longue pour une série journalière (max ${MAX_SERIES_DAYS} jours, demandés : ${days.length})`,
+    );
+  }
+
+  const rows = await loadSeries(range.from, range.to, query.metric, env.BUSINESS_TIMEZONE);
+  const byDay = new Map(rows.map((r) => [r.day, r.value]));
+
+  return {
+    metric: query.metric,
+    label: SERIES_LABELS[query.metric],
+    period: range.label,
+    total: money(rows.reduce((sum, r) => sum + r.value, 0)),
+    points: days.map<SeriesPoint>((date) => ({ date, value: money(byDay.get(date) ?? 0) })),
+    meta: {
+      period: range.key,
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
+      timezone: env.BUSINESS_TIMEZONE,
+      currency: 'MGA',
+    },
+  };
 }
 
 /* ════════════════════ EXPORT PDF (sans dépendance) ════════════════════ */

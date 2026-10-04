@@ -37,6 +37,21 @@ export const monthlyReportQuery = z.object({
 
 export type MonthlyReportQuery = z.infer<typeof monthlyReportQuery>;
 
+/** §3 - indicateurs découpables en jours pour un graphique. */
+export const SERIES_METRICS = ['ca', 'receipts', 'outflow'] as const;
+
+export type SeriesMetric = (typeof SERIES_METRICS)[number];
+
+/** `period` du dashboard + `metric` : série journalière `GET /reports/series`. */
+export const seriesQuery = dashboardQuery
+  .extend({ metric: z.enum(SERIES_METRICS).default('ca') })
+  .refine((v) => (v.period === 'custom' ? Boolean(v.from && v.to) : true), {
+    message: 'La période personnalisée exige `from` et `to`',
+    path: ['from'],
+  });
+
+export type SeriesQuery = z.infer<typeof seriesQuery>;
+
 export const exportQuery = z
   .object({
     type: z.enum(['daily', 'monthly']),

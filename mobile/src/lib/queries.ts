@@ -55,10 +55,12 @@ import type {
   PeriodKey,
   ProductDetail,
   ProductListItem,
+  ReportSeriesResponse,
   SaleCreated,
   SaleDetail,
   SaleRow,
   SaleStatus,
+  SeriesMetric,
   SettingsMap,
   SizeListItem,
   StockMovementFeedItem,
@@ -107,6 +109,24 @@ export function useDrilldown(
         `/dashboard/${indicator}/transactions`,
         { params: { period, ...(range ? { from: range.from, to: range.to } : {}) } },
       );
+      return data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** `GET /api/reports/series?period&metric` — série journalière (§3, graphiques). */
+export function useSeries(
+  metric: SeriesMetric,
+  period: PeriodKey,
+  range?: CustomRange | null,
+): UseQueryResult<ReportSeriesResponse> {
+  return useQuery<ReportSeriesResponse>({
+    queryKey: ['series', metric, period, range?.from ?? '', range?.to ?? ''],
+    queryFn: async () => {
+      const { data } = await api.get<ReportSeriesResponse>('/reports/series', {
+        params: { metric, period, ...(range ? { from: range.from, to: range.to } : {}) },
+      });
       return data;
     },
     staleTime: 15_000,
