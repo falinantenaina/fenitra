@@ -206,8 +206,8 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET/PUT/DELETE | `/api/expenses/:id` | auth / manager / manager | Détail, mise à jour, suppression |
 | GET/POST | `/api/expense-categories` | auth / manager | Catégories |
 | PUT | `/api/expense-categories/:id` | manager | `{ active: false }` = désactivation |
-| GET/POST | `/api/versements` | auth / manager | Versements (charge ou remboursement, détection automatique A2) |
-| GET | `/api/versements/summary` | auth | Agrégats (`personName`, `period`) |
+| GET/POST | `/api/versements` | auth / manager | Versements (charge ou remboursement, détection automatique A2) — `period`, `from`/`to`, `personName`, `treatment` |
+| GET | `/api/versements/summary` | auth | §38 historique par personne : `items[] { personName, count, amount, charge, debtSettlement, lastDate }`, `totalAmount`, `totalCount` |
 | GET/PUT/DELETE | `/api/versements/:id` | auth / manager / manager | CRUD |
 | GET | `/api/personal-capital` | auth | Argent propre (distinct du bénéfice, A5) |
 | POST | `/api/personal-capital` | manager | Dépôt |
@@ -221,6 +221,12 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | DELETE | `/api/trosa-sinoa/:id` | manager | Suppression |
 | GET/POST | `/api/payment-methods` | auth / manager | Méthodes de paiement |
 | PATCH | `/api/payment-methods/:id` | manager | Mise à jour |
+
+`GET /versements` et `GET /versements/summary` partagent les filtres de
+période du dashboard (§38) : `period=today|yesterday|last7d|week|month|prevMonth|year`
+est **résolu côté serveur** (borne de fin exclusive), `period=custom` impose
+`from` et `to` (sans eux la requête répond `400`). Sans `period`, `from`/`to`
+bruts restent acceptés et la borne de fin y est **incluse**.
 
 ---
 

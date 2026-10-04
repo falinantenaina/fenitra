@@ -5,14 +5,24 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 
 import { Chip } from '@/components/chip';
 import { ListFooter } from '@/components/list-footer';
+import { PeriodTabs } from '@/components/period-tabs';
+import { Section } from '@/components/section';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import {
   useCapitalMovements,
   useDebts,
   useExpenses,
   useVersements,
+  useVersementsSummary,
 } from '@/lib/queries';
-import type { CapitalItem, ExpenseItem, VersementItem } from '@/lib/types';
+import type {
+  CapitalItem,
+  CustomRange,
+  ExpenseItem,
+  PeriodKey,
+  VersementItem,
+  VersementSummaryItem,
+} from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
 type Segment = 'expenses' | 'versements' | 'capital' | 'trosa';
@@ -96,41 +106,108 @@ function ExpenseList() {
 }
 
 function VersementList() {
-  const versements = useVersements();
+  const [period, setPeriod] = useState<PeriodKey>('month');
+  const [range, setRange] = useState<CustomRange | null>(null);
+  const [person, setPerson] = useState<string | null>(null);
+
+  const selectPeriod = (next: { key: PeriodKey; range?: CustomRange }) => {
+    setPeriod(next.key);
+    setRange(next.range ?? null);
+  };
+
+  const filter = {
+    period,
+    ...(range ? { from: range.from, to: range.to } : {}),
+    ...(person ? { personName: person } : {}),
+  };
+  const versements = useVersements(filter);
+  const summary = useVersementsSummary(period, range);
+  const people = summary.data?.items ?? [];
 
   return (
-    <ListShell
-      isLoading={versements.isPending}
-      isEmpty={versements.items.length === 0}
-      total={versements.total}
-      footer={
-        <ListFooter
-          fetchNextPage={() => void versements.fetchNextPage()}
-          hasMore={versements.hasMore}
-          isFetchingNextPage={versements.isFetchingNextPage}
-          shown={versements.items.length}
-          total={versements.total}
-        />
-      }>
-      {versements.items.map((versement: VersementItem) => (
-        <View
-          className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
-          key={versement.id}>
-          <View className="flex-1">
-            <Text className="text-sm font-semibold text-slate-800">{versement.personName}</Text>
-            <Text className="text-xs text-slate-400" numberOfLines={1}>
-              {versement.motif} · {formatDateTime(versement.date)}
+    <View className="gap-4">
+      {/* §38 — mêmes filtres de période que le tableau de bord. */}
+      <View className="-mx-4">
+        <PeriodTabs onChange={selectPeriod} range={range} value={period} />
+      </View>
+
+      {/* §38 — historique par personne : la ligne filtre la liste dessous. */}
+      <View className="gap-2">
+        <Section title="Par personne" count={people.length} />
+        <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          {summary.isPending ? (
+            <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : people.length === 0 ? (
+            <Text className="px-3 py-4 text-sm text-slate-400">
+              Aucun versement sur cette période.
             </Text>
-            <Text className="text-[11px] font-medium text-slate-500">
-              {TREATMENT_LABELS[versement.treatment] ?? versement.treatment}
+          ) : (
+            people.map((row: VersementSummaryItem) => (
+              <Pressable
+                accessibilityRole="button"
+                className={`flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0 ${
+                  person === row.personName ? 'bg-slate-100' : ''
+                }`}
+                key={row.personName}
+                onPress={() => setPerson(person === row.personName ? null : row.personName)}>
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-slate-800" numberOfLines={1}>
+                    {row.personName}
+                  </Text>
+                  <Text className="text-xs text-slate-400">
+                    {row.count} fois · dépense {formatMoney(row.charge)} · remboursement{' '}
+                    {formatMoney(row.debtSettlement)}
+                  </Text>
+                  <Text className="text-[11px] text-slate-400">
+                    Dernier : {formatDateTime(row.lastDate)}
+                  </Text>
+                </View>
+                <Text className="text-sm font-bold text-slate-900">
+                  {formatMoney(row.amount)}
+                </Text>
+              </Pressable>
+            ))
+          )}
+        </View>
+
+        {person ? (
+          <Chip label={`Filtré : ${person} — retirer`} selected onPress={() => setPerson(null)} />
+        ) : null}
+      </View>
+
+      <ListShell
+        isLoading={versements.isPending}
+        isEmpty={versements.items.length === 0}
+        total={versements.total}
+        footer={
+          <ListFooter
+            fetchNextPage={() => void versements.fetchNextPage()}
+            hasMore={versements.hasMore}
+            isFetchingNextPage={versements.isFetchingNextPage}
+            shown={versements.items.length}
+            total={versements.total}
+          />
+        }>
+        {versements.items.map((versement: VersementItem) => (
+          <View
+            className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
+            key={versement.id}>
+            <View className="flex-1">
+              <Text className="text-sm font-semibold text-slate-800">{versement.personName}</Text>
+              <Text className="text-xs text-slate-400" numberOfLines={1}>
+                {versement.motif} · {formatDateTime(versement.date)}
+              </Text>
+              <Text className="text-[11px] font-medium text-slate-500">
+                {TREATMENT_LABELS[versement.treatment] ?? versement.treatment}
+              </Text>
+            </View>
+            <Text className="text-sm font-bold text-slate-900">
+              −{formatMoney(versement.amount)}
             </Text>
           </View>
-          <Text className="text-sm font-bold text-slate-900">
-            −{formatMoney(versement.amount)}
-          </Text>
-        </View>
-      ))}
-    </ListShell>
+        ))}
+      </ListShell>
+    </View>
   );
 }
 

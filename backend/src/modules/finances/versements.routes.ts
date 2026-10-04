@@ -23,12 +23,32 @@ import {
 
 export const versementsRouter = Router();
 
-/** GET /api/versements */
+/**
+ * §38 — une seule résolution de période pour la liste et le résumé :
+ * un preset nommé est résolu côté serveur, `custom` repose sur `from`/`to`
+ * (validés par le schéma) dont la borne de fin devient exclusive.
+ */
+function resolveRange(query: {
+  period?: 'today' | 'yesterday' | 'last7d' | 'week' | 'month' | 'prevMonth' | 'year' | 'custom';
+  from?: Date;
+  to?: Date;
+}): { from?: Date; to?: Date } {
+  if (!query.period) return { from: query.from, to: query.to };
+  const range = resolvePeriod(
+    query.period,
+    new Date(),
+    query.period === 'custom' ? { from: query.from, to: query.to } : undefined,
+  );
+  return { from: range.from, to: range.to };
+}
+
+/** GET /api/versements — §38 : filtres `period`, `from`/`to`, `personName` */
 versementsRouter.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json(await listVersements(parseQuery(req, versementListQuery)));
+    const query = parseQuery(req, versementListQuery);
+    res.json(await listVersements({ ...query, ...resolveRange(query) }));
   }),
 );
 
@@ -38,18 +58,7 @@ versementsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, summaryQuery);
-    const ranged =
-      query.period && query.period !== 'custom'
-        ? resolvePeriod(query.period, new Date())
-        : null;
-
-    res.json(
-      await versementsSummary({
-        ...query,
-        from: ranged?.from ?? query.from,
-        to: ranged?.to ?? query.to,
-      }),
-    );
+    res.json(await versementsSummary({ ...query, ...resolveRange(query) }));
   }),
 );
 

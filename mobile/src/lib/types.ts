@@ -705,6 +705,24 @@ export interface VersementItem {
   user: { id: string; name: string } | null;
 }
 
+/** §38 — agrégat par personne (`GET /versements/summary`). */
+export interface VersementSummaryItem {
+  personName: string;
+  count: number;
+  amount: string;
+  /** Total traité en charge (affecte le bénéfice net). */
+  charge: string;
+  /** Total traité en remboursement de dette. */
+  debtSettlement: string;
+  lastDate: string;
+}
+
+export interface VersementSummary {
+  items: VersementSummaryItem[];
+  totalAmount: string;
+  totalCount: number;
+}
+
 /** Corps de `POST /versements` (A2 : traitement détecté côté serveur). */
 export interface CreateVersementBody {
   personName: string;

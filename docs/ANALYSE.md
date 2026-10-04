@@ -1445,6 +1445,26 @@ bouton « Nouveau », réservé aux gestionnaires, route vers les quatre
 formulaires `finance/expense`, `finance/versement`, `finance/capital`,
 `finance/trosa`.
 
+**Segment Versements (§38, étape 4)** — en haut les mêmes filtres de période
+que le tableau de bord (`PeriodTabs` : presets + plage personnalisée validée,
+`period` résolu côté serveur, période par défaut « Mois »), puis le bloc
+**« Par personne »** alimenté par `GET /versements/summary` : nombre de
+versements, ventilation dépense (`charge`) / remboursement
+(`debtSettlement`), dernier versement et total. Tapper une personne restreint
+la liste dessous à elle seul (pastille « Filtré : … — retirer »), laquelle
+part `GET /versements?period=&personName=`. Le résumé, lui, reste groupé par
+personne pour que l'on puisse changer de filtre d'un tap à l'autre.
+
+**Étape 4 — contrôles** : `period` ajouté à `versementListQuery` (même
+vocabulaire que le dashboard, `custom` exige `from`/`to` sous peine de `400`),
+une seule fonction `resolveRange` sert aux deux routes et résout désormais
+aussi `custom` — la borne de fin, devenue exclusive, n'abandonne plus la
+dernière journée. `GET /versements/summary` réutilise le même schéma.
+Backend `npm run typecheck` + `npm test` verts (**207 tests / 15 fichiers**,
+dont un test §38 : versement du 31/07/2099 à midi retrouvé par `custom`,
+`today` qui exclut l'écriture lointaine, `400` sans bornes). Mobile
+`npx tsc --noEmit` + `npx expo lint` verts (1 avertissement connu).
+
 **Rappels métier affichés à l'écran** : A8 (une dépense est toujours réglée →
 caisse −`amount` immédiat), A2 (le versement détecte lui-même un
 remboursement de trosa ouverte, sinon une dépense), A5 (argent propre = ni

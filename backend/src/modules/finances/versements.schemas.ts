@@ -25,22 +25,37 @@ export const updateVersementSchema = z.object({
 
 export type UpdateVersementInput = z.infer<typeof updateVersementSchema>;
 
-export const versementListQuery = listQuerySchema.extend({
-  personName: z.string().trim().min(1).optional(),
-  treatment: z.nativeEnum(VersementTreatment).optional(),
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
-});
+export const periodKeySchema = z.enum([
+  'today',
+  'yesterday',
+  'last7d',
+  'week',
+  'month',
+  'prevMonth',
+  'year',
+  'custom',
+]);
+
+/** §38 — mêmes filtres de période que `GET /dashboard`, sur la liste comme sur le résumé. */
+export const versementListQuery = listQuerySchema
+  .extend({
+    personName: z.string().trim().min(1).optional(),
+    treatment: z.nativeEnum(VersementTreatment).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    period: periodKeySchema.optional(),
+  })
+  .refine((q) => q.period !== 'custom' || Boolean(q.from && q.to), {
+    message: 'period=custom exige from et to',
+    path: ['from'],
+  });
 
 export type VersementListQuery = z.infer<typeof versementListQuery>;
 
-export const summaryQuery = versementListQuery.extend({
-  period: z
-    .enum(['today', 'yesterday', 'last7d', 'week', 'month', 'prevMonth', 'year', 'custom'])
-    .optional(),
-});
+/** §38 : le résumé par personne accepte exactement les mêmes filtres que la liste. */
+export const summaryQuery = versementListQuery;
 
-export type SummaryQuery = z.infer<typeof summaryQuery>;
+export type SummaryQuery = VersementListQuery;
 
 export const reasonSchema = z.object({
   reason: z.string().trim().min(3, 'Motif requis').max(500),

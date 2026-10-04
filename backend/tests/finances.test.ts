@@ -224,6 +224,59 @@ describe('Finances — dépenses, versements, argent propre, trosa', () => {
     expect(list.body.items.some((v: { id: string }) => v.id === chargeVersementId)).toBe(true);
   });
 
+  it('filtre la liste et le résumé par période (§38)', async () => {
+    const person = `Période ${stamp}`;
+
+    // Fin de mois à midi : `custom` doit être résolu en plage exclusive,
+    // sinon la borne de fin (minuit) laisserait tomber la journée entière.
+    const noon = await admin.post('/versements').send({
+      personName: person,
+      amount: 1000,
+      motif: 'Versement de midi',
+      date: '2099-07-31T12:00:00.000Z',
+    });
+    expect(noon.status, JSON.stringify(noon.body)).toBe(201);
+
+    const closed = await admin
+      .get('/versements')
+      .query({ period: 'custom', from: '2099-07-01', to: '2099-07-31', personName: person });
+    expect(closed.status).toBe(200);
+    expect(closed.body.items).toHaveLength(1);
+    expect(closed.body.items[0].id).toBe(noon.body.id);
+
+    const summary = await admin
+      .get('/versements/summary')
+      .query({ period: 'custom', from: '2099-07-01', to: '2099-07-31', personName: person });
+    expect(summary.status).toBe(200);
+    expect(summary.body.items).toHaveLength(1);
+    expect(summary.body.items[0]).toMatchObject({
+      personName: person,
+      count: 1,
+      amount: '1000.00',
+    });
+
+    // Preset nommé résolu côté serveur : aujourd'hui contient la saisie du jour
+    // et pas celle du 31/07/2099.
+    const today = await admin
+      .post('/versements')
+      .send({ personName: person, amount: 500, motif: 'Versement du jour' });
+    expect(today.status, JSON.stringify(today.body)).toBe(201);
+
+    const day = await admin.get('/versements').query({ period: 'today', limit: 100 });
+    expect(day.status).toBe(200);
+    const ids = day.body.items.map((v: { id: string }) => v.id);
+    expect(ids).toContain(today.body.id);
+    expect(ids).not.toContain(noon.body.id);
+
+    // Fenêtre sans écriture et période sans bornes.
+    const empty = await admin
+      .get('/versements')
+      .query({ period: 'custom', from: '2020-01-01', to: '2020-01-31', personName: person });
+    expect(empty.body.items).toHaveLength(0);
+    expect((await admin.get('/versements?period=custom')).status).toBe(400);
+    expect((await admin.get('/versements/summary?period=custom')).status).toBe(400);
+  });
+
   it('annule un versement CHARGE et restitue la dette réglée', async () => {
     const charge = await admin.delete(`/versements/${chargeVersementId}`).send({ reason: 'Doublon' });
     expect(charge.status).toBe(200);

@@ -71,6 +71,7 @@ import type {
   UserItem,
   VariantSearchItem,
   VersementItem,
+  VersementSummary,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -545,9 +546,26 @@ export function useExpenseCategories(): UseQueryResult<ExpenseCategory[]> {
   });
 }
 
-/** Versements paginés (`GET /versements`). */
-export function useVersements(): PagedInfinite<VersementItem> {
-  return useInfiniteList<VersementItem>(['versements', 'list'], '/versements');
+/** Versements paginés (`GET /versements`) — §38 : `period`, `from`/`to`, `personName`. */
+export function useVersements(params: ListParams = {}): PagedInfinite<VersementItem> {
+  return useInfiniteList<VersementItem>(['versements', 'list'], '/versements', params);
+}
+
+/** Historique par personne (`GET /versements/summary`) — §38. */
+export function useVersementsSummary(
+  period: PeriodKey,
+  range?: CustomRange | null,
+): UseQueryResult<VersementSummary> {
+  return useQuery<VersementSummary>({
+    queryKey: ['versements', 'summary', period, range?.from ?? '', range?.to ?? ''],
+    queryFn: async () => {
+      const { data } = await api.get<VersementSummary>('/versements/summary', {
+        params: { period, ...(range ? { from: range.from, to: range.to } : {}) },
+      });
+      return data;
+    },
+    staleTime: 15_000,
+  });
 }
 
 /** Argent propre paginé (`GET /personal-capital`). */
