@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adminToken, as, tokenFor, type AuthedRequest } from './helpers';
+import { adminToken, as, carton, tokenFor, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
 import { accountingIdentity, identityBalance } from './identity';
 
@@ -44,15 +44,15 @@ describe('Ventes', () => {
     // Deux arrivages à prix différents pour le test FIFO
     await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantA, quantity: 10, unitCost: 20000 }] }],
+      cartons: [carton(product.body.id, size40.id, 10, 20000)],
     });
     await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantA, quantity: 8, unitCost: 23000 }] }],
+      cartons: [carton(product.body.id, size40.id, 8, 23000)],
     });
     await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantB, quantity: 5, unitCost: 15000 }] }],
+      cartons: [carton(product.body.id, size41.id, 5, 15000)],
     });
   });
 

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { adminToken, app, API, as, tokenFor, type AuthedRequest } from './helpers';
+import { adminToken, app, API, as, carton, tokenFor, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
 import { accountingIdentity, identityBalance } from './identity';
 
@@ -25,9 +25,12 @@ const payloadA = () => ({
   cartons: [
     {
       reference: 'C1',
-      items: [
-        { variantId: variantA, quantity: 10, unitCost: 20000 },
-        { variantId: variantB, quantity: 5, unitCost: 22000 },
+      productId,
+      totalQty: 15,
+      totalCost: 300000,
+      sizes: [
+        { sizeId: size40Id, quantity: 10 },
+        { sizeId: size41Id, quantity: 5 },
       ],
     },
   ],
@@ -94,16 +97,19 @@ describe('Arrivages & stock', () => {
     expect(body.reference).toMatch(/^ARR-\d{4}$/);
     expect(body.status).toBe('RECEIVED');
     expect(body.totalQty).toBe(15);
-    expect(body.totalCost).toBe('310000.00');
+    expect(body.totalCost).toBe('300000.00');
     expect(body.paidAmount).toBe('100000.00');
-    expect(body.unpaidAmount).toBe('210000.00');
+    expect(body.unpaidAmount).toBe('200000.00');
 
-    // cartons → lignes
+    // cartons → lignes (pointures listées à la saisie → ventilé d'office)
     expect(body.cartons).toHaveLength(1);
     expect(body.cartons[0].items).toHaveLength(2);
-    expect(body.cartons[0].totalCost).toBe('310000.00');
+    expect(body.cartons[0].totalCost).toBe('300000.00');
+    expect(body.cartons[0].ventilated).toBe(true);
+    expect(body.cartons[0].transitValue).toBe('0.00');
+    expect(body.cartons[0].transitQty).toBe(0);
 
-    // lots : un par ligne, coût figé
+    // lots : un par ligne, coût déduit (montant / quantité), jamais saisi
     expect(body.lots).toHaveLength(2);
     expect(body.lots[0].remainingQty).toBe(10);
     expect(body.lots[0].unitCost).toBe('20000.00');
@@ -113,9 +119,9 @@ describe('Arrivages & stock', () => {
     expect(body.debt).not.toBeNull();
     expect(body.debt.status).toBe('PARTIAL');
     expect(body.debt.reason).toContain('paiement partiel');
-    expect(body.debt.initialAmount).toBe('310000.00');
+    expect(body.debt.initialAmount).toBe('300000.00');
     expect(body.debt.paidAmount).toBe('100000.00');
-    expect(body.debt.remainingAmount).toBe('210000.00');
+    expect(body.debt.remainingAmount).toBe('200000.00');
 
     expect(body.payments).toHaveLength(1);
     expect(body.payments[0].amount).toBe('100000.00');
@@ -146,18 +152,19 @@ describe('Arrivages & stock', () => {
     expect(res.body.error.code).toBe('BUSINESS_RULE_VIOLATION');
   });
 
-  it('rejette une variante inconnue (404)', async () => {
+  it('rejette une pointure inconnue (404)', async () => {
     const res = await admin
       .post('/arrivals')
-      .send({ supplierId, cartons: [{ items: [{ variantId: 'inconnu', quantity: 1, unitCost: 1000 }] }] });
+      .send({ supplierId, cartons: [carton(productId, 'pointure-inconnue', 1, 1000)] });
     expect(res.status).toBe(404);
+    expect(res.body.error.message).toContain('Pointure inconnue');
   });
 
   it(' rejette une soumission dupliquée avec la même Idempotency-Key', async () => {
     const key = `arrival-${stamp}`;
     const payload = {
       supplierId,
-      cartons: [{ items: [{ variantId: variantB, quantity: 4, unitCost: 22000 }] }],
+      cartons: [carton(productId, size41Id, 4, 22000)],
       payment: { amount: 40000 },
     };
     const first = await admin.post('/arrivals').set('Idempotency-Key', key).send(payload);
@@ -176,7 +183,7 @@ describe('Arrivages & stock', () => {
 
     const second = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantA, quantity: 4, unitCost: 25000 }] }],
+      cartons: [carton(productId, size40Id, 4, 25000)],
       payment: { amount: 50000 },
     });
     expect(second.status).toBe(201);
@@ -507,16 +514,35 @@ describe('Arrivages & stock', () => {
 
     const mismatch = await admin.post('/arrivals').send({
       supplierId,
+      cartons: [{ productId, totalQty: 9, totalCost: 9000, sizes: [{ sizeId: size40Id, quantity: 10 }] }],
+    });
+    expect(mismatch.status).toBe(400);
+    expect(
+      (mismatch.body.error.details as { message: string }[]).some((d) =>
+        d.message.includes('paires listées pour 9 annoncées'),
+      ),
+    ).toBe(true);
+
+    const duplicated = await admin.post('/arrivals').send({
+      supplierId,
       cartons: [
         {
           productId,
           totalQty: 9,
           totalCost: 9000,
-          items: [{ variantId: variantA, quantity: 10, unitCost: 20000 }],
+          sizes: [
+            { sizeId: size40Id, quantity: 4 },
+            { sizeId: size40Id, quantity: 5 },
+          ],
         },
       ],
     });
-    expect(mismatch.status).toBe(400);
+    expect(duplicated.status).toBe(400);
+    expect(
+      (duplicated.body.error.details as { message: string }[]).some((d) =>
+        d.message.includes('listée deux fois'),
+      ),
+    ).toBe(true);
 
     const created = await admin.post('/arrivals').send({
       supplierId,

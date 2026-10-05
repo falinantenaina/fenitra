@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
-import { adminToken, as, tokenFor, type AuthedRequest } from './helpers';
+import { adminToken, as, carton, tokenFor, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 
 /**
@@ -20,6 +20,8 @@ let manager: AuthedRequest;
 let supplierId = '';
 let customerId = '';
 let variantId = '';
+let productId = '';
+let size40Id = '';
 
 describe('Régressions — anomalies §6', () => {
   beforeAll(async () => {
@@ -40,11 +42,13 @@ describe('Régressions — anomalies §6', () => {
       .post('/variants')
       .send({ productId: product.body.id, sizeId: size.id, sellingPrice: 45000 });
     variantId = variant.body.id;
+    productId = product.body.id;
+    size40Id = size.id;
 
     // Stock de départ réglé d'emblée, distinct des arrivages annulés plus bas.
     const stock = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId, quantity: 20, unitCost: 20000 }] }],
+      cartons: [carton(productId, size40Id, 20, 20000)],
       payment: { amount: 400000 },
     });
     expect(stock.status).toBe(201);
@@ -53,7 +57,7 @@ describe('Régressions — anomalies §6', () => {
   it('R1 — refuse un prix d\'achat nul en 400 (CHECK unitCost > 0)', async () => {
     const res = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId, quantity: 2, unitCost: 0 }] }],
+      cartons: [carton(productId, size40Id, 2, 0)],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -110,7 +114,7 @@ describe('Régressions — anomalies §6', () => {
   it('R4 — annule un arrivage après un règlement tardif sans casser l\'identité', async () => {
     const created = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId, quantity: 5, unitCost: 20000 }] }],
+      cartons: [carton(productId, size40Id, 5, 20000)],
     });
     expect(created.status).toBe(201);
     const arrivalId = created.body.id;

@@ -152,8 +152,8 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status` = `RECEIVED|CANCELLED`, `unventilated`, `q`, `page`) |
-| POST | `/api/arrivals` | manager | Transaction complète — cartons **avec** pointures (`items`) ou **sans** (`productId` + `totalQty` + `totalCost`, pointures à ventiler plus tard) → lots le cas échéant, dette fournisseur, financements, ledger |
+| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status` = `RECEIVED|CANCELLED`, `unventilated`, `q`, `page`) — chaque ligne porte `toVentilate` (cartons sans pointures) |
+| POST | `/api/arrivals` | manager | Transaction complète — cartons = **modèle + quantité + montant** (+ `sizes` pointures connues) → lots le cas échéant (sinon « à ventiler »), dette fournisseur, financements, ledger. Prix unitaire déduit : `floor(totalCost / totalQty)` |
 | GET | `/api/arrivals/reference-preview` | auth | Prochaine référence `ARR-xxxx` |
 | GET | `/api/arrivals/:id` | auth | Cartons (+ `ventilated`, `transitValue`, `transitQty`) + lots + dette + paiements + financements |
 | POST | `/api/arrivals/:id/ventilate` | manager | **Ventilation** : `[{ cartonId, lines: [{ sizeId, quantity }] }]` — prix unitaire **imposé** `floor(totalCost / totalQty)`, somme des quantités exacte (sinon 422) → lignes + lots + mouvement `IN`, **zéro écriture comptable** (idempotent) |

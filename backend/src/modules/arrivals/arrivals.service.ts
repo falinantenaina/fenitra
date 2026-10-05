@@ -144,7 +144,7 @@ export async function loadArrival(db: Db, id: string) {
   };
 }
 
-/** Résultat des contrôles communs : fournisseur, variantes, modèles, totaux. */
+/** Résultat des contrôles communs : fournisseur, modèles, pointures, totaux. */
 interface ArrivalPlan {
   supplierId: string;
   supplierName: string;
@@ -153,48 +153,40 @@ interface ArrivalPlan {
   totalCost: number;
   paid: number;
   date: Date;
-  variantById: Map<string, { id: string; sizeId: string }>;
-  /** Un par entrée `input.cartons`, dans l'ordre : modèle + totaux du carton. */
-  cartons: { productId: string; totalQty: number; totalCost: number }[];
+  /**
+   * Un par entrée `input.cartons`, dans l'ordre : modèle, quantité, montant et
+   * `unitCost` **déduit** — `floor(totalCost / totalQty)`, jamais saisi.
+   */
+  cartons: PlanCarton[];
 }
 
-/** Contrôles partagés — qu'il y ait des pointures (saisies d'office) ou non. */
+interface PlanCarton {
+  productId: string;
+  totalQty: number;
+  totalCost: number;
+  unitCost: number;
+  /** Pointures listées à la saisie — vide = carton « à ventiler ». */
+  sizes: { sizeId: string; quantity: number }[];
+}
+
+/** Contrôles partagés : fournisseur, modèle, pointures, références, totaux. */
 async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPlan> {
   const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
   if (!supplier) throw notFound('Fournisseur introuvable');
   if (!supplier.active) throw businessRule('Ce fournisseur est désactivé');
 
-  const variantIds = [...new Set(input.cartons.flatMap((c) => (c.items ?? []).map((i) => i.variantId)))];
-  const variants = await tx.productVariant.findMany({
-    where: { id: { in: variantIds } },
-    select: { id: true, sizeId: true, active: true, product: { select: { id: true, name: true } } },
-  });
-  const variantById = new Map(variants.map((v) => [v.id, v]));
-  const unknown = variantIds.find((id) => !variantById.has(id));
-  if (unknown) throw notFound(`Variante inconnue : ${unknown}`);
-  const inactive = variants.find((v) => !v.active);
-  if (inactive) throw businessRule(`La variante ${inactive.id} est désactivée`);
-
-  // Un carton = un modèle : déduit des lignes, ou déclaré quand il n'y en a pas.
-  const cartons: ArrivalPlan['cartons'] = input.cartons.map((carton, index) => {
-    const items = carton.items ?? [];
-    const reference = carton.reference ?? `C${index + 1}`;
-    const quantity = items.reduce((sum, item) => sum + item.quantity, 0);
-    const cost = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
-
-    if (items.length === 0) {
-      return { productId: carton.productId!, totalQty: carton.totalQty!, totalCost: carton.totalCost! };
+  const cartons: PlanCarton[] = input.cartons.map((carton) => {
+    const unitCost = Math.floor(carton.totalCost / carton.totalQty);
+    if (unitCost < 1) {
+      throw businessRule(`Le carton ${carton.reference ?? carton.productId} : montant trop faible pour en dériver un prix unitaire`);
     }
-
-    const productIds = new Set(items.map((item) => variantById.get(item.variantId)!.product.id));
-    if (productIds.size > 1) {
-      throw businessRule(`Le carton ${reference} mélange plusieurs modèles`);
-    }
-    const [productId] = [...productIds];
-    if (carton.productId && carton.productId !== productId) {
-      throw businessRule(`Le carton ${reference} n'est pas le modèle annoncé`);
-    }
-    return { productId: productId!, totalQty: quantity, totalCost: cost };
+    return {
+      productId: carton.productId,
+      totalQty: carton.totalQty,
+      totalCost: carton.totalCost,
+      unitCost,
+      sizes: carton.sizes ?? [],
+    };
   });
 
   const productIds = [...new Set(cartons.map((carton) => carton.productId))];
@@ -207,6 +199,12 @@ async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPl
   if (missingProduct) throw notFound(`Modèle introuvable : ${missingProduct}`);
   const inactiveProduct = products.find((p) => !p.active);
   if (inactiveProduct) throw businessRule(`Le modèle ${inactiveProduct.name} est désactivé`);
+
+  const sizeIds = [...new Set(cartons.flatMap((carton) => carton.sizes.map((line) => line.sizeId)))];
+  const sizes = await tx.size.findMany({ where: { id: { in: sizeIds } }, select: { id: true } });
+  const knownSizes = new Set(sizes.map((size) => size.id));
+  const unknownSize = sizeIds.find((sizeId) => !knownSizes.has(sizeId));
+  if (unknownSize) throw notFound(`Pointure inconnue : ${unknownSize}`);
 
   const references = input.cartons.map((c, i) => c.reference ?? `C${i + 1}`);
   if (new Set(references).size !== references.length) {
@@ -232,22 +230,88 @@ async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPl
     totalCost,
     paid,
     date,
-    variantById: new Map(variants.map((v) => [v.id, { id: v.id, sizeId: v.sizeId }])),
     cartons,
   };
+}
+
+/**
+ * Pointures d'un carton → variante (`productId_sizeId`, créée ou réactivée)
+ * → `ArrivalItem` → `StockLot` → mouvement `IN`. Prix unitaire **imposé** :
+ * celui du carton, dérivé de `montant / quantité`. Zéro écriture comptable —
+ * la caisse et la dette datent de l'enregistrement de l'arrivage.
+ */
+async function writeCartonLines(
+  tx: Db,
+  ctx: {
+    arrival: { id: string; supplierId: string };
+    carton: { id: string; productId: string; date: Date };
+    unitCost: number;
+    userId: string | null;
+  },
+  lines: { sizeId: string; quantity: number }[],
+) {
+  for (const line of lines) {
+    const variant = await tx.productVariant.upsert({
+      where: { productId_sizeId: { productId: ctx.carton.productId, sizeId: line.sizeId } },
+      create: { productId: ctx.carton.productId, sizeId: line.sizeId, sellingPrice: 0, active: true },
+      update: { active: true },
+    });
+    const lineTotal = line.quantity * ctx.unitCost;
+
+    const arrivalItem = await tx.arrivalItem.create({
+      data: {
+        cartonId: ctx.carton.id,
+        variantId: variant.id,
+        quantity: line.quantity,
+        unitCost: ctx.unitCost,
+        lineTotal,
+      },
+    });
+
+    const lot = await tx.stockLot.create({
+      data: {
+        code: await nextReference(tx, 'lot'),
+        arrivalId: ctx.arrival.id,
+        cartonId: ctx.carton.id,
+        arrivalItemId: arrivalItem.id,
+        supplierId: ctx.arrival.supplierId,
+        variantId: variant.id,
+        sizeId: line.sizeId,
+        initialQty: line.quantity,
+        remainingQty: line.quantity,
+        unitCost: ctx.unitCost,
+        totalCost: lineTotal,
+        entryDate: ctx.carton.date,
+        status: 'OPEN',
+      },
+    });
+
+    await tx.stockMovement.create({
+      data: {
+        lotId: lot.id,
+        variantId: variant.id,
+        type: 'IN',
+        delta: line.quantity,
+        unitCost: ctx.unitCost,
+        refType: 'ARRIVAL',
+        refId: ctx.arrival.id,
+        date: ctx.carton.date,
+        userId: ctx.userId,
+      },
+    });
+  }
 }
 
 /** Cartons → lignes → lots → mouvements → dette → paiement → journal → financement. */
 async function fillArrival(
   tx: Db,
-  arrival: { id: string; reference: string },
+  arrival: { id: string; reference: string; supplierId: string },
   plan: ArrivalPlan,
   input: CreateArrivalInput,
   userId: string | null,
 ) {
   for (const [index, carton] of input.cartons.entries()) {
     const planCarton = plan.cartons[index]!;
-    const items = carton.items ?? [];
 
     const created = await tx.arrivalCarton.create({
       data: {
@@ -258,56 +322,22 @@ async function fillArrival(
         notes: carton.notes ?? null,
         totalCost: planCarton.totalCost,
         totalQty: planCarton.totalQty,
-        // Pointures fournies → ventilé d'office ; sinon « à ventiler ».
-        ventilatedAt: items.length > 0 ? new Date() : null,
+        // Pointures listées à la saisie → ventilé d'office ; sinon « à ventiler ».
+        ventilatedAt: planCarton.sizes.length > 0 ? new Date() : null,
       },
     });
 
-    for (const item of items) {
-      const variant = plan.variantById.get(item.variantId)!;
-      const lineTotal = item.quantity * item.unitCost;
-
-      const arrivalItem = await tx.arrivalItem.create({
-        data: {
-          cartonId: created.id,
-          variantId: variant.id,
-          quantity: item.quantity,
-          unitCost: item.unitCost,
-          lineTotal,
-        },
-      });
-
-      const lot = await tx.stockLot.create({
-        data: {
-          code: await nextReference(tx, 'lot'),
-          arrivalId: arrival.id,
-          cartonId: created.id,
-          arrivalItemId: arrivalItem.id,
-          supplierId: plan.supplierId,
-          variantId: variant.id,
-          sizeId: variant.sizeId,
-          initialQty: item.quantity,
-          remainingQty: item.quantity,
-          unitCost: item.unitCost,
-          totalCost: lineTotal,
-          entryDate: plan.date,
-          status: 'OPEN',
-        },
-      });
-
-      await tx.stockMovement.create({
-        data: {
-          lotId: lot.id,
-          variantId: variant.id,
-          type: 'IN',
-          delta: item.quantity,
-          unitCost: item.unitCost,
-          refType: 'ARRIVAL',
-          refId: arrival.id,
-          date: plan.date,
+    if (planCarton.sizes.length > 0) {
+      await writeCartonLines(
+        tx,
+        {
+          arrival,
+          carton: { id: created.id, productId: planCarton.productId, date: created.date },
+          unitCost: planCarton.unitCost,
           userId,
         },
-      });
+        planCarton.sizes,
+      );
     }
   }
 
@@ -415,15 +445,15 @@ export async function createArrival(input: CreateArrivalInput, userId: string | 
 
 /**
  * `POST /arrivals/:id/ventilate` — répartition des pointures d'un carton déjà
- * enregistré (modèle, quantité et montant connus ; pointures non).
+ * enregistré **sans pointures** (modèle, quantité et montant connus).
  *
  * Aucune écriture comptable : caisse, dette et journal ont été posés à
  * l'enregistrement de l'arrivage. Seul le stock se déplace, du « carton à
  * ventiler » vers des lots par pointure — la valorisation totale ne bouge pas.
  *
- * Prix d'achat unitaire **imposé** : `floor(montant du carton / quantité)`.
- * La somme des quantités doit être exactement celle du carton, sinon rien
- * n'est écrit (transaction).
+ * Prix d'achat unitaire **imposé** : `floor(montant du carton / quantité)` —
+ * exactement la règle de la création. La somme des quantités doit être
+ * exactement celle du carton, sinon rien n'est écrit (transaction).
  */
 export async function ventilateArrival(id: string, input: VentilateInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {
@@ -472,60 +502,17 @@ export async function ventilateArrival(id: string, input: VentilateInput, userId
 
     for (const entry of input.cartons) {
       const carton = cartonById.get(entry.cartonId)!;
-      const unitCost = Math.floor(carton.totalCost / carton.totalQty);
 
-      for (const line of entry.lines) {
-        // Le modèle est déjà connu : la pointure devient la variante vendable
-        // (créée si besoin, réactivée si elle avait été masquée).
-        const variant = await tx.productVariant.upsert({
-          where: { productId_sizeId: { productId: carton.productId, sizeId: line.sizeId } },
-          create: { productId: carton.productId, sizeId: line.sizeId, sellingPrice: 0, active: true },
-          update: { active: true },
-        });
-        const lineTotal = line.quantity * unitCost;
-
-        const arrivalItem = await tx.arrivalItem.create({
-          data: {
-            cartonId: carton.id,
-            variantId: variant.id,
-            quantity: line.quantity,
-            unitCost,
-            lineTotal,
-          },
-        });
-
-        const lot = await tx.stockLot.create({
-          data: {
-            code: await nextReference(tx, 'lot'),
-            arrivalId: arrival.id,
-            cartonId: carton.id,
-            arrivalItemId: arrivalItem.id,
-            supplierId: arrival.supplierId,
-            variantId: variant.id,
-            sizeId: line.sizeId,
-            initialQty: line.quantity,
-            remainingQty: line.quantity,
-            unitCost,
-            totalCost: lineTotal,
-            entryDate: carton.date,
-            status: 'OPEN',
-          },
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            lotId: lot.id,
-            variantId: variant.id,
-            type: 'IN',
-            delta: line.quantity,
-            unitCost,
-            refType: 'ARRIVAL',
-            refId: arrival.id,
-            date: carton.date,
-            userId,
-          },
-        });
-      }
+      await writeCartonLines(
+        tx,
+        {
+          arrival: { id: arrival.id, supplierId: arrival.supplierId },
+          carton: { id: carton.id, productId: carton.productId, date: carton.date },
+          unitCost: Math.floor(carton.totalCost / carton.totalQty),
+          userId,
+        },
+        entry.lines,
+      );
 
       await tx.arrivalCarton.update({
         where: { id: carton.id },
@@ -629,6 +616,8 @@ export interface ArrivalRow {
   totalQty: number;
   paidAmount: string;
   unpaidAmount: string;
+  /** Cartons encore sans pointures — `> 0` → arrivage à ventiler. */
+  toVentilate: number;
   supplier: { id: string; name: string; phone: string | null };
 }
 
@@ -661,7 +650,10 @@ export async function listArrivals(query: ArrivalListQuery) {
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
       skip: offset(query),
       take: query.limit,
-      include: { supplier: { select: { id: true, name: true, phone: true } } },
+      include: {
+        supplier: { select: { id: true, name: true, phone: true } },
+        cartons: { where: { ventilatedAt: null }, select: { id: true } },
+      },
     }),
     prisma.arrival.count({ where }),
   ]);
@@ -676,6 +668,7 @@ export async function listArrivals(query: ArrivalListQuery) {
       totalQty: a.totalQty,
       paidAmount: money(a.paidAmount),
       unpaidAmount: money(a.unpaidAmount),
+      toVentilate: a.cartons.length,
       supplier: a.supplier,
     })),
     ...pageMeta(total, query.page, query.limit),

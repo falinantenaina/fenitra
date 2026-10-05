@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adminToken, as, type AuthedRequest } from './helpers';
+import { adminToken, as, carton, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
 import { accountingIdentity, identityBalance } from './identity';
 
@@ -9,6 +9,8 @@ let admin: AuthedRequest;
 let supplierId = '';
 let customerId = '';
 let variantId = '';
+let productId = '';
+let sizeId = '';
 let categoryId = '';
 let debtId = '';
 
@@ -71,11 +73,13 @@ describe('Intégrité — rollback et anti double-soumission', () => {
       .post('/variants')
       .send({ productId: product.body.id, sizeId: size?.id ?? fallback.id, sellingPrice: 30000 });
     variantId = variant.body.id;
+    productId = product.body.id;
+    sizeId = size?.id ?? fallback.id;
 
     // 10 unités en stock pour les tentatives de vente.
     const arrival = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId, quantity: 10, unitCost: 12000 }] }],
+      cartons: [carton(productId, sizeId, 10, 12000)],
       payment: { amount: 120000, method: 'Espèces' },
     });
     expect(arrival.status).toBe(201);
@@ -129,7 +133,7 @@ describe('Intégrité — rollback et anti double-soumission', () => {
 
     const res = await admin.post('/arrivals').send({
       supplierId: 'fournisseur-inexistant',
-      cartons: [{ items: [{ variantId, quantity: 3, unitCost: 10000 }] }],
+      cartons: [carton(productId, sizeId, 3, 10000)],
       payment: { amount: 30000 },
     });
     expect(res.status).toBe(404);

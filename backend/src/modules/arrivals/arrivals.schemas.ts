@@ -4,78 +4,58 @@ import { listQuerySchema } from '../../lib/pagination';
 
 export { idParamSchema } from '../../lib/zod';
 
-const arrivalItem = z.object({
-  variantId: z.string().min(1, 'Variante requise'),
+const cartonSizeLine = z.object({
+  sizeId: z.string().min(1, 'Pointure requise'),
   quantity: z.number().int().min(1, 'Quantité invalide').max(10000),
-  // `StockLot_unit_cost_positive` impose unitCost > 0 : on refuse au niveau du
-  // schéma (400) plutôt que de laisser Prisma lever une P2010 (500).
-  unitCost: z.number().int().min(1, 'Prix d\'achat invalide (doit être supérieur à 0)'),
 });
 
 /**
- * Un carton = un modèle. Les pointures sont **facultatives** : on peut ne
- * connaître que la quantité et le montant (`totalQty`/`totalCost`) et ventiler
- * les pointures plus tard — sinon on fournit `items` (modèle déduit, ou
- * `productId` fourni doit correspondre).
+ * Un carton (ou autre conteneur) : **un modèle**, **une quantité de paires**
+ * et **un montant total** — c'est tout ce qui est obligatoire. On peut ensuite
+ * lister les pointures (`sizes`) quand on les connaît ; leur somme doit être
+ * exactement la quantité annoncée, sinon le carton reste « à ventiler » et se
+ * ventile plus tard via `POST /arrivals/:id/ventilate`.
+ *
+ * Le prix d'achat unitaire n'est **jamais** saisi : il vaut
+ * `floor(montant total / quantité)` — la même règle à la création et à la
+ * ventilation.
  */
 const cartonSchema = z
   .object({
-    productId: z.string().min(1).optional(),
+    productId: z.string().min(1, 'Modèle requis'),
     reference: z.string().trim().min(1).max(40).optional(),
     date: z.coerce.date().optional(),
     notes: z.string().trim().max(500).nullish(),
-    items: z.array(arrivalItem).max(200).optional(),
-    totalQty: z.number().int().min(1, 'Quantité invalide').max(10000).optional(),
-    totalCost: z.number().int().min(1, 'Montant invalide').optional(),
+    totalQty: z.number().int().min(1, 'Quantité invalide').max(10000),
+    totalCost: z.number().int().min(1, 'Montant invalide'),
+    sizes: z.array(cartonSizeLine).max(60).optional(),
   })
   .superRefine((carton, ctx) => {
-    const items = carton.items ?? [];
-    const qty = items.reduce((sum, item) => sum + item.quantity, 0);
-    const cost = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
-
-    if (items.length > 0) {
-      if (carton.totalQty !== undefined && carton.totalQty !== qty) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['totalQty'],
-          message: `La quantité déclarée (${carton.totalQty}) ne correspond pas aux pointures saisies (${qty})`,
-        });
-      }
-      if (carton.totalCost !== undefined && carton.totalCost !== cost) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['totalCost'],
-          message: `Le montant déclaré (${carton.totalCost}) ne correspond pas aux pointures saisies (${cost})`,
-        });
-      }
-      return;
-    }
-
-    if (carton.productId === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['productId'],
-        message: 'Modèle requis quand les pointures sont inconnues',
-      });
-    }
-    if (carton.totalQty === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['totalQty'],
-        message: 'Quantité du carton requise',
-      });
-    }
-    if (carton.totalCost === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['totalCost'],
-        message: 'Montant du carton requis',
-      });
-    } else if (carton.totalQty !== undefined && carton.totalCost < carton.totalQty) {
+    if (carton.totalCost < carton.totalQty) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['totalCost'],
         message: 'Le montant doit couvrir au moins une paire (≥ quantité)',
+      });
+    }
+
+    const sizes = carton.sizes ?? [];
+    if (sizes.length === 0) return;
+
+    const listed = sizes.reduce((sum, line) => sum + line.quantity, 0);
+    const ids = sizes.map((line) => line.sizeId);
+    if (new Set(ids).size !== ids.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sizes'],
+        message: 'Une pointure est listée deux fois dans ce carton',
+      });
+    }
+    if (listed !== carton.totalQty) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['totalQty'],
+        message: `${listed} paires listées pour ${carton.totalQty} annoncées`,
       });
     }
   });

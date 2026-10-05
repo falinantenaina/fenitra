@@ -74,11 +74,13 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
 
   // ── Catalogue (prix de vente par défaut, A10) ────────────────────────────
   const variantOf = new Map<string, string>();
+  const productByName = new Map<string, string>();
   for (const p of CATALOGUE) {
     const slug = slugify(p.name);
     const product =
       (await prisma.product.findUnique({ where: { slug } })) ??
       (await prisma.product.create({ data: { name: p.name, slug } }));
+    productByName.set(p.name, product.id);
 
     for (const sizeValue of p.sizes) {
       const size = await prisma.size.findUniqueOrThrow({ where: { value: sizeValue } });
@@ -98,6 +100,16 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
     return id;
   };
 
+  /** Modèle → `productId` (un carton porte toujours son modèle). */
+  const modelId = (model: string): string => {
+    const id = productByName.get(model);
+    if (!id) throw new Error(`Modèle absent : ${model}`);
+    return id;
+  };
+  /** Pointure → `sizeId`. */
+  const pt = async (value: number): Promise<string> =>
+    (await prisma.size.findUniqueOrThrow({ where: { value } })).id;
+
   // ── Argent propre de départ (A5) ─────────────────────────────────────────
   await createCapital(
     { type: 'IN', amount: 3_000_000, date: daysAgo(45), motif: 'Fonds propres — apport initial' },
@@ -113,16 +125,22 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
       cartons: [
         {
           reference: 'CTN-RF-01',
-          items: [
-            { variantId: v('RunFast 300', 40), quantity: 6, unitCost: 70_000 },
-            { variantId: v('RunFast 300', 41), quantity: 6, unitCost: 70_000 },
+          productId: modelId('RunFast 300'),
+          totalQty: 12,
+          totalCost: 12 * 70_000,
+          sizes: [
+            { sizeId: await pt(40), quantity: 6 },
+            { sizeId: await pt(41), quantity: 6 },
           ],
         },
         {
           reference: 'CTN-SB-01',
-          items: [
-            { variantId: v('Samba', 40), quantity: 6, unitCost: 85_000 },
-            { variantId: v('Samba', 41), quantity: 6, unitCost: 85_000 },
+          productId: modelId('Samba'),
+          totalQty: 12,
+          totalCost: 12 * 85_000,
+          sizes: [
+            { sizeId: await pt(40), quantity: 6 },
+            { sizeId: await pt(41), quantity: 6 },
           ],
         },
       ],
@@ -138,9 +156,12 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
       notes: 'Achat à crédit : 300 000 réglés d\'emblée',
       cartons: [
         {
-          items: [
-            { variantId: v('Basket Urbain', 40), quantity: 5, unitCost: 80_000 },
-            { variantId: v('Basket Urbain', 41), quantity: 5, unitCost: 80_000 },
+          productId: modelId('Basket Urbain'),
+          totalQty: 10,
+          totalCost: 10 * 80_000,
+          sizes: [
+            { sizeId: await pt(40), quantity: 5 },
+            { sizeId: await pt(41), quantity: 5 },
           ],
         },
       ],
@@ -155,9 +176,12 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
       date: daysAgo(8),
       cartons: [
         {
-          items: [
-            { variantId: v('Mocassin Cuir', 41), quantity: 4, unitCost: 120_000 },
-            { variantId: v('Mocassin Cuir', 42), quantity: 4, unitCost: 120_000 },
+          productId: modelId('Mocassin Cuir'),
+          totalQty: 8,
+          totalCost: 8 * 120_000,
+          sizes: [
+            { sizeId: await pt(41), quantity: 4 },
+            { sizeId: await pt(42), quantity: 4 },
           ],
         },
       ],

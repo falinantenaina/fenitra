@@ -45,3 +45,24 @@ export const as = (token: string): AuthedRequest => ({
   patch: (url) => request(app).patch(`${API}${url}`).set('Authorization', `Bearer ${token}`),
   delete: (url) => request(app).delete(`${API}${url}`).set('Authorization', `Bearer ${token}`),
 });
+
+/**
+ * Carton d'arrivage **pointures connues** : modèle, quantité, montant total et
+ * liste des pointures. Le montant est posé pour que le prix unitaire déduit
+ * (`floor(montant / quantité)`) vaille exactement `unitCost`.
+ */
+export function carton(
+  productId: string,
+  sizeId: string,
+  quantity: number,
+  unitCost: number,
+  reference?: string,
+) {
+  return {
+    ...(reference ? { reference } : {}),
+    productId,
+    totalQty: quantity,
+    totalCost: quantity * unitCost,
+    sizes: [{ sizeId, quantity }],
+  };
+}

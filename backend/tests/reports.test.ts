@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Response } from 'supertest';
-import { adminToken, app, as, API, type AuthedRequest } from './helpers';
+import { adminToken, app, as, API, carton, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 import { buildPdf, exportReportPdf } from '../src/modules/reports/reports.service';
 import {
@@ -54,7 +54,7 @@ describe('Journal, dashboard et rapports', () => {
     // il en reste toujours (l'identité comptable exige des lots vivants).
     const arrival = await admin.post('/arrivals').send({
       supplierId: supplier.body.id,
-      cartons: [{ items: [{ variantId: variant.body.id, quantity: 6, unitCost: 30000 }] }],
+      cartons: [carton(product.body.id, size40.id, 6, 30000)],
     });
     if (arrival.status !== 201) {
       throw new Error(`Amorçage arrivage ${arrival.status}: ${JSON.stringify(arrival.body)}`);

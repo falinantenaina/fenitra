@@ -160,7 +160,9 @@ Jamais toute la caisse n'est considérée comme du bénéfice (§7).
 ## 6. Règles de stock (§14-§17, §66)
 
 1. **Un lot = une ligne de carton.** `StockLot.unitCost` est écrit une fois et
-   **n'est jamais modifié**.
+   **n'est jamais modifié** : il vaut `floor(montant du carton / quantité du
+   carton)` — le prix unitaire n'est **jamais saisi**, déduit de la même
+   façon à la création et à la ventilation.
 2. Un nouvel arrivage **n'écrase jamais** un ancien prix : les lots coexistent.
 3. **Sortie FIFO** par `variantId`, tri `entryDate, createdAt, id`, verrou `FOR UPDATE`.
    COGS = `Σ (quantité sortie × unitCost du lot)`.

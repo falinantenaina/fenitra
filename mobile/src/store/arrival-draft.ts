@@ -3,8 +3,9 @@ import { create } from 'zustand';
 import type { ArrivalFormValues } from '@/lib/arrival';
 
 /**
- * Brouillon de saisie d'arrivage (§3.3) : la grille en cours est conservée si
- * l'utilisateur quitte l'écran (onglet, appel entrant…) et reposée au retour.
+ * Brouillon de saisie d'arrivage : les cartons en cours (modèle, quantité,
+ * montant, pointures) sont conservés si l'utilisateur quitte l'écran (onglet,
+ * appel entrant…) et reposés au retour.
  */
 interface ArrivalDraftState {
   values: ArrivalFormValues | null;

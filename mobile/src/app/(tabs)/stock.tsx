@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { Chip } from '@/components/chip';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
-import { useLots, useRecentMovements, useStockSummary } from '@/lib/queries';
+import { useArrivals, useLots, useRecentMovements, useStockSummary } from '@/lib/queries';
 import type { LotItem, StockMovementFeedItem } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
@@ -89,6 +89,8 @@ export default function StockScreen() {
   const [status, setStatus] = useState<'' | 'OPEN' | 'CLOSED'>('');
   const lots = useLots({ q: debounced, status });
   const movements = useRecentMovements();
+  // Cartons dont les pointures ne sont pas encore réparties (stock « à ventiler »).
+  const unventilated = useArrivals({ unventilated: true });
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(term), 300);
@@ -120,6 +122,20 @@ export default function StockScreen() {
           <SummaryCard label="Valorisation" value={formatMoney(summary.data?.value)} />
           <SummaryCard label="Lots" value={formatQuantity(summary.data?.lots)} />
         </View>
+
+        {/* Cartons à ventiler */}
+        {canManage && unventilated.total > 0 ? (
+          <Pressable
+            className="flex-row items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+            onPress={() => router.push('/arrivals/list')}>
+            <Ionicons color="#D97706" name="cube-outline" size={18} />
+            <Text className="flex-1 text-xs text-amber-800">
+              {unventilated.total} arrivage(s) avec des pointures à répartir — la valorisation les
+              compte déjà.
+            </Text>
+            <Ionicons color="#D97706" name="chevron-forward" size={16} />
+          </Pressable>
+        ) : null}
 
         {/* Actions */}
         {canManage ? (

@@ -16,7 +16,13 @@ export const SALE_STATUS: Record<SaleStatus, StatusStyle> = {
 
 /** Statuts d'arrivage (`ArrivalStatus`) → libellé + couleurs. */
 export const ARRIVAL_STATUS: Record<ArrivalStatus, StatusStyle> = {
-  DRAFT: { label: 'Brouillon', className: 'bg-slate-100', text: 'text-slate-500' },
   RECEIVED: { label: 'Reçu', className: 'bg-emerald-50', text: 'text-emerald-700' },
   CANCELLED: { label: 'Annulé', className: 'bg-slate-100', text: 'text-slate-500' },
+};
+
+/** Cartons du carton encore sans pointures : badge « à ventiler ». */
+export const TO_VENTILATE_STYLE: StatusStyle = {
+  label: 'À ventiler',
+  className: 'bg-amber-50',
+  text: 'text-amber-700',
 };

@@ -1386,89 +1386,101 @@ rôles `ADMIN`/`MANAGER` seulement (le backend impose `managerOrAdmin` → 403).
 1. **En-tête** : fournisseur (chips `GET /suppliers?active=true`), date
    `AAAA-MM-JJ` saisie en locale (le serveur applique `Indian/Antananarivo`),
    notes libres.
-2. **Cartons multipliables** (React Hook Form `useFieldArray`, 1 à 50) : champ
-   de **recherche de modèle** (debounce 300 ms →
-   `GET /products?active=true&q=`) au-dessus des chips — sans recherche, les
-   chips listent les modèles actifs (`GET /products?active=true`). Quand le
-   terme saisi ne correspond à aucun modèle, le bouton **« Créer »** crée le
-   produit (`POST /products`) **sans pointure** et ouvre le
-   **sélecteur de pointures du modèle** (`src/components/size-picker.tsx`) :
-   chips issues du dictionnaire `GET /sizes`, plus une saisie libre — une
-   valeur (`43`), une liste (`36,40`) ou une plage (`36-40`, `36 à 40`) —
-   pour des pointures absentes (le serveur les crée à la volée) →
-   `POST /products/:id/variants { sizeValues[] }` (doublons ignorés, pointure
-   désactivée sur ce modèle **réactivée**). **Chaque modèle porte ses propres
-   pointures** : la grille n'affiche que ses propres variantes, et le bouton
-   **« Pointure »** sous la grille en ajoute une à tout moment (pointure reçue
-   imprévue). Sans modèle sélectionné, la grille est remplacée par un état vide
-   qui invite à chercher ou créer ; au changement de modèle la grille se recharge depuis
-   `GET /products/:id` (variantes triées par pointure).
-   **Grille contrôlée pointure × quantité × prix d'achat** avec copier/coller
-   d'une ligne et sous-total par carton.
-3. **Paiement** (montant + modes `GET /payment-methods`) et **financement**
+2. **Cartons multipliables** (React Hook Form `useFieldArray`, 1 à 50) — un
+   carton est un conteneur dont on connaît **le modèle, la quantité de paires
+   et le montant total** ; les pointures se listent ensuite **si on les
+   connaît** :
+   - **Modèle** : champ de recherche (debounce 300 ms →
+     `GET /products?active=true&q=`) au-dessus des chips des modèles actifs.
+     Quand le terme saisi ne correspond à aucun modèle, le bouton **« Créer »**
+     pose le produit (`POST /products`, sans pointure). Un carton porte un seul
+     modèle — il n'y a plus ni grille de variantes, ni multi-modèles.
+   - **Quantité (paires)** et **Montant (Ar)** : le prix d'achat de la paire
+     s'affiche en direct (`montant ÷ quantité`, arrondi inférieur) et **n'est
+     jamais saisi** — c'est la règle unique, côté client comme côté serveur.
+   - **Pointures (facultatif)** : chips issues du dictionnaire `GET /sizes`
+     (A14 : `label || value`) → lignes `pointure · quantité` éditables avec
+     retrait ; le compteur affiche `listées / annoncées` (vert quand la somme
+     est exacte, rouge sinon). Aucune pointure → le carton part **« à
+     ventiler »** et se ventile depuis le détail de l'arrivage. Les variantes
+     sont créées côté serveur au moment de la ventilation.
+3. **Paiement** (montant + modes `GET /payment-methods`, solde fournisseur
+   affiché en direct : `total − réglé`) et **financement**
    (`OWN_CAPITAL`, `TROSA_SINOA`, `SALES_CASH`, `SUPPLIER_CREDIT` + montant).
+   Non coché → crédit intégral chez le fournisseur ; coché partiel → le reste
+   reste dû (dette `PARTIAL`).
 
 **Validation avant envoi** (`arrivalFormSchema`, Zod + `zodResolver`,
-`mode: onSubmit`) : au moins un carton, carton non vide, prix d'achat requis sur
-chaque ligne chiffrée, paiement ≥ 1 et ≤ total, financement ≥ 1. Le pied
+`mode: onSubmit`) : au moins un carton, **modèle requis**, quantité ≥ 1,
+montant ≥ quantité, pointures listées → **somme exacte** (même règle que le
+serveur), paiement ≥ 1 et ≤ total, financement ≥ 1. Le pied
 d'écran collant affiche le total (pièces + Ar) et le bouton d'enregistrement.
 
-**Transformation** (`src/lib/arrival.ts::buildArrivalPayload`) : les items sont
-saisis en *record* `variantId → {quantity, unitCost}` (accès O(1) dans la grille)
-puis convertis en tableau, lignes à quantité 0 exclues ; référence absente →
-`Carton N`. Envoi `POST /arrivals` avec un en-tête `Idempotency-Key` généré
-**par tentative** (un double tap ne crée jamais deux arrivages). Succès →
-invalidation `arrivals`/`dashboard`/`stock`/`debts`, `Alert`, retour en arrière.
+**Transformation** (`src/lib/arrival.ts::buildArrivalPayload`) : chaque carton
+devient `{ reference, productId, totalQty, totalCost, sizes? }` — les pointures
+sont un *record* `sizeId → quantité` converti en tableau (lignes à quantité 0
+exclues, accès O(1) à la saisie), absent du payload quand aucune n'est listée ;
+référence absente → `Carton N`. Envoi `POST /arrivals` avec un en-tête
+`Idempotency-Key` généré **par tentative** (un double tap ne crée jamais deux
+arrivages). Succès → invalidation `arrivals`/`dashboard`/`stock`/`debts`,
+`Alert` (avec le nombre de cartons à ventiler), retour en arrière.
 
-**Brouillon** : `src/store/arrival-draft.ts` (Zustand `save`/`clear`), restauré à
-l'ouverture et sauvegardé à chaque changement (`watch`), vidé après une écriture
-réussie. Survite à une perte de focus, pas au redémarrage (pas de persistance
-disque).
+**Brouillon de saisie** : `src/store/arrival-draft.ts` (Zustand `save`/`clear`),
+restauré à l'ouverture et sauvegardé à chaque changement (`watch`), vidé après
+une écriture réussie. Survite à une perte de focus, pas au redémarrage (pas de
+persistance disque) — il ne concerne que le formulaire, jamais le statut d'un
+arrivage (il n'y en a plus).
 
-**Cartons sans pointures (Plan A)** : on ne connaît parfois que la **quantité
-et le montant** d'un carton — les pointures arrivent plus tard. Le carton porte
-alors `productId` (un carton = un modèle), `totalQty` et `totalCost`, sans
-`items` : `POST /arrivals` l'enregistre **directement en `RECEIVED`** avec ses
-effets complets (dette, paiement, écriture `SUPPLIER_PAYMENT`) mais **aucun
-lot** — il existe comme « à ventiler ». Sa valeur (`totalCost − Σ lineTotal`)
-et sa quantité entrent dans la valorisation `GET /stock/summary` et dans
-l'identité comptable : dès que les pointures sont réparties, le résidu tombe à
-zéro (ou à l'arrondi `floor(montant / quantité)`) — jamais de double comptage,
-aucune porte au calendrier.
+**Pointures connues ou non — un seul modèle de saisie** : le carton part
+toujours avec `productId`, `totalQty` et `totalCost`, **plus** `sizes` quand on
+a listé les pointures. `POST /arrivals` enregistre **directement en `RECEIVED`**
+avec ses effets complets (dette, paiement, écriture `SUPPLIER_PAYMENT`) :
+- `sizes` fournies → `ventilatedAt` posé, variante créée/réactivée par pointure,
+  `ArrivalItem`, lot et mouvement `IN` — **aucune écriture comptable** ;
+- sinon → **aucun lot** : le carton existe comme « à ventiler ». Sa valeur
+  (`totalCost − Σ lineTotal`) et sa quantité entrent dans la valorisation
+  `GET /stock/summary` et dans l'identité comptable (§6.4 de
+  `docs/FORMULES.md`) : quand les pointures sont réparties, le résidu tombe à
+  zéro (ou à l'arrondi `floor(montant / quantité)`) — jamais de double
+  comptage, aucune porte au calendrier.
 
-**Ventilation** : `GET /arrivals?unventilated=true` liste les arrivages en
-attente ; le détail (`arrivals/[id]`) affiche le bandeau des cartons à ventiler
-→ « Ventiler l'arrivage » ouvre la grille de pointures, qui soumet
-`POST /arrivals/:id/ventilate` (manager, idempotent). Le **prix unitaire n'est
-pas saisi** : il vaut `floor(totalCost / totalQty)` et la **somme des quantités
-doit être exactement celle du carton** (sinon 422, transaction annulée). Chaque
-pointure devient une variante du modèle (créée ou réactivée), un lot et un
-mouvement `IN` — **zéro écriture comptable** : la caisse et la dette datent de
-l'enregistrement de l'arrivage.
+**Ventilation** : la liste des arrivages affiche un badge ambre **« À ventiler
+(n) »** (`ArrivalRow.toVentilate` compté par le serveur) et un filtre dédié
+(`GET /arrivals?unventilated=true`) ; le détail (`arrivals/[id]`) montre les
+cartons concernés et un bandeau ambre → « Ventiler les pointures » ouvre
+`/arrival/ventilate` : chips du dictionnaire des pointures, quantités par
+pointure, compteur `saisies / annoncées` par carton, bouton actif uniquement
+quand **chaque** somme est exacte. Soumission `POST /arrivals/:id/ventilate`
+(manager, idempotent). Le **prix unitaire n'est pas saisi** : il vaut
+`floor(totalCost / totalQty)` et la **somme des quantités doit être
+exactement celle du carton** (sinon 422, transaction annulée). Chaque pointure
+devient une variante du modèle (créée ou réactivée), un lot et un mouvement
+`IN` — **zéro écriture comptable** : la caisse et la dette datent de
+l'enregistrement de l'arrivage. L'onglet Stock signale aussi les arrivages en
+attente.
 
 **Annulation** : un arrivage dont les cartons sont encore à ventiler
 s'annule sans contre-passation de stock (aucun lot), le transit disparaît de la
 valorisation ; son journal (paiement éventuel) est contre-passé normalement.
 
-**Prix groupé** : `src/components/price-bulk-modal.tsx` — « Appliquer un prix
-d'achat » pré-sélectionne les lignes déjà chiffrées, coche/décoche Tout/Aucun,
-applique le prix **sans toucher aux quantités**. La sélection est un état dérivé
-(`manual ?? automatic`) : aucun `setState` dans un effet.
+**Ce qui a disparu** : la grille « pointure × quantité × prix d'achat », le
+copier/coller de prix et le prix groupé (`src/components/size-grid.tsx` et
+`src/components/price-bulk-modal.tsx` supprimés), le choix de mode par carton
+et les cartons multi-modèles (`usedProductIds`) — le prix unitaire étant
+imposé (`montant ÷ quantité`), il n'y a plus rien à saisir par pointure que la
+quantité.
 
-**Décision** : `activeProductId` / `usedProductIds` ne sont que de la navigation
-de grille — ils ne quittent jamais l'écran, le payload ne contient que ce que
-`createArrivalSchema` accepte.
+**Décision** : `activeProductId` n'est que de la navigation — le payload ne
+contient que ce que `createArrivalSchema` accepte.
 
-**Points de contrôle validés (6c)** : `npx tsc --noEmit`, `npx expo lint`
-(1 avertissement React Compiler sur `watch`, non bloquant) et
-`npx expo export --platform android` verts. **Contrat réel** exécuté contre
-l'API (base de tests, port 4100) : 21/21 — payload du formulaire, rejets Zod
-(paiement > total, carton vide, prix manquant), `POST /arrivals → 201`
-(`totalQty = 4`, `totalCost = "106000.00"`, `paidAmount = "50000.00"`, 2 cartons),
-rejou d'idempotence (même `id`), `integrity.identityDelta = 0`, dérillage
-`ca → 200`. Suite backend : 178 tests / 12 fichiers verts sur **3 exécutions
-consécutives** — le test §62 a été isolé dans une fenêtre close en 2099 pour
-supprimer la course avec les autres fichiers qui écrivent « aujourd'hui ».
+**Points de contrôle validés (6c, réaligné sur la saisie unique)** :
+`npx tsc --noEmit`, `npx expo lint` (1 avertissement React Compiler sur
+`watch`, non bloquant) et `npx expo export --platform android` verts ; suite
+backend **222 tests / 15 fichiers verts**. Fumée contre l'API dev :4000 —
+carton **avec** `sizes` → `ventilated: true`, lot au prix déduit (`30000.00`),
+transit `0.00` ; carton **sans** `sizes` → `ventilated: false`, 0 lot, transit
+`90007.00` → ventilation → lot `18001.00` + résidu d'arrondi `2.00`, rejeu de
+la même ventilation → 422 « déjà ventilé », `?unventilated=true` → 200.
 
 ---
 
@@ -1532,7 +1544,9 @@ fournisseurs.
 quantité, valorisation, nombre de lots), recherche de lots débouncée et
 filtres de statut sur `GET /stock/lots?q=&status=`, flux
 `GET /stock/movements?limit=8`, boutons « Arrivage » et « Ajuster » réservés
-ADMIN/MANAGER. Le tap sur un lot ouvre `/stock/lot` (`GET /stock/lots/:id/movements`
+ADMIN/MANAGER. Un bandeau ambre signale les arrivages ayant encore des
+**cartons à ventiler** (`GET /arrivals?unventilated=true`) : leur valeur est
+déjà comptée dans la résumé. Le tap sur un lot ouvre `/stock/lot` (`GET /stock/lots/:id/movements`
 : entrées d'arrivage, sorties FIFO, retours, ajustements, avec l'auteur).
 
 **Étape 5 — historique des prix d'achat (§18)** : le détail du lot affiche

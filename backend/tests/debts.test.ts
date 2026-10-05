@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adminToken, as, tokenFor, type AuthedRequest } from './helpers';
+import { adminToken, as, carton, tokenFor, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
 import { accountingIdentity, identityBalance } from './identity';
 
@@ -253,7 +253,7 @@ describe('Dettes & règlements', () => {
 
     await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variant.body.id, quantity: 3, unitCost: 25000 }] }],
+      cartons: [carton(product.body.id, size40.id, 3, 25000)],
     });
 
     const sale = await admin.post('/sales').send({

@@ -7,18 +7,27 @@ import { Chip } from '@/components/chip';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { useArrivals } from '@/lib/queries';
-import { ARRIVAL_STATUS } from '@/lib/status';
+import { ARRIVAL_STATUS, TO_VENTILATE_STYLE } from '@/lib/status';
 import type { ArrivalRow, ArrivalStatus } from '@/lib/types';
 
-const STATUS_FILTERS: { key: ArrivalStatus | ''; label: string }[] = [
-  { key: '', label: 'Tous' },
-  { key: 'RECEIVED', label: 'Reçus' },
-  { key: 'DRAFT', label: 'Brouillons' },
-  { key: 'CANCELLED', label: 'Annulés' },
+interface ArrivalFilter {
+  key: string;
+  label: string;
+  status: ArrivalStatus | '';
+  unventilated?: boolean;
+}
+
+const STATUS_FILTERS: ArrivalFilter[] = [
+  { key: 'all', label: 'Tous', status: '' },
+  { key: 'received', label: 'Reçus', status: 'RECEIVED' },
+  { key: 'unventilated', label: 'À ventiler', status: 'RECEIVED', unventilated: true },
+  { key: 'cancelled', label: 'Annulés', status: 'CANCELLED' },
 ];
 
 function ArrivalRowView({ arrival, onPress }: { arrival: ArrivalRow; onPress: () => void }) {
   const status = ARRIVAL_STATUS[arrival.status];
+  const pending = arrival.status === 'RECEIVED' && arrival.toVentilate > 0;
+  const badge = pending ? TO_VENTILATE_STYLE : status;
 
   return (
     <Pressable
@@ -36,8 +45,10 @@ function ArrivalRowView({ arrival, onPress }: { arrival: ArrivalRow; onPress: ()
           {formatDateTime(arrival.date)} · {formatQuantity(arrival.totalQty)} article
           {arrival.totalQty > 1 ? 's' : ''}
         </Text>
-        <View className={`mt-1 self-start rounded-full px-2 py-0.5 ${status.className}`}>
-          <Text className={`text-[11px] font-semibold ${status.text}`}>{status.label}</Text>
+        <View className={`mt-1 self-start rounded-full px-2 py-0.5 ${badge.className}`}>
+          <Text className={`text-[11px] font-semibold ${badge.text}`}>
+            {pending ? `${badge.label} (${arrival.toVentilate})` : badge.label}
+          </Text>
         </View>
       </View>
       <View className="items-end">
@@ -55,8 +66,8 @@ function ArrivalRowView({ arrival, onPress }: { arrival: ArrivalRow; onPress: ()
 }
 
 export default function ArrivalsScreen() {
-  const [status, setStatus] = useState<ArrivalStatus | ''>('');
-  const arrivals = useArrivals({ status });
+  const [filter, setFilter] = useState<ArrivalFilter>(STATUS_FILTERS[0]!);
+  const arrivals = useArrivals({ status: filter.status, unventilated: filter.unventilated });
 
   const displayedTotal = arrivals.items.reduce((sum, a) => sum + Number(a.totalCost), 0);
 
@@ -84,12 +95,12 @@ export default function ArrivalsScreen() {
           contentContainerStyle={{ gap: 8 }}
           horizontal
           showsHorizontalScrollIndicator={false}>
-          {STATUS_FILTERS.map((filter) => (
+          {STATUS_FILTERS.map((option) => (
             <Chip
-              key={filter.key || 'all'}
-              label={filter.label}
-              selected={status === filter.key}
-              onPress={() => setStatus(filter.key)}
+              key={option.key}
+              label={option.label}
+              selected={filter.key === option.key}
+              onPress={() => setFilter(option)}
             />
           ))}
         </ScrollView>

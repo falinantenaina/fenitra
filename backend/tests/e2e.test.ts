@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
-import { adminToken, as, type AuthedRequest } from './helpers';
+import { adminToken, as, carton, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 
 /**
@@ -16,6 +16,9 @@ const WIDE = 'period=custom&from=2020-01-01&to=2100-12-31';
 let admin: AuthedRequest;
 let supplierId = '';
 let customerId = '';
+let productId = '';
+let size40Id = '';
+let size42Id = '';
 let variantA = '';
 let variantC = '';
 let categoryId = '';
@@ -67,6 +70,9 @@ describe('12 scénarios E2E', () => {
         .post('/variants')
         .send({ productId: product.body.id, sizeId: size42.id, sellingPrice: 50000 }),
     ]);
+    productId = product.body.id;
+    size40Id = size40.id;
+    size42Id = size42.id;
     variantA = va.body.id;
     variantC = vc.body.id;
   });
@@ -75,7 +81,7 @@ describe('12 scénarios E2E', () => {
   it('E2E-01 : arrivage complet réglé → lots, stock et journal', async () => {
     const res = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantA, quantity: 6, unitCost: 20000 }] }],
+      cartons: [carton(productId, size40Id, 6, 20000)],
       payment: { amount: 120000, method: 'Espèces' },
     });
     expect(res.status).toBe(201);
@@ -103,7 +109,7 @@ describe('12 scénarios E2E', () => {
   it('E2E-02 : arrivage partiellement réglé → dette fournisseur ouverte', async () => {
     const res = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantA, quantity: 6, unitCost: 23000 }] }],
+      cartons: [carton(productId, size40Id, 6, 23000)],
       payment: { amount: 50000, method: 'Espèces' },
     });
     expect(res.status).toBe(201);
@@ -127,7 +133,7 @@ describe('12 scénarios E2E', () => {
   it('E2E-03 : annulation d’arrivage → lots et dette annulés, journal contre-passé', async () => {
     const res = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantC, quantity: 4, unitCost: 25000 }] }],
+      cartons: [carton(productId, size42Id, 4, 25000)],
       payment: { amount: 40000, method: 'Espèces' },
     });
     expect(res.status).toBe(201);
@@ -441,7 +447,7 @@ describe('12 scénarios E2E', () => {
   it('E2E-12 : injection propre liée à un arrivage sans double comptage + identité exacte', async () => {
     const arrival = await admin.post('/arrivals').send({
       supplierId,
-      cartons: [{ items: [{ variantId: variantC, quantity: 3, unitCost: 10000 }] }],
+      cartons: [carton(productId, size42Id, 3, 10000)],
       notes: 'Arrivage financé par l’argent propre E2E',
     });
     expect(arrival.status).toBe(201);

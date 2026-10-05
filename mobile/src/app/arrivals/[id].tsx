@@ -30,14 +30,14 @@ export default function ArrivalDetailScreen() {
 
   const onCancel = async (reason: string) => {
     if (!id) return;
-    const wasDraft = arrival.data?.status === 'DRAFT';
+    const hasLots = (arrival.data?.lots.length ?? 0) > 0;
     try {
       await cancelArrival.mutateAsync({ id, reason });
       Alert.alert(
         'Arrivage annulé',
-        wasDraft
-          ? 'Brouillon annulé — aucun stock ni écriture.'
-          : 'Les lots et les écritures ont été contre-passés.',
+        hasLots
+          ? 'Les lots et les écritures ont été contre-passés.'
+          : 'Aucun lot : le stock en transit disparaît, le journal est contre-passé.',
       );
     } catch (error) {
       Alert.alert('Annulation refusée', apiMessage(error));
@@ -115,23 +115,25 @@ export default function ArrivalDetailScreen() {
         </View>
       </View>
 
-      {/* Brouillon à ventiler */}
-      {data.status === 'DRAFT' && canManage ? (
+      {/* Cartons à ventiler */}
+      {data.status === 'RECEIVED' && data.cartons.some((carton) => !carton.ventilated) && canManage ? (
         <View className="mt-4 gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <View className="flex-row items-center gap-2">
-            <Ionicons color="#D97706" name="document-outline" size={18} />
-            <Text className="text-sm font-semibold text-amber-800">Brouillon à ventiler</Text>
+            <Ionicons color="#D97706" name="cube-outline" size={18} />
+            <Text className="text-sm font-semibold text-amber-800">
+              Cartons à ventiler ({data.cartons.filter((carton) => !carton.ventilated).length})
+            </Text>
           </View>
           <Text className="text-xs text-amber-700">
-            Aucun stock, dette ni écriture : la ventilation saisira les pointures, le paiement et
-            le financement.
+            Le montant et la quantité sont déjà dans le stock et la dette : il reste à répartir
+            les pointures. Le prix d&apos;achat unitaire en dérivera automatiquement.
           </Text>
           <Pressable
             className="h-11 items-center justify-center rounded-xl bg-brand"
             onPress={() =>
-              router.push({ pathname: '/arrival/new', params: { draftId: data.id } })
+              router.push({ pathname: '/arrival/ventilate', params: { arrivalId: data.id } })
             }>
-            <Text className="text-sm font-semibold text-white">Ventiler l&apos;arrivage</Text>
+            <Text className="text-sm font-semibold text-white">Ventiler les pointures</Text>
           </Pressable>
         </View>
       ) : null}
@@ -141,8 +143,8 @@ export default function ArrivalDetailScreen() {
         <View className="mt-4">
           <CancelPanel
             hint={
-              data.status === 'DRAFT'
-                ? 'Le brouillon est simplement écarté : aucun lot ni écriture à contre-passer.'
+              data.lots.length === 0
+                ? 'Aucun lot créé : le stock en transit disparaît simplement, les écritures sont contre-passées.'
                 : "L'annulation exige que le stock soit intact : les lots doivent être vides d'une autre opération. Les écritures sont contre-passées."
             }
             isPending={cancelArrival.isPending}
@@ -180,14 +182,26 @@ export default function ArrivalDetailScreen() {
           data.cartons.map((carton) => (
             <View className="border-b border-slate-100 px-3 py-2.5 last:border-b-0" key={carton.id}>
               <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-sm font-semibold text-slate-800">
+                <Text className="flex-1 text-sm font-semibold text-slate-800">
                   {carton.reference}
                   <Text className="text-xs font-normal text-slate-400">
                     {' '}
-                    · {formatQuantity(carton.totalQty)} art. · {formatMoney(carton.totalCost)}
+                    · {carton.product.name} · {formatQuantity(carton.totalQty)} art. ·{' '}
+                    {formatMoney(carton.totalCost)}
                   </Text>
                 </Text>
+                {data.status === 'RECEIVED' && !carton.ventilated ? (
+                  <View className="rounded-full bg-amber-50 px-2 py-0.5">
+                    <Text className="text-[11px] font-semibold text-amber-700">À ventiler</Text>
+                  </View>
+                ) : null}
               </View>
+              {data.status === 'RECEIVED' && !carton.ventilated ? (
+                <Text className="mt-0.5 text-xs text-amber-600">
+                  {formatQuantity(carton.transitQty)} p. sans pointure —{' '}
+                  {formatMoney(carton.transitValue)}
+                </Text>
+              ) : null}
               {carton.notes ? <Text className="text-xs text-slate-400">{carton.notes}</Text> : null}
               {carton.items.map((item) => (
                 <View

@@ -20,7 +20,6 @@ import type {
   BulkVariantsResponse,
   CapitalItem,
   CreateArrivalBody,
-  CreateArrivalDraftBody,
   CreateCapitalBody,
   CreateCategoryBody,
   CreateExpenseBody,
@@ -77,6 +76,7 @@ import type {
   VariantPriceHistory,
   VariantSearchItem,
   VariantUpdated,
+  VentilateArrivalBody,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -418,6 +418,8 @@ export function usePaySale() {
 
 export interface ArrivalFilter {
   status?: ArrivalStatus | '';
+  /** `true` → uniquement les arrivages ayant encore des cartons à ventiler. */
+  unventilated?: boolean;
   q?: string;
 }
 
@@ -425,6 +427,7 @@ export interface ArrivalFilter {
 export function useArrivals(filter: ArrivalFilter = {}): PagedInfinite<ArrivalRow> {
   return useInfiniteList<ArrivalRow>(['arrivals', 'list'], '/arrivals', {
     status: filter.status || undefined,
+    unventilated: filter.unventilated ? 'true' : undefined,
     q: filter.q?.trim(),
   });
 }
@@ -737,34 +740,14 @@ export interface ArrivalCreated {
   totalQty: number;
 }
 
-/** `POST /arrivals/drafts` — brouillon à ventiler (aucun stock, dette ni écriture). */
-export function useCreateArrivalDraft() {
+/** `POST /arrivals/:id/ventilate` — répartit les pointures d'un carton déjà enregistré. */
+export function useVentilateArrival() {
   const client = useQueryClient();
   const keys = useIdempotencyKey();
 
   return useMutation({
-    mutationFn: async (body: CreateArrivalDraftBody) => {
-      const { data } = await api.post<ArrivalCreated>('/arrivals/drafts', body, {
-        headers: { 'Idempotency-Key': keys.keyFor(body) },
-      });
-      return data;
-    },
-    onSuccess: () => {
-      keys.reset();
-      void client.invalidateQueries({ queryKey: ['arrivals'] });
-      void client.invalidateQueries({ queryKey: ['dashboard'] });
-    },
-  });
-}
-
-/** `POST /arrivals/:id/receive` — ventile un brouillon : lignes, lots, dette, paiement. */
-export function useReceiveArrival() {
-  const client = useQueryClient();
-  const keys = useIdempotencyKey();
-
-  return useMutation({
-    mutationFn: async ({ id, body }: { id: string; body: CreateArrivalBody }) => {
-      const { data } = await api.post<ArrivalCreated>(`/arrivals/${id}/receive`, body, {
+    mutationFn: async ({ id, body }: { id: string; body: VentilateArrivalBody }) => {
+      const { data } = await api.post<ArrivalDetail>(`/arrivals/${id}/ventilate`, body, {
         headers: { 'Idempotency-Key': keys.keyFor({ id, body }) },
       });
       return data;
@@ -772,11 +755,8 @@ export function useReceiveArrival() {
     onSuccess: () => {
       keys.reset();
       void client.invalidateQueries({ queryKey: ['arrivals'] });
-      void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['stock'] });
       void client.invalidateQueries({ queryKey: ['stock-summary'] });
-      void client.invalidateQueries({ queryKey: ['debts'] });
-      void client.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }

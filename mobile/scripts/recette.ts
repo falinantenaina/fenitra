@@ -103,6 +103,8 @@ async function main() {
   });
   ok(variant.status === 201, 'variante créée');
   const V = variant.body.id as string;
+  const P = product.body.id as string;
+  const SID = size.id as string;
 
   const categories = await req('/expense-categories?limit=200', { token: t });
   let categoryId: string | undefined = (categories.body.items as { id: string; active: boolean }[])
@@ -124,7 +126,7 @@ async function main() {
     token: t,
     body: {
       supplierId: supplier.body.id,
-      cartons: [{ items: [{ variantId: V, quantity: 10, unitCost: 15000 }] }],
+      cartons: [{ productId: P, totalQty: 10, totalCost: 150000, sizes: [{ sizeId: SID, quantity: 10 }] }],
       payment: { amount: 150000, method: 'Espèces' },
     },
   });
@@ -144,7 +146,7 @@ async function main() {
     token: t,
     body: {
       supplierId: supplier.body.id,
-      cartons: [{ items: [{ variantId: V, quantity: 6, unitCost: 16000 }] }],
+      cartons: [{ productId: P, totalQty: 6, totalCost: 96000, sizes: [{ sizeId: SID, quantity: 6 }] }],
       payment: { amount: 50000, method: 'Espèces' },
     },
   });
@@ -319,7 +321,7 @@ async function main() {
     token: t,
     body: {
       supplierId: supplier.body.id,
-      cartons: [{ items: [{ variantId: V, quantity: 3, unitCost: 14000 }] }],
+      cartons: [{ productId: P, totalQty: 3, totalCost: 42000, sizes: [{ sizeId: SID, quantity: 3 }] }],
       payment: { amount: 42000, method: 'Espèces' },
     },
   });

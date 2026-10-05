@@ -312,7 +312,19 @@ export interface PaymentMethod {
 
 export type FundingSource = 'OWN_CAPITAL' | 'TROSA_SINOA' | 'SALES_CASH' | 'SUPPLIER_CREDIT';
 
-/** Corps de `POST /arrivals` (réception complète). */
+/** Ligne de pointure d'un carton — leur somme doit valoir la quantité annoncée. */
+export interface ArrivalCartonLine {
+  sizeId: string;
+  quantity: number;
+}
+
+/**
+ * Corps de `POST /arrivals` — un carton = **un modèle**, **une quantité** de
+ * paires et **un montant total** ; les pointures sont facultatives (`sizes`),
+ * sinon elles se listent après coup via `POST /arrivals/:id/ventilate`.
+ * Le prix d'achat unitaire n'est pas envoyé : le serveur le déduit
+ * (`floor(totalCost / totalQty)`).
+ */
 export interface CreateArrivalBody {
   supplierId: string;
   date: string;
@@ -320,18 +332,19 @@ export interface CreateArrivalBody {
   cartons: {
     reference: string;
     notes?: string;
-    items: { variantId: string; quantity: number; unitCost: number }[];
+    productId: string;
+    totalQty: number;
+    totalCost: number;
+    /** Pointures connues à la saisie — somme = `totalQty`. */
+    sizes?: ArrivalCartonLine[];
   }[];
   payment?: { amount: number; method?: string };
   funding?: { source: FundingSource; amount: number; notes?: string };
 }
 
-/** Corps de `POST /arrivals/drafts` — brouillon à ventiler (montant par carton). */
-export interface CreateArrivalDraftBody {
-  supplierId: string;
-  date: string;
-  notes?: string;
-  cartons: { reference: string; notes?: string; totalCost: number }[];
+/** Corps de `POST /arrivals/:id/ventilate` — répartition des pointures d'un carton. */
+export interface VentilateArrivalBody {
+  cartons: { cartonId: string; lines: { sizeId: string; quantity: number }[] }[];
 }
 
 /* ════════════ Référentiels (vente) ════════════ */
@@ -378,7 +391,7 @@ export interface SaleCreated {
 /* ════════════ Ventes & arrivages (6f — listes et détail) ════════════ */
 
 export type SaleStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
-export type ArrivalStatus = 'DRAFT' | 'RECEIVED' | 'CANCELLED';
+export type ArrivalStatus = 'RECEIVED' | 'CANCELLED';
 
 export interface PartyRef {
   id: string;
@@ -411,6 +424,8 @@ export interface ArrivalRow {
   totalQty: number;
   paidAmount: string;
   unpaidAmount: string;
+  /** Cartons encore sans pointures — `> 0` → arrivage à ventiler. */
+  toVentilate: number;
   supplier: PartyRef;
 }
 
@@ -481,8 +496,16 @@ export interface ArrivalDetail extends ArrivalRow {
     reference: string;
     date: string;
     notes: string | null;
+    productId: string;
+    product: { id: string; name: string };
     totalCost: string;
     totalQty: number;
+    /** Pointures réparties (ou non) sur ce carton. */
+    ventilatedAt: string | null;
+    ventilated: boolean;
+    /** Part du carton encore sans pointures — pèse dans la valorisation. */
+    transitValue: string;
+    transitQty: number;
     items: {
       id: string;
       variantId: string;
