@@ -24,8 +24,6 @@ export const saleFormSchema = z
     items: z.array(saleLineSchema).min(1, 'Ajoutez au moins un article au panier'),
     /** `''` = vente au comptoir, sans client rattaché. */
     customerId: z.string(),
-    /** `''` = pas de vendeur en ligne (mutuellement exclusif avec le client). */
-    onlineSellerId: z.string(),
     paymentMode: paymentModeSchema,
     /** Utilisé en mode PARTIAL uniquement. */
     paymentAmount: z.number().int().min(0).max(maxMoney),
@@ -43,11 +41,13 @@ export const saleFormSchema = z
       });
     }
 
-    if (form.customerId && form.onlineSellerId) {
+    // Comptoir : le client n'est pas enregistré, donc paiement total seul.
+    // Le partiel et le crédit ne s'ouvrent qu'avec un client (existant ou créé).
+    if (!form.customerId && form.paymentMode !== 'FULL') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['onlineSellerId'],
-        message: 'Client et vendeur en ligne sont mutuellement exclusifs',
+        path: ['paymentMode'],
+        message: 'Le règlement partiel ou à crédit nécessite un client enregistré',
       });
     }
 
@@ -76,12 +76,11 @@ export const saleFormSchema = z
           ? Math.min(form.paymentAmount, total)
           : 0;
 
-    if (total - paid > 0 && !form.customerId && !form.onlineSellerId) {
+    if (total - paid > 0 && !form.customerId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['customerId'],
-        message:
-          'Une vente à crédit doit être rattachée à un client ou à un vendeur en ligne',
+        message: 'Une vente réglée partiellement ou à crédit doit être rattachée à un client',
       });
     }
   });
@@ -107,7 +106,6 @@ export function buildSalePayload(form: SaleFormValues): CreateSaleBody {
       unitPrice: line.unitPrice,
     })),
     ...(form.customerId ? { customerId: form.customerId } : {}),
-    ...(form.onlineSellerId ? { onlineSellerId: form.onlineSellerId } : {}),
     ...(form.notes?.trim() ? { notes: form.notes.trim() } : {}),
     // Crédit : aucun objet `payment` → la vente crée une dette client.
     ...(form.paymentMode === 'CREDIT'

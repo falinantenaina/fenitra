@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react';
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -232,6 +233,45 @@ export function useVariantSearch(
           sort: 'sku',
           ...(inStock ? { inStock: 'true' } : {}),
         },
+      });
+      return data.items;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** Grille de vente : pointures vendables regroupées par modèle (`GET /variants?inStock=true`). */
+export function useSaleVariants(term: string): UseQueryResult<VariantSearchItem[]> {
+  const q = term.trim();
+  return useQuery<VariantSearchItem[]>({
+    queryKey: ['variants', 'sale-grid', q],
+    // La grille reste affichée pendant la frappe : on montre le résultat
+    // précédent jusqu'à ce que le filtre revienne.
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data } = await api.get<ListResponse<VariantSearchItem>>('/variants', {
+        params: {
+          active: 'true',
+          inStock: 'true',
+          limit: 200,
+          sort: 'sku',
+          ...(q ? { q } : {}),
+        },
+      });
+      return data.items;
+    },
+    staleTime: 10_000,
+  });
+}
+
+/** Toutes les pointures d'un modèle, ruptures comprises — volet « choisir série ». */
+export function useProductVariants(productId: string | null): UseQueryResult<VariantSearchItem[]> {
+  return useQuery<VariantSearchItem[]>({
+    queryKey: ['variants', 'product', productId],
+    enabled: Boolean(productId),
+    queryFn: async () => {
+      const { data } = await api.get<ListResponse<VariantSearchItem>>('/variants', {
+        params: { productId: productId ?? '', active: 'true', limit: 200, sort: 'sku' },
       });
       return data.items;
     },
@@ -820,6 +860,7 @@ export function useCreateSale() {
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['stock'] });
       void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['variants'] });
       void client.invalidateQueries({ queryKey: ['debts'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
       void client.invalidateQueries({ queryKey: ['sale-reference'] });
@@ -1118,6 +1159,7 @@ export function useCreateParty() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['parties'] });
       void client.invalidateQueries({ queryKey: ['suppliers'] });
+      void client.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }

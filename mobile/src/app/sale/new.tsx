@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,16 +17,18 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
+import { SeriesSheet, type SeriesLine } from '@/components/series-sheet';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
+  useCreateParty,
   useCreateSale,
   useCustomers,
-  useOnlineSellers,
   usePaymentMethods,
   useSaleReference,
+  useSaleVariants,
   useStockSummary,
-  useVariantSearch,
 } from '@/lib/queries';
 import {
   PAYMENT_MODES,
@@ -36,7 +39,6 @@ import {
   type PaymentMode,
   type SaleFormValues,
 } from '@/lib/sale';
-import type { VariantSearchItem } from '@/lib/types';
 
 const PAYMENT_LABELS: Record<PaymentMode, string> = {
   FULL: 'Total',
@@ -70,7 +72,6 @@ export default function NewSaleScreen() {
     defaultValues: {
       items: [],
       customerId: '',
-      onlineSellerId: '',
       paymentMode: 'FULL',
       paymentAmount: 0,
       paymentMethod: undefined,
@@ -82,25 +83,49 @@ export default function NewSaleScreen() {
   const items = useWatch({ control, name: 'items' }) ?? [];
   const paymentMode = useWatch({ control, name: 'paymentMode' }) ?? 'FULL';
   const customerId = useWatch({ control, name: 'customerId' }) ?? '';
-  const onlineSellerId = useWatch({ control, name: 'onlineSellerId' }) ?? '';
   const paymentMethod = useWatch({ control, name: 'paymentMethod' });
   const paymentAmount = useWatch({ control, name: 'paymentAmount' }) ?? 0;
   const notes = useWatch({ control, name: 'notes' }) ?? '';
 
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [series, setSeries] = useState<{ productId: string; name: string } | null>(null);
+  const [customerModal, setCustomerModal] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
 
   const createSale = useCreateSale();
+  const createParty = useCreateParty();
   const reference = useSaleReference();
   const customers = useCustomers();
-  const onlineSellers = useOnlineSellers();
   const methods = usePaymentMethods();
-  const results = useVariantSearch(debounced, { inStock: true });
+  const results = useSaleVariants(debounced);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(term), 300);
     return () => clearTimeout(timer);
   }, [term]);
+
+  const cards = useMemo(() => {
+    const byId = new Map<
+      string,
+      { productId: string; name: string; price: number; sizes: number; stock: number }
+    >();
+    for (const variant of results.data ?? []) {
+      const card = byId.get(variant.product.id) ?? {
+        productId: variant.product.id,
+        name: variant.product.name,
+        price: Number(variant.sellingPrice),
+        sizes: 0,
+        stock: 0,
+      };
+      card.price = Math.min(card.price, Number(variant.sellingPrice));
+      card.sizes += 1;
+      card.stock += variant.stock;
+      byId.set(variant.product.id, card);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [results.data]);
 
   const total = saleTotal(items);
   const quantity = saleQuantity(items);
@@ -110,24 +135,53 @@ export default function NewSaleScreen() {
       : paymentMode === 'PARTIAL'
         ? Math.min(paymentAmount, total)
         : 0;
-  const needsParty = total - paid > 0 && !customerId && !onlineSellerId;
+  const needsParty = total - paid > 0 && !customerId;
 
-  const addVariant = (variant: VariantSearchItem) => {
-    const index = fields.findIndex((line) => line.variantId === variant.id);
-    if (index >= 0) {
-      const line = fields[index];
-      update(index, { ...line, quantity: line.quantity + 1 });
-    } else {
-      append({
-        variantId: variant.id,
-        productName: variant.product.name,
-        sizeLabel: variant.size.label || `${variant.size.value}`,
-        quantity: 1,
-        unitPrice: Number(variant.sellingPrice),
-      });
+  const addSeries = (lines: SeriesLine[]) => {
+    for (const line of lines) {
+      const index = fields.findIndex((field) => field.variantId === line.variantId);
+      if (index >= 0) {
+        const existing = fields[index];
+        update(index, { ...existing, quantity: existing.quantity + line.quantity });
+      } else {
+        append({
+          variantId: line.variantId,
+          productName: line.productName,
+          sizeLabel: line.sizeLabel,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+        });
+      }
     }
+    setSeries(null);
     setTerm('');
     setDebounced('');
+  };
+
+  const selectCustomer = (id: string) => {
+    setValue('customerId', id);
+    if (!id) {
+      setValue('paymentMode', 'FULL');
+      setValue('paymentAmount', 0);
+    }
+  };
+
+  const createCustomer = async () => {
+    const name = customerName.trim();
+    if (!name || createParty.isPending) return;
+    try {
+      const party = await createParty.mutateAsync({
+        kind: 'customers',
+        body: { name, ...(customerPhone.trim() ? { phone: customerPhone.trim() } : {}) },
+      });
+      setCustomerModal(false);
+      setCustomerName('');
+      setCustomerPhone('');
+      setValue('customerId', party.id);
+      Alert.alert('Client créé', `${party.name} est sélectionné pour cette vente.`);
+    } catch (error) {
+      Alert.alert('Création refusée', apiMessage(error));
+    }
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -154,7 +208,7 @@ export default function NewSaleScreen() {
           </Text>
         ) : null}
 
-        {/* Recherche d'article */}
+        {/* Recherche de modèle */}
         <View className="mt-3 flex-row items-center gap-2 rounded-xl border border-slate-300 bg-white px-3">
           <Ionicons color="#94A3B8" name="search" size={18} />
           <TextInput
@@ -162,55 +216,71 @@ export default function NewSaleScreen() {
             autoCorrect={false}
             className="h-11 flex-1 text-base text-slate-900"
             onChangeText={setTerm}
-            placeholder="Modèle, pointure, SKU…"
+            placeholder="Modèle, SKU…"
             placeholderTextColor="#94A3B8"
             selectionColor="#208AEF"
             value={term}
           />
+          {term ? (
+            <Pressable
+              accessibilityLabel="Effacer la recherche"
+              hitSlop={8}
+              onPress={() => {
+                setTerm('');
+                setDebounced('');
+              }}>
+              <Ionicons color="#94A3B8" name="close-circle" size={18} />
+            </Pressable>
+          ) : null}
         </View>
 
-        {debounced.trim().length >= 2 ? (
-          <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {results.isPending ? (
-              <ActivityIndicator className="py-4" color="#208AEF" />
-            ) : (results.data ?? []).length === 0 ? (
-              <Text className="px-3 py-4 text-sm text-slate-400">
-                Aucun article en stock trouvé.
-              </Text>
-            ) : (
-              <ScrollView
-                className="max-h-56"
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled>
-                {(results.data ?? []).map((variant) => (
-                  <Pressable
-                    className="flex-row items-center justify-between border-b border-slate-100 px-3 py-3 last:border-b-0"
-                    key={variant.id}
-                    onPress={() => addVariant(variant)}>
-                    <View className="flex-1 pr-3">
-                      <Text className="text-sm font-medium text-slate-800">
-                        {variant.product.name}
-                      </Text>
-                      <Text className="text-xs text-slate-400">
-                        Pointure {variant.size.label || variant.size.value}
-                        {variant.sku ? ` · ${variant.sku}` : ''}
-                        {variant.stock > 0 ? ` · ${variant.stock} en stock` : ''}
-                      </Text>
-                    </View>
-                    <Text className="text-sm font-semibold text-slate-700">
-                      {formatMoney(variant.sellingPrice)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
+        {/* Grille de vente : 2 colonnes, une carte par modèle */}
+        {results.isPending ? (
+          <ActivityIndicator className="mt-6" color="#208AEF" />
+        ) : results.isError ? (
+          <View className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <ErrorPanel
+              isRetrying={results.isRefetching}
+              message="Impossible de charger les modèles en stock."
+              onRetry={() => void results.refetch()}
+            />
           </View>
-        ) : null}
+        ) : cards.length === 0 ? (
+          <View className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-6">
+            <Text className="text-center text-sm text-slate-400">
+              Aucun modèle en stock{debounced ? ` pour « ${debounced} »` : ''}.
+            </Text>
+          </View>
+        ) : (
+          <View className="mt-3 flex-row flex-wrap justify-between gap-y-3">
+            {cards.map((card) => (
+              <Pressable
+                accessibilityRole="button"
+                className="w-[48%] rounded-2xl border border-slate-200 bg-white p-3"
+                key={card.productId}
+                onPress={() => setSeries({ productId: card.productId, name: card.name })}>
+                <Text className="text-sm font-semibold text-slate-800" numberOfLines={2}>
+                  {card.name}
+                </Text>
+                <Text className="mt-1 text-base font-bold text-slate-900">
+                  {formatMoney(card.price)}
+                </Text>
+                <Text className="text-xs text-slate-400">
+                  {card.stock} paires · {card.sizes} pointure(s)
+                </Text>
+                <View className="mt-2 h-9 flex-row items-center justify-center gap-1 rounded-lg bg-brand">
+                  <Ionicons color="#FFFFFF" name="add" size={16} />
+                  <Text className="text-xs font-semibold text-white">CHOISIR SÉRIE</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {/* Panier */}
         <View className="mt-4">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Panier · {quantity} article{quantity > 1 ? 's' : ''}
+            Panier · {quantity} paire{quantity > 1 ? 's' : ''}
           </Text>
           {errors.items?.root?.message ? (
             <Text className="mt-1 text-xs text-red-600">{errors.items.root.message}</Text>
@@ -220,7 +290,7 @@ export default function NewSaleScreen() {
             {fields.length === 0 ? (
               <View className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-6">
                 <Text className="text-center text-sm text-slate-400">
-                  Cherchez un modèle pour ajouter une pointure.
+                  Choisissez un modèle puis « CHOISIR SÉRIE » pour remplir le panier.
                 </Text>
               </View>
             ) : (
@@ -295,7 +365,7 @@ export default function NewSaleScreen() {
           </View>
         </View>
 
-        {/* Tiers — client ou vendeur en ligne (mutuellement exclusifs) */}
+        {/* Client — le comptoir reste le défaut (partiel/crédit avec client uniquement) */}
         <View className="mt-5">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Client
@@ -308,57 +378,25 @@ export default function NewSaleScreen() {
             <Chip
               label="Comptoir"
               selected={customerId === ''}
-              onPress={() => {
-                setValue('customerId', '');
-                setValue('onlineSellerId', '');
-              }}
+              onPress={() => selectCustomer('')}
             />
             {(customers.data ?? []).map((customer) => (
               <Chip
                 key={customer.id}
                 label={customer.name}
                 selected={customerId === customer.id}
-                onPress={() => {
-                  setValue('customerId', customer.id);
-                  setValue('onlineSellerId', '');
-                }}
+                onPress={() => selectCustomer(customer.id)}
               />
             ))}
-          </ScrollView>
-
-          <Text className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Vendeur en ligne
-          </Text>
-          <ScrollView
-            className="mt-2"
-            contentContainerStyle={{ gap: 8 }}
-            horizontal
-            showsHorizontalScrollIndicator={false}>
             <Chip
-              label="Aucun"
-              selected={onlineSellerId === ''}
-              onPress={() => {
-                setValue('onlineSellerId', '');
-                setValue('customerId', '');
-              }}
+              label="+ Nouveau client"
+              selected={false}
+              onPress={() => setCustomerModal(true)}
             />
-            {(onlineSellers.data ?? []).map((seller) => (
-              <Chip
-                key={seller.id}
-                label={seller.name}
-                selected={onlineSellerId === seller.id}
-                onPress={() => {
-                  setValue('onlineSellerId', seller.id);
-                  setValue('customerId', '');
-                }}
-              />
-            ))}
           </ScrollView>
 
-          {errors.customerId?.message || errors.onlineSellerId?.message ? (
-            <Text className="mt-2 text-xs text-red-600">
-              {errors.customerId?.message ?? errors.onlineSellerId?.message}
-            </Text>
+          {errors.customerId?.message ? (
+            <Text className="mt-2 text-xs text-red-600">{errors.customerId.message}</Text>
           ) : null}
         </View>
 
@@ -371,6 +409,7 @@ export default function NewSaleScreen() {
             {PAYMENT_MODES.map((mode) => (
               <Chip
                 key={mode}
+                disabled={mode !== 'FULL' && !customerId}
                 label={PAYMENT_LABELS[mode]}
                 selected={paymentMode === mode}
                 onPress={() => setValue('paymentMode', mode)}
@@ -378,11 +417,21 @@ export default function NewSaleScreen() {
             ))}
           </View>
 
+          {!customerId ? (
+            <Text className="mt-2 text-xs text-slate-400">
+              Au comptoir, la vente est réglée en totalité. Sélectionnez ou créez un client pour
+              un règlement partiel ou à crédit.
+            </Text>
+          ) : null}
+
           {needsParty ? (
             <Text className="mt-2 text-xs text-amber-600">
-              Une vente réglée partiellement ou à crédit doit être rattachée à un client ou à un
-              vendeur en ligne.
+              Une vente réglée partiellement ou à crédit doit être rattachée à un client.
             </Text>
+          ) : null}
+
+          {errors.paymentMode?.message ? (
+            <Text className="mt-2 text-xs text-red-600">{errors.paymentMode.message}</Text>
           ) : null}
 
           {paymentMode === 'PARTIAL' ? (
@@ -453,7 +502,7 @@ export default function NewSaleScreen() {
         <View className="flex-row items-end justify-between">
           <View>
             <Text className="text-xs text-slate-400">
-              {quantity} article{quantity > 1 ? 's' : ''} ·{' '}
+              {quantity} paire{quantity > 1 ? 's' : ''} ·{' '}
               {paymentMode === 'CREDIT'
                 ? 'crédit'
                 : paymentMode === 'PARTIAL'
@@ -476,6 +525,67 @@ export default function NewSaleScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* Volet « choisir série » : la grille des pointures du modèle */}
+      <SeriesSheet
+        onClose={() => setSeries(null)}
+        onConfirm={addSeries}
+        productId={series?.productId ?? null}
+        productName={series?.name ?? ''}
+      />
+
+      {/* Création rapide d'un client depuis la vente */}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setCustomerModal(false)}
+        transparent
+        visible={customerModal}>
+        <View className="flex-1 items-center justify-center bg-slate-900/50 px-6">
+          <View className="w-full gap-3 rounded-2xl bg-white p-5">
+            <Text className="text-base font-bold text-slate-900">Nouveau client</Text>
+            <TextInput
+              autoCapitalize="words"
+              autoCorrect={false}
+              className="h-11 rounded-xl border border-slate-300 px-4 text-base text-slate-900"
+              onChangeText={setCustomerName}
+              placeholder="Nom du client"
+              placeholderTextColor="#94A3B8"
+              selectionColor="#208AEF"
+              value={customerName}
+            />
+            <TextInput
+              className="h-11 rounded-xl border border-slate-300 px-4 text-base text-slate-900"
+              keyboardType="phone-pad"
+              onChangeText={setCustomerPhone}
+              placeholder="Téléphone (facultatif)"
+              placeholderTextColor="#94A3B8"
+              selectionColor="#208AEF"
+              value={customerPhone}
+            />
+            <View className="mt-1 flex-row justify-end gap-2">
+              <Pressable
+                accessibilityRole="button"
+                className="h-10 items-center justify-center rounded-xl px-4"
+                onPress={() => setCustomerModal(false)}>
+                <Text className="text-sm font-semibold text-slate-600">Annuler</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                className={`h-10 min-w-[96px] items-center justify-center rounded-xl px-4 ${
+                  !customerName.trim() || createParty.isPending ? 'bg-slate-300' : 'bg-brand'
+                }`}
+                disabled={!customerName.trim() || createParty.isPending}
+                onPress={() => void createCustomer()}>
+                {createParty.isPending ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text className="text-sm font-semibold text-white">Créer</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
