@@ -97,7 +97,7 @@ export default function HomeScreen() {
               onPress: () =>
                 router.push({
                   pathname: '/dettes',
-                  params: { direction: 'RECEIVABLE', status: 'OPEN' },
+                  params: { status: 'OPEN' },
                 }),
             },
             {
@@ -106,8 +106,8 @@ export default function HomeScreen() {
               icon: ACTION_ICONS.paySupplier,
               onPress: () =>
                 router.push({
-                  pathname: '/dettes',
-                  params: { direction: 'PAYABLE', status: 'OPEN' },
+                  pathname: '/fournisseurs',
+                  params: { status: 'OPEN' },
                 }),
             },
             {
