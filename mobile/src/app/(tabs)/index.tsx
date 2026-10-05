@@ -1,7 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState, type PropsWithChildren } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 
 import { DrilldownModal } from '@/components/drilldown-modal';
 import { KpiCard, type KpiTone } from '@/components/kpi-card';
@@ -11,6 +19,7 @@ import { apiMessage } from '@/lib/api';
 import { formatMoney, formatQuantity } from '@/lib/format';
 import { useDashboard } from '@/lib/queries';
 import type { CustomRange, IndicatorKey, PeriodKey } from '@/lib/types';
+import { useRefresh } from '@/lib/use-refresh';
 import { useAuth } from '@/store/auth';
 
 const LABEL_CA = "Chiffre d'affaires";
@@ -58,6 +67,7 @@ export default function HomeScreen() {
   };
 
   const dashboard = useDashboard(period, range);
+  const { onRefresh, refreshing } = useRefresh(() => dashboard.refetch());
   const d = dashboard.data;
   const open = (indicator: IndicatorKey) => setDrill(indicator);
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -129,7 +139,15 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       ) : d ? (
-        <ScrollView contentContainerStyle={{ gap: 20, padding: 16, paddingBottom: 32 }}>
+        <ScrollView
+          contentContainerStyle={{ gap: 20, padding: 16, paddingBottom: 32 }}
+          refreshControl={
+            <RefreshControl
+              colors={['#208AEF']}
+              onRefresh={onRefresh}
+              refreshing={refreshing}
+            />
+          }>
           <View className="gap-2">
             <Text className="text-sm text-slate-500">{d.period.label}</Text>
             <View
@@ -289,8 +307,14 @@ export default function HomeScreen() {
           </Section>
 
           <Pressable
+            accessibilityRole="button"
             className="h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50"
-            onPress={() => void logout()}>
+            onPress={() =>
+              Alert.alert('Se déconnecter', 'Voulez-vous vraiment vous déconnecter ?', [
+                { style: 'cancel', text: 'Annuler' },
+                { style: 'destructive', text: 'Se déconnecter', onPress: () => void logout() },
+              ])
+            }>
             <Text className="font-semibold text-red-600">Se déconnecter</Text>
           </Pressable>
         </ScrollView>

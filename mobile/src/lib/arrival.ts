@@ -37,13 +37,6 @@ export function listedQuantity(carton: CartonDraft): number {
   return listedSizes(carton).reduce((sum, line) => sum + line.quantity, 0);
 }
 
-const fundingSourceSchema = z.enum([
-  'OWN_CAPITAL',
-  'TROSA_SINOA',
-  'SALES_CASH',
-  'SUPPLIER_CREDIT',
-]);
-
 export const arrivalFormSchema = z
   .object({
     supplierId: z.string().min(1, 'Fournisseur requis'),
@@ -52,16 +45,12 @@ export const arrivalFormSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date attendue au format AAAA-MM-JJ'),
     notes: z.string().trim().max(1000).optional(),
     cartons: z.array(cartonDraftSchema).min(1, 'Au moins un carton est requis'),
+    // Ce qui est réglé sort de la caisse ; le reste devient une dette fournisseur.
+    // Aucune source de financement à choisir (aucun emprunt, aucun crédit fournisseur).
     payment: z.object({
       enabled: z.boolean(),
       amount: nonNegativeInt,
       method: z.string().trim().max(40).optional(),
-    }),
-    funding: z.object({
-      enabled: z.boolean(),
-      source: fundingSourceSchema,
-      amount: nonNegativeInt,
-      notes: z.string().trim().max(500).optional(),
     }),
   })
   .superRefine((form, ctx) => {
@@ -109,25 +98,12 @@ export const arrivalFormSchema = z
       total += carton.amount;
     });
 
-    if (form.payment.enabled && form.payment.amount < 1) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['payment', 'amount'],
-        message: 'Montant du paiement requis.',
-      });
-    } else if (form.payment.enabled && form.payment.amount > total) {
+    // 0 autorisé : rien de réglé → la totalité reste due au fournisseur.
+    if (form.payment.enabled && form.payment.amount > total) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['payment', 'amount'],
         message: `Le paiement dépasse le total de l'arrivage (${total} Ar).`,
-      });
-    }
-
-    if (form.funding.enabled && form.funding.amount < 1) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['funding', 'amount'],
-        message: 'Montant du financement requis.',
       });
     }
   });
@@ -185,25 +161,21 @@ export function buildArrivalPayload(form: ArrivalFormValues): CreateArrivalBody 
     };
   });
 
+  // Rien de réglé (0 ou case décochée) : aucun paiement envoyé — la totalité
+  // devient une dette fournisseur côté serveur. Pas de bloc financement : ce qui
+  // est réglé sort de la caisse, le reste est dû au fournisseur.
+  const paid = form.payment.enabled ? form.payment.amount : 0;
+
   return {
     supplierId: form.supplierId,
     date: form.date,
     ...(form.notes?.trim() ? { notes: form.notes.trim() } : {}),
     cartons,
-    ...(form.payment.enabled
+    ...(paid > 0
       ? {
           payment: {
-            amount: form.payment.amount,
+            amount: paid,
             ...(form.payment.method?.trim() ? { method: form.payment.method.trim() } : {}),
-          },
-        }
-      : {}),
-    ...(form.funding.enabled
-      ? {
-          funding: {
-            source: form.funding.source,
-            amount: form.funding.amount,
-            ...(form.funding.notes?.trim() ? { notes: form.funding.notes.trim() } : {}),
           },
         }
       : {}),

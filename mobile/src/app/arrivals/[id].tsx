@@ -50,9 +50,16 @@ export default function ArrivalDetailScreen() {
 
   if (arrival.isError || !arrival.data) {
     return (
-      <View className="flex-1 items-center justify-center gap-2 bg-slate-50 px-6">
+      <View className="flex-1 items-center justify-center gap-3 bg-slate-50 px-6">
         <Ionicons color="#CBD5E1" name="alert-circle-outline" size={32} />
         <Text className="text-sm text-slate-500">Impossible de charger cet arrivage.</Text>
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-lg bg-slate-100 px-4 py-2"
+          disabled={arrival.isRefetching}
+          onPress={() => void arrival.refetch()}>
+          <Text className="text-sm font-medium text-slate-700">Réessayer</Text>
+        </Pressable>
       </View>
     );
   }

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import {
@@ -89,6 +90,7 @@ function CategoryForm({
         await createCategory.mutateAsync(buildCategoryPayload(values));
       }
       onDone();
+      Alert.alert(category ? 'Catégorie modifiée' : 'Catégorie créée', values.name);
     } catch (error) {
       Alert.alert('Catégorie refusée', apiMessage(error));
     }
@@ -184,6 +186,7 @@ function MethodForm({ onDone }: { onDone: () => void }) {
     try {
       await createMethod.mutateAsync(buildMethodPayload(values));
       onDone();
+      Alert.alert('Mode de paiement créé', values.name);
     } catch (error) {
       Alert.alert('Mode de paiement refusé', apiMessage(error));
     }
@@ -297,6 +300,12 @@ export default function CategoriesSettingsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {categories.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : categories.isError ? (
+            <ErrorPanel
+              isRetrying={categories.isRefetching}
+              message="Impossible de charger les catégories."
+              onRetry={() => void categories.refetch()}
+            />
           ) : categoryItems.length === 0 ? (
             <Text className="px-3 py-4 text-sm text-slate-400">Aucune catégorie.</Text>
           ) : (
@@ -373,6 +382,12 @@ export default function CategoriesSettingsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {methods.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : methods.isError ? (
+            <ErrorPanel
+              isRetrying={methods.isRefetching}
+              message="Impossible de charger les modes de paiement."
+              onRetry={() => void methods.refetch()}
+            />
           ) : methodItems.length === 0 ? (
             <Text className="px-3 py-4 text-sm text-slate-400">Aucun mode de paiement.</Text>
           ) : (

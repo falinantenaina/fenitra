@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -12,6 +13,7 @@ import {
 
 import { Chip } from '@/components/chip';
 import { DateField } from '@/components/date-field';
+import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { Section } from '@/components/section';
 import { todayISO } from '@/lib/finance';
@@ -24,6 +26,7 @@ import {
 } from '@/lib/queries';
 import { exportAndShareReport, firstOfMonth } from '@/lib/report';
 import type { DailyReport, LedgerEntry, MonthlyReport } from '@/lib/types';
+import { useRefresh } from '@/lib/use-refresh';
 
 type Segment = 'daily' | 'monthly' | 'ledger';
 
@@ -366,9 +369,21 @@ export default function ReportsScreen() {
     (segment === 'monthly' && monthly.isError) ||
     (segment === 'ledger' && (ledger.isError || summary.isError));
 
+  const retry = async () => {
+    if (segment === 'daily') await daily.refetch();
+    else if (segment === 'monthly') await monthly.refetch();
+    else await Promise.all([ledger.refetch(), summary.refetch()]);
+  };
+  const { onRefresh, refreshing } = useRefresh(retry);
+
   return (
     <View className="flex-1 bg-white">
-      <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ gap: 12, padding: 16 }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl colors={['#208AEF']} onRefresh={onRefresh} refreshing={refreshing} />
+        }>
         <ScrollView
           contentContainerStyle={{ gap: 8 }}
           horizontal
@@ -447,10 +462,11 @@ export default function ReportsScreen() {
         {pending ? (
           <ActivityIndicator className="py-8" color="#208AEF" />
         ) : failed ? (
-          <View className="items-center gap-1 rounded-xl bg-red-50 px-3 py-4">
-            <Ionicons color="#DC2626" name="alert-circle-outline" size={24} />
-            <Text className="text-sm text-red-600">Impossible de charger le rapport.</Text>
-          </View>
+          <ErrorPanel
+            isRetrying={refreshing}
+            message="Impossible de charger le rapport."
+            onRetry={() => void onRefresh()}
+          />
         ) : report ? (
           <ReportBodyView report={report} />
         ) : segment === 'ledger' ? (

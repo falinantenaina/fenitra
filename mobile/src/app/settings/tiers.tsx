@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { useCreateParty, usePartyList, useUpdateParty } from '@/lib/queries';
@@ -31,6 +32,12 @@ const SEGMENTS: Segment[] = [
   { kind: 'customers', label: 'Clients' },
   { kind: 'online-sellers', label: 'Vendeurs' },
 ];
+
+const KIND_LABEL: Record<PartyKind, string> = {
+  suppliers: 'Fournisseur',
+  customers: 'Client',
+  'online-sellers': 'Vendeur',
+};
 
 const inputClass =
   'h-11 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900';
@@ -77,6 +84,10 @@ function PartyForm({
         await createParty.mutateAsync({ kind, body: buildPartyPayload(values) });
       }
       onDone();
+      Alert.alert(
+        `${KIND_LABEL[kind]} ${party ? 'modifié' : 'créé'}`,
+        values.name,
+      );
     } catch (error) {
       Alert.alert('Tiers refusé', apiMessage(error));
     }
@@ -274,6 +285,12 @@ export default function PartiesSettingsScreen() {
       <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {parties.isPending ? (
           <ActivityIndicator className="py-4" color="#208AEF" />
+        ) : parties.isError ? (
+          <ErrorPanel
+            isRetrying={parties.isRefetching}
+            message="Impossible de charger les tiers."
+            onRetry={() => void parties.refetch()}
+          />
         ) : items.length === 0 ? (
           <Text className="px-3 py-4 text-sm text-slate-400">Aucun tiers.</Text>
         ) : (

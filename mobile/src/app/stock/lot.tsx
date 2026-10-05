@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 
+import { ErrorPanel } from '@/components/error-panel';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { pick } from '@/lib/params';
 import { useLotMovements, useVariantPriceHistory } from '@/lib/queries';
@@ -61,7 +62,7 @@ export default function LotScreen() {
     entryDate?: string;
   }>();
   const id = pick(params.id) || null;
-  const { data, isPending, error } = useLotMovements(id);
+  const { data, isPending, isRefetching, error, refetch } = useLotMovements(id);
   const variantId = data?.lot.variantId ?? null;
   const price = useVariantPriceHistory(variantId);
 
@@ -73,7 +74,11 @@ export default function LotScreen() {
       {isPending ? (
         <ActivityIndicator className="py-8" color="#208AEF" />
       ) : error ? (
-        <Text className="text-sm text-red-600">Impossible de charger ce lot.</Text>
+        <ErrorPanel
+          isRetrying={isRefetching}
+          message="Impossible de charger ce lot."
+          onRetry={() => void refetch()}
+        />
       ) : data ? (
         <>
           <View className="gap-1 rounded-xl border border-slate-200 bg-white p-4">
@@ -117,9 +122,11 @@ export default function LotScreen() {
                 {price.isPending ? (
                   <ActivityIndicator className="py-4" color="#208AEF" />
                 ) : price.isError ? (
-                  <Text className="px-3 py-4 text-sm text-red-600">
-                    Impossible de charger l&apos;historique des prix.
-                  </Text>
+                  <ErrorPanel
+                    isRetrying={price.isRefetching}
+                    message="Impossible de charger l'historique des prix."
+                    onRetry={() => void price.refetch()}
+                  />
                 ) : (price.data?.items.length ?? 0) === 0 ? (
                   <Text className="px-3 py-4 text-sm text-slate-400">Aucune entrée.</Text>
                 ) : (

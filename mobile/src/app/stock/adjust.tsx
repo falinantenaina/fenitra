@@ -42,7 +42,7 @@ export default function AdjustStockScreen() {
   const [debounced, setDebounced] = useState('');
   const [selected, setSelected] = useState<VariantSearchItem | null>(null);
 
-  const results = useVariantSearch(debounced);
+  const results = useVariantSearch(debounced, { inStock: true });
   const adjust = useAdjustStock();
   const summary = useStockSummary(selected?.id ?? null);
   const qty = useWatch({ control, name: 'qty' }) ?? 1;

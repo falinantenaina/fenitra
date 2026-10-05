@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { SizePicker } from '@/components/size-picker';
 import { apiMessage } from '@/lib/api';
@@ -58,6 +59,10 @@ function SizeForm({ onDone }: { onDone: () => void }) {
     try {
       await createSize.mutateAsync(buildSizePayload(values));
       onDone();
+      Alert.alert(
+        'Pointure créée',
+        values.label?.trim() ? `${values.value} — ${values.label}` : `${values.value}`,
+      );
     } catch (error) {
       Alert.alert('Pointure refusée', apiMessage(error));
     }
@@ -162,6 +167,7 @@ function ProductForm({
         await createProduct.mutateAsync(buildProductPayload(values));
       }
       onDone();
+      Alert.alert(product ? 'Produit modifié' : 'Produit créé', values.name);
     } catch (error) {
       Alert.alert('Produit refusé', apiMessage(error));
     }
@@ -302,6 +308,7 @@ function ProductSizesPanel({ productId, canManage }: { productId: string; canMan
   const addPointures = async (values: number[]) => {
     await addSizes.mutateAsync({ productId, sizeValues: values });
     setPickerOpen(false);
+    Alert.alert('Pointures ajoutées', values.join(', '));
   };
 
   return (
@@ -451,6 +458,12 @@ export default function CatalogueSettingsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {sizes.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : sizes.isError ? (
+            <ErrorPanel
+              isRetrying={sizes.isRefetching}
+              message="Impossible de charger les pointures."
+              onRetry={() => void sizes.refetch()}
+            />
           ) : sizeItems.length === 0 ? (
             <Text className="px-3 py-4 text-sm text-slate-400">Aucune pointure.</Text>
           ) : (
@@ -540,6 +553,12 @@ export default function CatalogueSettingsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {products.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : products.isError ? (
+            <ErrorPanel
+              isRetrying={products.isRefetching}
+              message="Impossible de charger les produits."
+              onRetry={() => void products.refetch()}
+            />
           ) : productItems.length === 0 ? (
             <Text className="px-3 py-4 text-sm text-slate-400">Aucun produit.</Text>
           ) : (

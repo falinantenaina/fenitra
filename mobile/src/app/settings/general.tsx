@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { useChangePassword, useSettings, useUpdateSettings } from '@/lib/queries';
@@ -251,6 +252,12 @@ export default function GeneralSettingsScreen() {
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {settings.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
+          ) : settings.isError ? (
+            <ErrorPanel
+              isRetrying={settings.isRefetching}
+              message="Impossible de charger les réglages."
+              onRetry={() => void settings.refetch()}
+            />
           ) : entries.length === 0 ? (
             <Text className="px-3 py-4 text-sm text-slate-400">Aucun réglage enregistré.</Text>
           ) : (

@@ -355,6 +355,8 @@ export interface VariantSearchItem {
   sku: string | null;
   sellingPrice: string;
   active: boolean;
+  /** Paires encore disponibles en stock (lots non annulés). */
+  stock: number;
   product: { id: string; name: string; active: boolean };
   size: SizeRef;
 }
@@ -572,6 +574,16 @@ export interface LotItem {
 
 export type MovementType = 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'REVERSAL';
 
+/** Ligne de `GET /stock/by-product` — un modèle, toutes ses pointures confondues. */
+export interface ProductStockItem {
+  productId: string;
+  name: string;
+  /** Paires disponibles (restant de tous les lots du modèle). */
+  quantity: number;
+  value: string;
+  lots: number;
+}
+
 /** Mouvement vu dans `GET /stock/movements` (flux global). */
 export interface StockMovementFeedItem {
   id: string;
@@ -671,6 +683,19 @@ export interface DebtItem {
   cancelReason: string | null;
   saleId: string | null;
   arrivalId: string | null;
+}
+
+/** Ligne de `GET /debts/by-party` — toutes les dettes d'une même personne. */
+export interface DebtPartyGroup {
+  key: string;
+  /** `id` absent (`null`) pour une trosa sinoa : pas de tiers enregistré. */
+  party: { id: string | null; name: string };
+  type: DebtType;
+  direction: DebtDirection;
+  count: number;
+  statusCounts: Record<DebtStatus, number>;
+  initialAmount: string;
+  remainingAmount: string;
 }
 
 /** Ligne de `GET /payments` et des `payments[]` d'une dette. */

@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { useSales } from '@/lib/queries';
 import { SALE_STATUS } from '@/lib/status';
+import { useRefresh } from '@/lib/use-refresh';
 import type { SaleRow, SaleStatus } from '@/lib/types';
 
 const STATUS_FILTERS: { key: SaleStatus | ''; label: string }[] = [
@@ -56,12 +58,17 @@ function SaleRowView({ sale, onPress }: { sale: SaleRow; onPress: () => void }) 
 export default function VentesScreen() {
   const [status, setStatus] = useState<SaleStatus | ''>('');
   const sales = useSales({ status });
+  const { onRefresh, refreshing } = useRefresh(() => sales.refetch());
 
   const displayedTotal = sales.items.reduce((sum, s) => sum + Number(s.totalAmount), 0);
 
   return (
     <View className="flex-1 bg-white">
-      <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ gap: 12, padding: 16 }}
+        refreshControl={
+          <RefreshControl colors={['#208AEF']} onRefresh={onRefresh} refreshing={refreshing} />
+        }>
         <Text className="text-xl font-bold text-slate-900">Ventes</Text>
 
         <Pressable
@@ -99,10 +106,11 @@ export default function VentesScreen() {
           {sales.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
           ) : sales.isError ? (
-            <View className="items-center gap-1 px-3 py-6">
-              <Ionicons color="#FCA5A5" name="alert-circle-outline" size={28} />
-              <Text className="text-sm text-slate-500">Impossible de charger les ventes.</Text>
-            </View>
+            <ErrorPanel
+              isRetrying={sales.isRefetching}
+              message="Impossible de charger les ventes."
+              onRetry={() => void sales.refetch()}
+            />
           ) : sales.items.length === 0 ? (
             <View className="items-center gap-1 px-3 py-6">
               <Ionicons color="#CBD5E1" name="receipt-outline" size={28} />

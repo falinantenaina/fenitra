@@ -1,13 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { router, type Href } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { useCapitalMovements, useDebts, useExpenses } from '@/lib/queries';
 import type { CapitalItem, ExpenseItem } from '@/lib/types';
+import { useRefresh } from '@/lib/use-refresh';
 import { useAuth } from '@/store/auth';
 
 type Segment = 'expenses' | 'capital' | 'debts';
@@ -21,12 +31,18 @@ const SEGMENTS: { key: Segment; label: string; route: Href }[] = [
 function ListShell({
   isLoading,
   isEmpty,
+  isError,
+  isRetrying,
+  onRetry,
   total,
   footer,
   children,
 }: {
   isLoading: boolean;
   isEmpty: boolean;
+  isError?: boolean;
+  isRetrying?: boolean;
+  onRetry: () => void;
   total: number;
   footer?: ReactNode;
   children: ReactNode;
@@ -37,6 +53,12 @@ function ListShell({
       <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {isLoading ? (
           <ActivityIndicator className="py-4" color="#208AEF" />
+        ) : isError ? (
+          <ErrorPanel
+            isRetrying={isRetrying}
+            message="Impossible de charger les écritures."
+            onRetry={onRetry}
+          />
         ) : isEmpty ? (
           <Text className="px-3 py-4 text-sm text-slate-400">Aucune écriture.</Text>
         ) : (
@@ -55,6 +77,9 @@ function ExpenseList() {
     <ListShell
       isLoading={expenses.isPending}
       isEmpty={expenses.items.length === 0}
+      isError={expenses.isError}
+      isRetrying={expenses.isRefetching}
+      onRetry={() => void expenses.refetch()}
       total={expenses.total}
       footer={
         <ListFooter
@@ -91,6 +116,9 @@ function CapitalList() {
     <ListShell
       isLoading={capital.isPending}
       isEmpty={capital.items.length === 0}
+      isError={capital.isError}
+      isRetrying={capital.isRefetching}
+      onRetry={() => void capital.refetch()}
       total={capital.total}
       footer={
         <ListFooter
@@ -144,6 +172,9 @@ function PayableDebtList({ onPress }: { onPress: (id: string) => void }) {
     <ListShell
       isLoading={debts.isPending}
       isEmpty={debts.items.length === 0}
+      isError={debts.isError}
+      isRetrying={debts.isRefetching}
+      onRetry={() => void debts.refetch()}
       total={debts.total}
       footer={
         <ListFooter
@@ -185,12 +216,18 @@ export default function FinancesScreen() {
   const user = useAuth((state) => state.user);
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [segment, setSegment] = useState<Segment>('expenses');
+  const queryClient = useQueryClient();
+  const { onRefresh, refreshing } = useRefresh(() => queryClient.invalidateQueries());
 
   const active = SEGMENTS.find((s) => s.key === segment) ?? SEGMENTS[0];
 
   return (
     <View className="flex-1 bg-white">
-      <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ gap: 12, padding: 16 }}
+        refreshControl={
+          <RefreshControl colors={['#208AEF']} onRefresh={onRefresh} refreshing={refreshing} />
+        }>
         <View className="flex-row items-center justify-between">
           <Text className="text-xl font-bold text-slate-900">Finances</Text>
           {canManage ? (

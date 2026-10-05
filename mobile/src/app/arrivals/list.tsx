@@ -1,14 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { useArrivals } from '@/lib/queries';
 import { ARRIVAL_STATUS, TO_VENTILATE_STYLE } from '@/lib/status';
 import type { ArrivalRow, ArrivalStatus } from '@/lib/types';
+import { useRefresh } from '@/lib/use-refresh';
+import { useAuth } from '@/store/auth';
 
 interface ArrivalFilter {
   key: string;
@@ -66,21 +69,35 @@ function ArrivalRowView({ arrival, onPress }: { arrival: ArrivalRow; onPress: ()
 }
 
 export default function ArrivalsScreen() {
+  const role = useAuth((state) => state.user?.role);
+  const canManage = role === 'ADMIN' || role === 'MANAGER';
   const [filter, setFilter] = useState<ArrivalFilter>(STATUS_FILTERS[0]!);
   const arrivals = useArrivals({ status: filter.status, unventilated: filter.unventilated });
+  const { onRefresh, refreshing } = useRefresh(() => arrivals.refetch());
 
   const displayedTotal = arrivals.items.reduce((sum, a) => sum + Number(a.totalCost), 0);
 
   return (
     <View className="flex-1 bg-white">
-      <ScrollView contentContainerStyle={{ gap: 12, padding: 16 }}>
-        <Pressable
-          className="h-11 flex-row items-center justify-center gap-2 rounded-xl bg-brand"
-          onPress={() => router.push('/arrival/new')}>
-          <Ionicons color="#ffffff" name="add" size={18} />
-          <Text className="font-semibold text-white">Nouvel arrivage</Text>
-        </Pressable>
-
+      <ScrollView
+        contentContainerStyle={{ gap: 12, padding: 16 }}
+        refreshControl={
+          <RefreshControl colors={['#208AEF']} onRefresh={onRefresh} refreshing={refreshing} />
+        }>
+        {canManage ? (
+          <Pressable
+            className="h-11 flex-row items-center justify-center gap-2 rounded-xl bg-brand"
+            onPress={() => router.push('/arrival/new')}>
+            <Ionicons color="#ffffff" name="add" size={18} />
+            <Text className="font-semibold text-white">Nouvel arrivage</Text>
+          </Pressable>
+        ) : (
+          <View className="rounded-xl bg-slate-50 px-3 py-2.5">
+            <Text className="text-xs text-slate-500">
+              La saisie d&apos;arrivage est réservée aux gestionnaires et administrateurs.
+            </Text>
+          </View>
+        )}
         <View className="flex-row items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
           <Text className="text-xs text-slate-500">
             {arrivals.items.length} affiché{arrivals.items.length > 1 ? 's' : ''} ·{' '}
@@ -109,10 +126,11 @@ export default function ArrivalsScreen() {
           {arrivals.isPending ? (
             <ActivityIndicator className="py-4" color="#208AEF" />
           ) : arrivals.isError ? (
-            <View className="items-center gap-1 px-3 py-6">
-              <Ionicons color="#FCA5A5" name="alert-circle-outline" size={28} />
-              <Text className="text-sm text-slate-500">Impossible de charger les arrivages.</Text>
-            </View>
+            <ErrorPanel
+              isRetrying={arrivals.isRefetching}
+              message="Impossible de charger les arrivages."
+              onRetry={() => void arrivals.refetch()}
+            />
           ) : arrivals.items.length === 0 ? (
             <View className="items-center gap-1 px-3 py-6">
               <Ionicons color="#CBD5E1" name="cube-outline" size={28} />

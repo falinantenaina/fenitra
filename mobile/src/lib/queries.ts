@@ -36,6 +36,7 @@ import type {
   DebtDetail,
   DebtDirection,
   DebtItem,
+  DebtPartyGroup,
   DebtPaymentBody,
   DebtStatus,
   DebtType,
@@ -56,6 +57,7 @@ import type {
   PeriodKey,
   ProductDetail,
   ProductListItem,
+  ProductStockItem,
   ReportSeriesResponse,
   SaleCreated,
   SaleDetail,
@@ -212,14 +214,24 @@ export function usePaymentMethods(): UseQueryResult<PaymentMethod[]> {
 }
 
 /** Recherche de pointures par nom de modèle ou SKU (`GET /variants?q=`). */
-export function useVariantSearch(term: string): UseQueryResult<VariantSearchItem[]> {
+export function useVariantSearch(
+  term: string,
+  options: { inStock?: boolean } = {},
+): UseQueryResult<VariantSearchItem[]> {
   const trimmed = term.trim();
+  const inStock = options.inStock === true;
   return useQuery<VariantSearchItem[]>({
-    queryKey: ['variants', 'search', trimmed],
+    queryKey: ['variants', 'search', trimmed, inStock],
     enabled: trimmed.length >= 2,
     queryFn: async () => {
       const { data } = await api.get<ListResponse<VariantSearchItem>>('/variants', {
-        params: { active: 'true', q: trimmed, limit: 20, sort: 'sku' },
+        params: {
+          active: 'true',
+          q: trimmed,
+          limit: 20,
+          sort: 'sku',
+          ...(inStock ? { inStock: 'true' } : {}),
+        },
       });
       return data.items;
     },
@@ -483,6 +495,8 @@ export function useOnlineSellers(): UseQueryResult<Party[]> {
 export interface LotFilter {
   q?: string;
   status?: '' | 'OPEN' | 'CLOSED';
+  /** Modèle : n'affiche que les lots de ce produit (détail des pointures). */
+  productId?: string;
 }
 
 /** Lots valorisés paginés (`GET /stock/lots`). */
@@ -490,6 +504,20 @@ export function useLots(filter: LotFilter): PagedInfinite<LotItem> {
   const q = filter.q?.trim() ?? '';
   const status = filter.status || '';
   return useInfiniteList<LotItem>(['stock', 'lots'], '/stock/lots', {
+    q: q || undefined,
+    status: status || undefined,
+    productId: filter.productId || undefined,
+  });
+}
+
+/** Stock groupé par modèle (`GET /stock/by-product`) : une ligne par modèle. */
+export function useStockByProduct(filter: {
+  q?: string;
+  status?: '' | 'OPEN' | 'CLOSED';
+}): PagedInfinite<ProductStockItem> {
+  const q = filter.q?.trim() ?? '';
+  const status = filter.status || '';
+  return useInfiniteList<ProductStockItem>(['stock', 'by-product'], '/stock/by-product', {
     q: q || undefined,
     status: status || undefined,
   });
@@ -547,15 +575,28 @@ export interface DebtFilter {
   type?: DebtType | '';
   direction?: DebtDirection | '';
   status?: DebtStatus | '';
+  /** Tiers enregistré (client / vendeur / fournisseur). */
+  partyId?: string;
+  /** Nom exact — dettes trosa sinoa, qui n'ont pas de tiers enregistré. */
+  partyName?: string;
 }
+
+const debtParams = (filter: DebtFilter) => ({
+  type: filter.type || undefined,
+  direction: filter.direction || undefined,
+  status: filter.status || undefined,
+  partyId: filter.partyId || undefined,
+  partyName: filter.partyName || undefined,
+});
 
 /** Dettes paginées (`GET /debts`) — filtres direction/type/statut, accumulation des pages. */
 export function useDebts(filter: DebtFilter = {}): PagedInfinite<DebtItem> {
-  return useInfiniteList<DebtItem>(['debts', 'list'], '/debts', {
-    type: filter.type || undefined,
-    direction: filter.direction || undefined,
-    status: filter.status || undefined,
-  });
+  return useInfiniteList<DebtItem>(['debts', 'list'], '/debts', debtParams(filter));
+}
+
+/** Dettes groupées par tiers (`GET /debts/by-party`) : une ligne par personne. */
+export function useDebtsByParty(filter: DebtFilter = {}): PagedInfinite<DebtPartyGroup> {
+  return useInfiniteList<DebtPartyGroup>(['debts', 'by-party'], '/debts/by-party', debtParams(filter));
 }
 
 /** Détail d'une dette : paiements, écritures, versements liés (`GET /debts/:id`). */
@@ -1074,7 +1115,10 @@ export function useCreateParty() {
       const { data } = await api.post<Party>(`/${kind}`, body);
       return data;
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['parties'] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['parties'] });
+      void client.invalidateQueries({ queryKey: ['suppliers'] });
+    },
   });
 }
 
@@ -1094,7 +1138,10 @@ export function useUpdateParty() {
       const { data } = await api.put<Party>(`/${kind}/${id}`, body);
       return data;
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['parties'] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['parties'] });
+      void client.invalidateQueries({ queryKey: ['suppliers'] });
+    },
   });
 }
 

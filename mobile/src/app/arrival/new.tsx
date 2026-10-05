@@ -1,8 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { useFieldArray, useForm, type FieldPath } from 'react-hook-form';
+import { Ionicons } from "@expo/vector-icons";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { useFieldArray, useForm, type FieldPath } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +13,10 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { apiMessage } from '@/lib/api';
+import { parseSizeExpression } from "@/components/size-picker";
+import { apiMessage } from "@/lib/api";
 import {
   arrivalFormSchema,
   buildArrivalPayload,
@@ -28,26 +29,21 @@ import {
   unitCostOf,
   type ArrivalFormValues,
   type CartonDraft,
-} from '@/lib/arrival';
-import { formatMoney } from '@/lib/format';
+} from "@/lib/arrival";
+import { formatMoney } from "@/lib/format";
 import {
   useCreateArrival,
+  useCreateParty,
   useCreateProduct,
+  useCreateSize,
   usePaymentMethods,
   useProductSearch,
   useProducts,
   useSizeList,
   useSuppliers,
-} from '@/lib/queries';
-import type { FundingSource, ProductListItem, SizeListItem } from '@/lib/types';
-import { useArrivalDraft } from '@/store/arrival-draft';
-
-const FUNDING_SOURCES: { value: FundingSource; label: string }[] = [
-  { value: 'OWN_CAPITAL', label: 'Argent propre' },
-  { value: 'TROSA_SINOA', label: 'Emprunt (à payer)' },
-  { value: 'SALES_CASH', label: 'Caisse des ventes' },
-  { value: 'SUPPLIER_CREDIT', label: 'Crédit fournisseur' },
-];
+} from "@/lib/queries";
+import type { ProductListItem, SizeListItem } from "@/lib/types";
+import { useArrivalDraft } from "@/store/arrival-draft";
 
 function Chip({
   label,
@@ -62,10 +58,13 @@ function Chip({
     <Pressable
       accessibilityRole="button"
       className={`rounded-full border px-3 py-1.5 ${
-        active ? 'border-brand bg-brand' : 'border-slate-200 bg-white'
+        active ? "border-brand bg-brand" : "border-slate-200 bg-white"
       }`}
-      onPress={onPress}>
-      <Text className={`text-sm ${active ? 'font-semibold text-white' : 'text-slate-600'}`}>
+      onPress={onPress}
+    >
+      <Text
+        className={`text-sm ${active ? "font-semibold text-white" : "text-slate-600"}`}
+      >
         {label}
       </Text>
     </Pressable>
@@ -86,23 +85,36 @@ function SizeRow({
   onChange: (quantity: number) => void;
   onRemove: () => void;
 }) {
+  // Brouillon local du champ : effacer pour retaper (« 1 » → « 2 ») ne doit
+  // jamais retirer la ligne — seule une quantité réellement tapée est retenue.
+  const [text, setText] = useState(quantity ? String(quantity) : "");
+
   return (
     <View className="flex-row items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
-      <Text className="w-12 text-sm font-bold text-slate-800">{sizeLabel(size)}</Text>
+      <Text className="w-12 text-sm font-bold text-slate-800">
+        {sizeLabel(size)}
+      </Text>
       <TextInput
         className="h-9 w-16 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm text-slate-900"
         keyboardType="numeric"
-        onChangeText={(raw) => onChange(Number(raw.replace(/[^0-9]/g, '')) || 0)}
+        onChangeText={(raw) => {
+          const digits = raw.replace(/[^0-9]/g, "");
+          setText(digits);
+          // Champ vidé en cours de saisie : on attend la nouvelle valeur.
+          if (digits !== "") onChange(Number(digits));
+        }}
+        onEndEditing={() => setText(quantity ? String(quantity) : "")}
         placeholder="0"
         placeholderTextColor="#94A3B8"
         selectionColor="#208AEF"
-        value={quantity ? String(quantity) : ''}
+        value={text}
       />
       <Text className="text-xs text-slate-400">paire(s)</Text>
       <Pressable
         accessibilityLabel={`Retirer la pointure ${sizeLabel(size)}`}
         className="ml-auto h-7 w-7 items-center justify-center rounded-md bg-red-50"
-        onPress={onRemove}>
+        onPress={onRemove}
+      >
         <Ionicons color="#DC2626" name="close" size={14} />
       </Pressable>
     </View>
@@ -129,14 +141,20 @@ function CartonCard({
   removable,
 }: CartonCardProps) {
   // Recherche de modèle avec création à la volée.
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
   const [creating, setCreating] = useState(false);
+  const [createdModel, setCreatedModel] = useState<string | null>(null);
   const results = useProductSearch(debounced);
   const createProduct = useCreateProduct();
 
   // Dictionnaire des pointures — le serveur créera les variantes au besoin.
   const sizes = useSizeList();
+  const createSize = useCreateSize();
+
+  // Saisie des pointures de CE carton (facultatif) : `43`, `36,40`, `36-40`.
+  const [sizeExpr, setSizeExpr] = useState("");
+  const [addingSize, setAddingSize] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search), 300);
@@ -145,9 +163,21 @@ function CartonCard({
 
   const term = debounced.trim();
   const searching = term.length > 0;
-  const shown = searching ? (results.data?.items ?? []) : (products ?? []);
-  const nameTaken = shown.some((p) => p.name.trim().toLowerCase() === term.toLowerCase());
-  const canCreate = term.length >= 2 && searching && !nameTaken && !results.isPending;
+  // Une fois le modèle choisi, la liste complète disparaît : seule la puce
+  // sélectionnée reste affichée (la recherche reste disponible).
+  const selected = (products ?? []).find(
+    (p) => p.id === carton.activeProductId,
+  );
+  const shown = searching
+    ? (results.data?.items ?? [])
+    : selected
+      ? [selected]
+      : (products ?? []);
+  const nameTaken = shown.some(
+    (p) => p.name.trim().toLowerCase() === term.toLowerCase(),
+  );
+  const canCreate =
+    term.length >= 2 && searching && !nameTaken && !results.isPending;
 
   const createModel = async () => {
     if (!canCreate || creating) return;
@@ -155,10 +185,11 @@ function CartonCard({
     try {
       const product = await createProduct.mutateAsync({ name: term });
       onPatch({ activeProductId: product.id });
-      setSearch('');
-      setDebounced('');
+      setCreatedModel(product.name);
+      setSearch("");
+      setDebounced("");
     } catch (error) {
-      Alert.alert('Création refusée', apiMessage(error));
+      Alert.alert("Création refusée", apiMessage(error));
     } finally {
       setCreating(false);
     }
@@ -169,17 +200,71 @@ function CartonCard({
   const listed = listedQuantity(carton);
   const rows = listedSizes(carton);
   const dictionary = sizes.data?.items ?? [];
-  const rowIds = new Set(rows.map((row) => row.sizeId));
-  const available = dictionary.filter((size) => !rowIds.has(size.id));
   const sumComplete = listed > 0 && listed === carton.quantity;
+
+  // Libellés des pointures listées (dictionnaire `GET /sizes`).
+  const sizeById = new Map<string, SizeListItem>();
+  dictionary.forEach((size) => sizeById.set(size.id, size));
 
   const setSizeQuantity = (sizeId: string, quantity: number) =>
     onPatch({ sizes: { ...carton.sizes, [sizeId]: quantity } });
 
+  /**
+   * Ajoute des pointures **à ce carton uniquement** : `43`, `36,40`, `36-40`.
+   * Une valeur inexistante est créée dans le dictionnaire (requis par le
+   * serveur), le reste du modèle n'est pas modifié.
+   */
+  const addSizeLines = async () => {
+    const values = parseSizeExpression(sizeExpr);
+    if (values.length === 0) {
+      Alert.alert(
+        "Pointure invalide",
+        "Ex. 43, 36-40 ou 36,40 (valeurs 1 à 100).",
+      );
+      return;
+    }
+    setAddingSize(true);
+    try {
+      const known = new Map(dictionary.map((size) => [size.value, size]));
+      for (const value of values) {
+        if (known.has(value)) continue;
+        try {
+          known.set(
+            value,
+            await createSize.mutateAsync({ value, label: `${value}` }),
+          );
+        } catch (error) {
+          // Doublon concurrent : la pointure existe déjà côté serveur.
+          const fresh = await sizes.refetch();
+          const size = (fresh.data?.items ?? []).find(
+            (candidate) => candidate.value === value,
+          );
+          if (!size) throw error;
+          known.set(value, size);
+        }
+      }
+
+      const next = { ...carton.sizes };
+      values.forEach((value) => {
+        const size = known.get(value);
+        // Ligne absente ou retirée (quantité 0) : (ré)activée à 1.
+        if (size && !(next[size.id] > 0)) next[size.id] = 1;
+      });
+      onPatch({ sizes: next });
+      setSizeExpr("");
+    } catch (error) {
+      Alert.alert("Pointure refusée", apiMessage(error));
+    } finally {
+      setAddingSize(false);
+    }
+  };
+
   return (
     <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
       <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-bold text-slate-900">Carton {index + 1}</Text>
+        <Text className="text-sm font-bold text-slate-900">
+          Carton {index + 1}
+        </Text>
         <View className="flex-row items-center gap-3">
           <Text className="text-xs text-slate-400">
             {totals.quantity} p. · {formatMoney(totals.cost)}
@@ -188,7 +273,8 @@ function CartonCard({
             <Pressable
               accessibilityLabel={`Supprimer le carton ${index + 1}`}
               className="h-7 w-7 items-center justify-center rounded-md bg-red-50"
-              onPress={onRemove}>
+              onPress={onRemove}
+            >
               <Ionicons color="#DC2626" name="trash-outline" size={15} />
             </Pressable>
           ) : null}
@@ -203,7 +289,10 @@ function CartonCard({
         <View className="mb-2 flex-row items-center gap-2">
           <TextInput
             className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
-            onChangeText={setSearch}
+            onChangeText={(text) => {
+              setSearch(text);
+              setCreatedModel(null);
+            }}
             placeholder="Rechercher ou créer un modèle…"
             placeholderTextColor="#94A3B8"
             selectionColor="#208AEF"
@@ -213,18 +302,26 @@ function CartonCard({
             <Pressable
               accessibilityLabel="Effacer la recherche"
               className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
-              onPress={() => setSearch('')}>
+              onPress={() => setSearch("")}
+            >
               <Ionicons color="#64748B" name="close" size={16} />
             </Pressable>
           ) : null}
         </View>
 
-        <ScrollView contentContainerStyle={{ gap: 8 }} horizontal showsHorizontalScrollIndicator={false}>
-          {(searching && results.isPending) || (!searching && productsPending && !products) ? (
+        <ScrollView
+          contentContainerStyle={{ gap: 8 }}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {(searching && results.isPending) ||
+          (!searching && productsPending && !products) ? (
             <ActivityIndicator color="#208AEF" />
           ) : shown.length === 0 ? (
             <Text className="text-sm text-slate-500">
-              {searching ? 'Aucun modèle trouvé.' : 'Aucun modèle actif — créez-en un d&apos;abord.'}
+              {searching
+                ? "Aucun modèle trouvé."
+                : "Aucun modèle actif — créez-en un d&apos;abord."}
             </Text>
           ) : (
             shown.map((product) => {
@@ -232,12 +329,21 @@ function CartonCard({
               return (
                 <Pressable
                   className={`flex-row items-center gap-1.5 rounded-full border px-3 py-1.5 ${
-                    active ? 'border-brand bg-brand' : 'border-slate-200 bg-white'
+                    active
+                      ? "border-brand bg-brand"
+                      : "border-slate-200 bg-white"
                   }`}
                   key={product.id}
-                  onPress={() => onPatch({ activeProductId: product.id })}>
+                  onPress={() => {
+                    onPatch({ activeProductId: product.id });
+                    setSearch("");
+                    setDebounced("");
+                    setCreatedModel(null);
+                  }}
+                >
                   <Text
-                    className={`text-sm ${active ? 'font-semibold text-white' : 'text-slate-600'}`}>
+                    className={`text-sm ${active ? "font-semibold text-white" : "text-slate-600"}`}
+                  >
                     {product.name}
                   </Text>
                 </Pressable>
@@ -250,12 +356,19 @@ function CartonCard({
           <Pressable
             className="mt-2 flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
             disabled={creating}
-            onPress={() => void createModel()}>
+            onPress={() => void createModel()}
+          >
             <Ionicons color="#208AEF" name="add" size={15} />
             <Text className="text-sm font-semibold text-brand">
-              {creating ? 'Création…' : `Créer « ${term} »`}
+              {creating ? "Création…" : `Créer « ${term} »`}
             </Text>
           </Pressable>
+        ) : null}
+
+        {createdModel ? (
+          <Text className="mt-2 text-xs font-semibold text-emerald-600">
+            Modèle « {createdModel} » créé et sélectionné.
+          </Text>
         ) : null}
       </View>
 
@@ -265,33 +378,41 @@ function CartonCard({
           2 · Quantité et montant
         </Text>
         <View className="gap-1.5">
-          <Text className="text-xs font-semibold text-slate-500">Paires reçues</Text>
+          <Text className="text-xs font-semibold text-slate-500">
+            Quantités
+          </Text>
           <TextInput
             className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
             keyboardType="numeric"
-            onChangeText={(raw) => onPatch({ quantity: Number(raw.replace(/[^0-9]/g, '')) || 0 })}
+            onChangeText={(raw) =>
+              onPatch({ quantity: Number(raw.replace(/[^0-9]/g, "")) || 0 })
+            }
             placeholder="0"
             placeholderTextColor="#94A3B8"
             selectionColor="#208AEF"
-            value={carton.quantity ? String(carton.quantity) : ''}
+            value={carton.quantity ? String(carton.quantity) : ""}
           />
         </View>
 
         <View className="gap-1.5">
-          <Text className="text-xs font-semibold text-slate-500">Montant du carton (Ar)</Text>
+          <Text className="text-xs font-semibold text-slate-500">
+            Montant du carton (Ar)
+          </Text>
           <TextInput
             className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
             keyboardType="numeric"
-            onChangeText={(raw) => onPatch({ amount: Number(raw.replace(/[^0-9]/g, '')) || 0 })}
+            onChangeText={(raw) =>
+              onPatch({ amount: Number(raw.replace(/[^0-9]/g, "")) || 0 })
+            }
             placeholder="0"
             placeholderTextColor="#94A3B8"
             selectionColor="#208AEF"
-            value={carton.amount ? String(carton.amount) : ''}
+            value={carton.amount ? String(carton.amount) : ""}
           />
           <Text className="text-xs text-slate-400">
-            Prix d&apos;achat de la paire :{' '}
-            {unitCost > 0 ? `${formatMoney(unitCost)} / paire` : '—'} (montant ÷ quantité, imposé
-            partout).
+            Prix d&apos;achat de la paire :{" "}
+            {unitCost > 0 ? `${formatMoney(unitCost)} / paire` : "—"} (montant ÷
+            quantité, imposé partout).
           </Text>
         </View>
       </View>
@@ -302,10 +423,40 @@ function CartonCard({
           3 · Pointures (facultatif)
         </Text>
 
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            className="h-10 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800"
+            keyboardType="numbers-and-punctuation"
+            onChangeText={setSizeExpr}
+            onSubmitEditing={() => void addSizeLines()}
+            placeholder="Ex. 43, 36-40 ou 36,40"
+            placeholderTextColor="#94A3B8"
+            returnKeyType="done"
+            selectionColor="#208AEF"
+            value={sizeExpr}
+          />
+          <Pressable
+            accessibilityLabel="Ajouter les pointures saisies"
+            className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
+            disabled={!sizeExpr.trim() || addingSize}
+            onPress={() => void addSizeLines()}
+          >
+            {addingSize ? (
+              <ActivityIndicator color="#208AEF" />
+            ) : (
+              <Ionicons
+                color={sizeExpr.trim() ? "#208AEF" : "#CBD5E1"}
+                name="add"
+                size={18}
+              />
+            )}
+          </Pressable>
+        </View>
+
         {rows.length > 0 ? (
           <View className="gap-2">
             {rows.map((row) => {
-              const size = dictionary.find((candidate) => candidate.id === row.sizeId);
+              const size = sizeById.get(row.sizeId);
               if (!size) return null;
               return (
                 <SizeRow
@@ -318,38 +469,16 @@ function CartonCard({
               );
             })}
           </View>
-        ) : (
-          <Text className="text-xs text-slate-400">
-            Aucune pointure listée : le carton sera à ventiler après l&apos;enregistrement.
-          </Text>
-        )}
-
-        {available.length > 0 ? (
-          <ScrollView
-            contentContainerStyle={{ gap: 8 }}
-            horizontal
-            showsHorizontalScrollIndicator={false}>
-            {sizes.isPending ? (
-              <ActivityIndicator color="#208AEF" />
-            ) : (
-              available.map((size) => (
-                <Pressable
-                  className="flex-row items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5"
-                  key={size.id}
-                  onPress={() => setSizeQuantity(size.id, 1)}>
-                  <Ionicons color="#208AEF" name="add" size={13} />
-                  <Text className="text-sm text-slate-600">{sizeLabel(size)}</Text>
-                </Pressable>
-              ))
-            )}
-          </ScrollView>
         ) : null}
 
         {rows.length > 0 ? (
           <Text
-            className={`text-xs ${sumComplete ? 'text-emerald-600' : 'text-red-600'}`}>
+            className={`text-xs ${sumComplete ? "text-emerald-600" : "text-red-600"}`}
+          >
             Pointures : {listed} / {carton.quantity} paires
-            {sumComplete ? ' — somme exacte.' : ' — complétez pour égaler la quantité du carton.'}
+            {sumComplete
+              ? " — somme exacte."
+              : " — complétez pour égaler la quantité du carton."}
           </Text>
         ) : null}
       </View>
@@ -360,7 +489,7 @@ function CartonCard({
         placeholder="Notes du carton (facultatif)"
         placeholderTextColor="#94A3B8"
         selectionColor="#208AEF"
-        value={carton.notes ?? ''}
+        value={carton.notes ?? ""}
       />
     </View>
   );
@@ -368,9 +497,9 @@ function CartonCard({
 
 /** Premier message d'erreur (Zod / superRefine) parmi les champs. */
 function firstErrorMessage(node: unknown): string | null {
-  if (!node || typeof node !== 'object') return null;
+  if (!node || typeof node !== "object") return null;
   const record = node as Record<string, unknown>;
-  if (typeof record.message === 'string') return record.message;
+  if (typeof record.message === "string") return record.message;
   for (const value of Object.values(record)) {
     const found = firstErrorMessage(value);
     if (found) return found;
@@ -378,8 +507,8 @@ function firstErrorMessage(node: unknown): string | null {
   return null;
 }
 
-const emptyCarton = (productId = ''): CartonDraft => ({
-  reference: '',
+const emptyCarton = (productId = ""): CartonDraft => ({
+  reference: "",
   activeProductId: productId,
   quantity: 0,
   amount: 0,
@@ -391,8 +520,12 @@ export default function NewArrivalScreen() {
   const products = useProducts();
   const methods = usePaymentMethods();
   const createArrival = useCreateArrival();
+  const createParty = useCreateParty();
 
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierNotice, setSupplierNotice] = useState<string | null>(null);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
 
   const {
     control,
@@ -405,17 +538,19 @@ export default function NewArrivalScreen() {
   } = useForm<ArrivalFormValues>({
     resolver: zodResolver(arrivalFormSchema),
     defaultValues: {
-      supplierId: '',
+      supplierId: "",
       date: todayISO(),
-      notes: '',
+      notes: "",
       cartons: [emptyCarton()],
       payment: { enabled: false, amount: 0, method: undefined },
-      funding: { enabled: false, source: 'OWN_CAPITAL', amount: 0, notes: '' },
     },
-    mode: 'onSubmit',
+    mode: "onSubmit",
   });
 
-  const { append, remove, fields } = useFieldArray({ control, name: 'cartons' });
+  const { append, remove, fields } = useFieldArray({
+    control,
+    name: "cartons",
+  });
 
   // Brouillon de saisie : reposé à l'ouverture, sauvegardé à chaque frappe.
   useEffect(() => {
@@ -436,14 +571,14 @@ export default function NewArrivalScreen() {
   // Pré-remplissage : premier fournisseur / premier modèle actif.
   useEffect(() => {
     if (!supplierId && suppliers.data?.length) {
-      setValue('supplierId', suppliers.data[0]!.id);
+      setValue("supplierId", suppliers.data[0]!.id);
     }
   }, [supplierId, suppliers.data, setValue]);
 
   useEffect(() => {
     const first = products.data?.[0];
     if (!first) return;
-    getValues('cartons').forEach((carton, index) => {
+    getValues("cartons").forEach((carton, index) => {
       if (!carton.activeProductId) {
         setValue(
           `cartons.${index}.activeProductId` as FieldPath<ArrivalFormValues>,
@@ -469,27 +604,57 @@ export default function NewArrivalScreen() {
 
   const togglePayment = () => {
     const next = !values.payment.enabled;
-    setValue('payment.enabled', next);
-    if (next) setValue('payment.amount', totals.cost);
+    setValue("payment.enabled", next);
+    if (next) setValue("payment.amount", totals.cost);
   };
 
-  const toggleFunding = () => {
-    const next = !values.funding.enabled;
-    setValue('funding.enabled', next);
-    if (next) setValue('funding.amount', totals.cost);
+  // Fournisseur : recherche + création à la volée, comme pour les modèles.
+  const supplierTerm = supplierSearch.trim();
+  const supplierLower = supplierTerm.toLowerCase();
+  const supplierList = suppliers.data ?? [];
+  const supplierMatches = supplierTerm
+    ? supplierList.filter((supplier) =>
+        supplier.name.toLowerCase().includes(supplierLower),
+      )
+    : supplierList;
+  const supplierTaken = supplierList.some(
+    (supplier) => supplier.name.trim().toLowerCase() === supplierLower,
+  );
+  const canCreateSupplier = supplierTerm.length >= 2 && !supplierTaken;
+
+  const createSupplier = async () => {
+    if (!canCreateSupplier || creatingSupplier) return;
+    setCreatingSupplier(true);
+    try {
+      const supplier = await createParty.mutateAsync({
+        kind: "suppliers",
+        body: { name: supplierTerm },
+      });
+      setValue("supplierId", supplier.id);
+      setSupplierNotice(supplierTerm);
+      setSupplierSearch("");
+    } catch (error) {
+      Alert.alert("Création refusée", apiMessage(error));
+    } finally {
+      setCreatingSupplier(false);
+    }
   };
 
   const onSubmit = handleSubmit(async (formValues) => {
     setSubmitError(null);
     try {
-      const created = await createArrival.mutateAsync(buildArrivalPayload(formValues));
+      const created = await createArrival.mutateAsync(
+        buildArrivalPayload(formValues),
+      );
       useArrivalDraft.getState().clear();
       const toVentilate = cartonsToVentilate(formValues);
       Alert.alert(
-        'Arrivage enregistré',
+        "Arrivage enregistré",
         `${created.reference}\n${created.totalQty} pièce(s) — ${formatMoney(created.totalCost)}` +
-          (toVentilate > 0 ? `\n${toVentilate} carton(s) à ventiler (pointures)` : ''),
-        [{ text: 'OK', onPress: () => router.back() }],
+          (toVentilate > 0
+            ? `\n${toVentilate} carton(s) à ventiler (pointures)`
+            : ""),
+        [{ text: "OK", onPress: () => router.back() }],
       );
     } catch (error) {
       setSubmitError(apiMessage(error));
@@ -499,56 +664,97 @@ export default function NewArrivalScreen() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-slate-50"
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={{ gap: 16, padding: 16, paddingBottom: 24 }}
-        keyboardShouldPersistTaps="handled">
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={{ gap: 16, padding: 16, paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+      >
         {formError ? (
           <View className="rounded-xl bg-red-50 px-3 py-2.5">
             <Text className="text-sm text-red-600">{formError}</Text>
           </View>
         ) : null}
 
-        {/* Rappel du modèle de saisie — évite la recherche du « bon champ ». */}
-        <View className="gap-1.5 rounded-xl border border-slate-200 bg-white p-4">
-          <Text className="text-sm font-semibold text-slate-900">Comment ça marche</Text>
-          <Text className="text-xs leading-5 text-slate-500">
-            Un carton = <Text className="font-semibold text-slate-700">un modèle</Text>,{' '}
-            <Text className="font-semibold text-slate-700">une quantité</Text> de paires et{' '}
-            <Text className="font-semibold text-slate-700">un montant total</Text>. Le prix
-            d&apos;achat de la paire en découle (montant ÷ quantité) : vous ne le saisissez jamais.
-            {' '}
-            <Text className="font-semibold text-slate-700">Les pointures sont facultatives</Text> :
-            listez-les ici si vous les connaissez, sinon vous les répartirez après coup depuis
-            l&apos;arrivage. Tout ce qui n&apos;est pas réglé reste dû au fournisseur.
-          </Text>
-        </View>
-
         <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
           <View className="gap-1.5">
             <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Fournisseur
             </Text>
+            <View className="flex-row items-center gap-2">
+              <TextInput
+                className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
+                onChangeText={(text) => {
+                  setSupplierSearch(text);
+                  setSupplierNotice(null);
+                }}
+                placeholder="Rechercher ou créer un fournisseur…"
+                placeholderTextColor="#94A3B8"
+                selectionColor="#208AEF"
+                value={supplierSearch}
+              />
+              {supplierSearch ? (
+                <Pressable
+                  accessibilityLabel="Effacer la recherche"
+                  className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                  onPress={() => setSupplierSearch("")}
+                >
+                  <Ionicons color="#64748B" name="close" size={16} />
+                </Pressable>
+              ) : null}
+            </View>
+
             <ScrollView
               contentContainerStyle={{ gap: 8 }}
               horizontal
-              showsHorizontalScrollIndicator={false}>
+              showsHorizontalScrollIndicator={false}
+            >
               {suppliers.isPending ? (
                 <ActivityIndicator color="#208AEF" />
-              ) : (suppliers.data ?? []).length === 0 ? (
-                <Text className="text-sm text-slate-500">Aucun fournisseur actif.</Text>
+              ) : supplierMatches.length === 0 ? (
+                <Text className="text-sm text-slate-500">
+                  {supplierTerm
+                    ? "Aucun fournisseur trouvé."
+                    : "Aucun fournisseur actif."}
+                </Text>
               ) : (
-                (suppliers.data ?? []).map((supplier) => (
+                supplierMatches.map((supplier) => (
                   <Chip
                     active={supplier.id === supplierId}
                     key={supplier.id}
                     label={supplier.name}
-                    onPress={() => setValue('supplierId', supplier.id)}
+                    onPress={() => {
+                      setValue("supplierId", supplier.id);
+                      setSupplierNotice(null);
+                    }}
                   />
                 ))
               )}
             </ScrollView>
+
+            {canCreateSupplier ? (
+              <Pressable
+                className="flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
+                disabled={creatingSupplier}
+                onPress={() => void createSupplier()}
+              >
+                <Ionicons color="#208AEF" name="add" size={15} />
+                <Text className="text-sm font-semibold text-brand">
+                  {creatingSupplier ? "Création…" : `Créer « ${supplierTerm} »`}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {supplierNotice ? (
+              <Text className="text-xs font-semibold text-emerald-600">
+                Fournisseur « {supplierNotice} » créé et sélectionné.
+              </Text>
+            ) : null}
+
             {errors.supplierId ? (
-              <Text className="text-xs text-red-600">{errors.supplierId.message}</Text>
+              <Text className="text-xs text-red-600">
+                {errors.supplierId.message}
+              </Text>
             ) : null}
           </View>
 
@@ -561,7 +767,7 @@ export default function NewArrivalScreen() {
                 autoCapitalize="none"
                 className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
                 keyboardType="numbers-and-punctuation"
-                onChangeText={(date) => setValue('date', date.trim())}
+                onChangeText={(date) => setValue("date", date.trim())}
                 placeholder="2026-10-02"
                 placeholderTextColor="#94A3B8"
                 selectionColor="#208AEF"
@@ -570,11 +776,16 @@ export default function NewArrivalScreen() {
             </View>
             <Pressable
               className="h-11 items-center justify-center rounded-xl bg-slate-100 px-4"
-              onPress={() => setValue('date', todayISO())}>
-              <Text className="text-sm font-medium text-slate-700">Aujourd&apos;hui</Text>
+              onPress={() => setValue("date", todayISO())}
+            >
+              <Text className="text-sm font-medium text-slate-700">
+                Aujourd&apos;hui
+              </Text>
             </Pressable>
           </View>
-          {errors.date ? <Text className="text-xs text-red-600">{errors.date.message}</Text> : null}
+          {errors.date ? (
+            <Text className="text-xs text-red-600">{errors.date.message}</Text>
+          ) : null}
 
           <View className="gap-1.5">
             <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -583,11 +794,11 @@ export default function NewArrivalScreen() {
             <TextInput
               className="min-h-16 rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900"
               multiline
-              onChangeText={(notes) => setValue('notes', notes)}
+              onChangeText={(notes) => setValue("notes", notes)}
               placeholder="Conteneur, référence fournisseur…"
               placeholderTextColor="#94A3B8"
               selectionColor="#208AEF"
-              value={values.notes ?? ''}
+              value={values.notes ?? ""}
             />
           </View>
         </View>
@@ -616,23 +827,31 @@ export default function NewArrivalScreen() {
 
           <Pressable
             className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-dashed border-brand bg-brand/5"
-            onPress={() => append(emptyCarton(products.data?.[0]?.id ?? ''))}>
+            onPress={() => append(emptyCarton(products.data?.[0]?.id ?? ""))}
+          >
             <Ionicons color="#208AEF" name="add" size={18} />
             <Text className="font-semibold text-brand">Ajouter un carton</Text>
           </Pressable>
         </View>
 
         <View className="gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-          <Pressable className="flex-row items-center justify-between" onPress={togglePayment}>
+          <Pressable
+            className="flex-row items-center justify-between"
+            onPress={togglePayment}
+          >
             <View className="flex-1 pr-3">
-              <Text className="text-sm font-semibold text-slate-900">Réglé au fournisseur</Text>
+              <Text className="text-sm font-semibold text-slate-900">
+                Réglé au fournisseur
+              </Text>
               <Text className="text-xs text-slate-500">
                 Payé en totalité ou en partie — le reste reste dû au fournisseur
               </Text>
             </View>
             <Ionicons
-              color={values.payment.enabled ? '#16A34A' : '#CBD5E1'}
-              name={values.payment.enabled ? 'checkbox-outline' : 'square-outline'}
+              color={values.payment.enabled ? "#16A34A" : "#CBD5E1"}
+              name={
+                values.payment.enabled ? "checkbox-outline" : "square-outline"
+              }
               size={24}
             />
           </Pressable>
@@ -647,101 +866,71 @@ export default function NewArrivalScreen() {
                   className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
                   keyboardType="numeric"
                   onChangeText={(raw) =>
-                    setValue('payment.amount', Number(raw.replace(/[^0-9]/g, '')) || 0)
+                    setValue(
+                      "payment.amount",
+                      Number(raw.replace(/[^0-9]/g, "")) || 0,
+                    )
                   }
                   placeholder="0"
                   placeholderTextColor="#94A3B8"
                   selectionColor="#208AEF"
-                  value={values.payment.amount ? String(values.payment.amount) : ''}
+                  value={
+                    values.payment.amount ? String(values.payment.amount) : ""
+                  }
                 />
                 <Text className="text-xs text-slate-400">
-                  Total de l&apos;arrivage : {formatMoney(totals.cost)} — solde fournisseur :{' '}
-                  {formatMoney(Math.max(0, totals.cost - values.payment.amount))}
+                  Total de l&apos;arrivage : {formatMoney(totals.cost)} — solde
+                  fournisseur :{" "}
+                  {formatMoney(
+                    Math.max(0, totals.cost - values.payment.amount),
+                  )}
+                  {values.payment.amount === 0
+                    ? " (tout reste dû : dette fournisseur ouverte)"
+                    : ""}
                 </Text>
                 <Pressable
                   className="self-start rounded-lg bg-brand/10 px-3 py-1.5"
-                  onPress={() => setValue('payment.amount', totals.cost)}>
+                  onPress={() => setValue("payment.amount", totals.cost)}
+                >
                   <Text className="text-sm font-medium text-brand">
                     Payer tout ({formatMoney(totals.cost)})
                   </Text>
                 </Pressable>
               </View>
 
-              <View className="gap-1.5">
-                <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Mode de paiement
-                </Text>
-                <ScrollView
-                  contentContainerStyle={{ gap: 8 }}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}>
-                  {(methods.data ?? []).map((method) => (
-                    <Chip
-                      active={values.payment.method === method.name}
-                      key={method.id}
-                      label={method.name}
-                      onPress={() =>
-                        setValue(
-                          'payment.method',
-                          values.payment.method === method.name ? undefined : method.name,
-                        )
-                      }
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-              {errors.payment?.amount ? (
-                <Text className="text-xs text-red-600">{errors.payment.amount.message}</Text>
+              {/* Rien de réglé (0 Ar) : aucun mode de paiement à choisir. */}
+              {values.payment.amount > 0 ? (
+                <View className="gap-1.5">
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Mode de paiement
+                  </Text>
+                  <ScrollView
+                    contentContainerStyle={{ gap: 8 }}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {(methods.data ?? []).map((method) => (
+                      <Chip
+                        active={values.payment.method === method.name}
+                        key={method.id}
+                        label={method.name}
+                        onPress={() =>
+                          setValue(
+                            "payment.method",
+                            values.payment.method === method.name
+                              ? undefined
+                              : method.name,
+                          )
+                        }
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
               ) : null}
-            </View>
-          ) : null}
-
-          <Pressable
-            className="flex-row items-center justify-between border-t border-slate-100 pt-3"
-            onPress={toggleFunding}>
-            <View className="flex-1 pr-3">
-              <Text className="text-sm font-semibold text-slate-900">Financement</Text>
-              <Text className="text-xs text-slate-500">
-                Origine de l&apos;argent (argent propre, emprunt, caisse…)
-              </Text>
-            </View>
-            <Ionicons
-              color={values.funding.enabled ? '#16A34A' : '#CBD5E1'}
-              name={values.funding.enabled ? 'checkbox-outline' : 'square-outline'}
-              size={24}
-            />
-          </Pressable>
-
-          {values.funding.enabled ? (
-            <View className="gap-3 border-t border-slate-100 pt-3">
-              <View className="flex-row flex-wrap gap-2">
-                {FUNDING_SOURCES.map((source) => (
-                  <Chip
-                    active={values.funding.source === source.value}
-                    key={source.value}
-                    label={source.label}
-                    onPress={() => setValue('funding.source', source.value)}
-                  />
-                ))}
-              </View>
-              <View className="gap-1.5">
-                <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Montant financé (Ar)
+              {errors.payment?.amount ? (
+                <Text className="text-xs text-red-600">
+                  {errors.payment.amount.message}
                 </Text>
-                <TextInput
-                  className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
-                  keyboardType="numeric"
-                  onChangeText={(raw) =>
-                    setValue('funding.amount', Number(raw.replace(/[^0-9]/g, '')) || 0)
-                  }
-                  placeholder="0"
-                  placeholderTextColor="#94A3B8"
-                  selectionColor="#208AEF"
-                  value={values.funding.amount ? String(values.funding.amount) : ''}
-                />
-              </View>
-              {errors.funding?.amount ? (
-                <Text className="text-xs text-red-600">{errors.funding.amount.message}</Text>
               ) : null}
             </View>
           ) : null}
@@ -749,22 +938,32 @@ export default function NewArrivalScreen() {
       </ScrollView>
 
       <View className="gap-3 border-t border-slate-200 bg-white px-4 py-3">
+        {formError ? (
+          <View className="rounded-xl bg-red-50 px-3 py-2">
+            <Text className="text-xs leading-5 text-red-600">{formError}</Text>
+          </View>
+        ) : null}
         <View className="flex-row items-center justify-between">
           <Text className="text-sm text-slate-500">
             {`${totals.quantity} pièce(s) · ${values.cartons.length} carton(s)`}
           </Text>
-          <Text className="text-lg font-bold text-slate-900">{formatMoney(totals.cost)}</Text>
+          <Text className="text-lg font-bold text-slate-900">
+            {formatMoney(totals.cost)}
+          </Text>
         </View>
         <Pressable
           className={`h-12 items-center justify-center rounded-xl ${
-            pending ? 'bg-slate-400' : 'bg-brand'
+            pending ? "bg-slate-400" : "bg-brand"
           }`}
           disabled={pending}
-          onPress={() => void onSubmit()}>
+          onPress={() => void onSubmit()}
+        >
           {pending ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text className="text-base font-semibold text-white">Enregistrer l&apos;arrivage</Text>
+            <Text className="text-base font-semibold text-white">
+              Enregistrer l&apos;arrivage
+            </Text>
           )}
         </Pressable>
       </View>

@@ -95,7 +95,7 @@ export default function NewSaleScreen() {
   const customers = useCustomers();
   const onlineSellers = useOnlineSellers();
   const methods = usePaymentMethods();
-  const results = useVariantSearch(debounced);
+  const results = useVariantSearch(debounced, { inStock: true });
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(term), 300);
@@ -170,31 +170,39 @@ export default function NewSaleScreen() {
         </View>
 
         {debounced.trim().length >= 2 ? (
-          <View className="mt-2 max-h-56 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
             {results.isPending ? (
               <ActivityIndicator className="py-4" color="#208AEF" />
             ) : (results.data ?? []).length === 0 ? (
-              <Text className="px-3 py-4 text-sm text-slate-400">Aucun article trouvé.</Text>
+              <Text className="px-3 py-4 text-sm text-slate-400">
+                Aucun article en stock trouvé.
+              </Text>
             ) : (
-              (results.data ?? []).map((variant) => (
-                <Pressable
-                  className="flex-row items-center justify-between border-b border-slate-100 px-3 py-3 last:border-b-0"
-                  key={variant.id}
-                  onPress={() => addVariant(variant)}>
-                  <View className="flex-1 pr-3">
-                    <Text className="text-sm font-medium text-slate-800">
-                      {variant.product.name}
+              <ScrollView
+                className="max-h-56"
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled>
+                {(results.data ?? []).map((variant) => (
+                  <Pressable
+                    className="flex-row items-center justify-between border-b border-slate-100 px-3 py-3 last:border-b-0"
+                    key={variant.id}
+                    onPress={() => addVariant(variant)}>
+                    <View className="flex-1 pr-3">
+                      <Text className="text-sm font-medium text-slate-800">
+                        {variant.product.name}
+                      </Text>
+                      <Text className="text-xs text-slate-400">
+                        Pointure {variant.size.label || variant.size.value}
+                        {variant.sku ? ` · ${variant.sku}` : ''}
+                        {variant.stock > 0 ? ` · ${variant.stock} en stock` : ''}
+                      </Text>
+                    </View>
+                    <Text className="text-sm font-semibold text-slate-700">
+                      {formatMoney(variant.sellingPrice)}
                     </Text>
-                    <Text className="text-xs text-slate-400">
-                      Pointure {variant.size.label || variant.size.value}
-                      {variant.sku ? ` · ${variant.sku}` : ''}
-                    </Text>
-                  </View>
-                  <Text className="text-sm font-semibold text-slate-700">
-                    {formatMoney(variant.sellingPrice)}
-                  </Text>
-                </Pressable>
-              ))
+                  </Pressable>
+                ))}
+              </ScrollView>
             )}
           </View>
         ) : null}
@@ -216,70 +224,73 @@ export default function NewSaleScreen() {
                 </Text>
               </View>
             ) : (
-              fields.map((line, index) => (
-                <View className="rounded-xl border border-slate-200 bg-white p-3" key={line.id}>
-                  <View className="flex-row items-start justify-between gap-2">
-                    <View className="flex-1">
-                      <Text className="text-sm font-semibold text-slate-800">
-                        {line.productName}
-                      </Text>
-                      <Text className="text-xs text-slate-400">Pointure {line.sizeLabel}</Text>
-                      <StockHint quantity={line.quantity} variantId={line.variantId} />
-                    </View>
-                    <Pressable hitSlop={8} onPress={() => remove(index)}>
-                      <Ionicons color="#EF4444" name="trash-outline" size={20} />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-2 flex-row items-center gap-3">
-                    <View className="flex-row items-center overflow-hidden rounded-lg border border-slate-300">
-                      <Pressable
-                        className="h-8 w-8 items-center justify-center bg-slate-100"
-                        onPress={() =>
-                          update(index, { ...line, quantity: Math.max(1, line.quantity - 1) })
-                        }>
-                        <Ionicons color="#334155" name="remove" size={16} />
-                      </Pressable>
-                      <Text className="w-9 text-center text-sm font-semibold text-slate-800">
-                        {line.quantity}
-                      </Text>
-                      <Pressable
-                        className="h-8 w-8 items-center justify-center bg-slate-100"
-                        onPress={() => update(index, { ...line, quantity: line.quantity + 1 })}>
-                        <Ionicons color="#334155" name="add" size={16} />
+              fields.map((fieldLine, index) => {
+                const line = items[index] ?? fieldLine;
+                return (
+                  <View className="rounded-xl border border-slate-200 bg-white p-3" key={fieldLine.id}>
+                    <View className="flex-row items-start justify-between gap-2">
+                      <View className="flex-1">
+                        <Text className="text-sm font-semibold text-slate-800">
+                          {line.productName}
+                        </Text>
+                        <Text className="text-xs text-slate-400">Pointure {line.sizeLabel}</Text>
+                        <StockHint quantity={line.quantity} variantId={line.variantId} />
+                      </View>
+                      <Pressable hitSlop={8} onPress={() => remove(index)}>
+                        <Ionicons color="#EF4444" name="trash-outline" size={20} />
                       </Pressable>
                     </View>
 
-                    <Controller
-                      control={control}
-                      name={`items.${index}.unitPrice`}
-                      render={({ field }) => (
-                        <TextInput
-                          className="h-9 flex-1 rounded-lg border border-slate-300 px-3 text-right text-sm text-slate-900"
-                          keyboardType="numeric"
-                          onChangeText={(raw) => {
-                            const digits = raw.replace(/[^0-9]/g, '');
-                            field.onChange(digits === '' ? 0 : Number(digits));
-                          }}
-                          placeholder="Prix"
-                          placeholderTextColor="#94A3B8"
-                          selectionColor="#208AEF"
-                          value={line.unitPrice ? String(line.unitPrice) : ''}
-                        />
-                      )}
-                    />
-                    <Text className="w-24 text-right text-sm font-semibold text-slate-800">
-                      {formatMoney(line.quantity * line.unitPrice)}
-                    </Text>
-                  </View>
+                    <View className="mt-2 flex-row items-center gap-3">
+                      <View className="flex-row items-center overflow-hidden rounded-lg border border-slate-300">
+                        <Pressable
+                          className="h-8 w-8 items-center justify-center bg-slate-100"
+                          onPress={() =>
+                            update(index, { ...line, quantity: Math.max(1, line.quantity - 1) })
+                          }>
+                          <Ionicons color="#334155" name="remove" size={16} />
+                        </Pressable>
+                        <Text className="w-9 text-center text-sm font-semibold text-slate-800">
+                          {line.quantity}
+                        </Text>
+                        <Pressable
+                          className="h-8 w-8 items-center justify-center bg-slate-100"
+                          onPress={() => update(index, { ...line, quantity: line.quantity + 1 })}>
+                          <Ionicons color="#334155" name="add" size={16} />
+                        </Pressable>
+                      </View>
 
-                  {errors.items?.[index]?.unitPrice?.message ? (
-                    <Text className="mt-1 text-xs text-red-600">
-                      {errors.items[index]?.unitPrice?.message}
-                    </Text>
-                  ) : null}
-                </View>
-              ))
+                      <Controller
+                        control={control}
+                        name={`items.${index}.unitPrice`}
+                        render={({ field }) => (
+                          <TextInput
+                            className="h-9 flex-1 rounded-lg border border-slate-300 px-3 text-right text-sm text-slate-900"
+                            keyboardType="numeric"
+                            onChangeText={(raw) => {
+                              const digits = raw.replace(/[^0-9]/g, '');
+                              field.onChange(digits === '' ? 0 : Number(digits));
+                            }}
+                            placeholder="Prix"
+                            placeholderTextColor="#94A3B8"
+                            selectionColor="#208AEF"
+                            value={field.value ? String(field.value) : ''}
+                          />
+                        )}
+                      />
+                      <Text className="w-24 text-right text-sm font-semibold text-slate-800">
+                        {formatMoney(line.quantity * line.unitPrice)}
+                      </Text>
+                    </View>
+
+                    {errors.items?.[index]?.unitPrice?.message ? (
+                      <Text className="mt-1 text-xs text-red-600">
+                        {errors.items[index]?.unitPrice?.message}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })
             )}
           </View>
         </View>

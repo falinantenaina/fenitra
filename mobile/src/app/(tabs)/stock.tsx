@@ -1,13 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
-import { useArrivals, useLots, useRecentMovements, useStockSummary } from '@/lib/queries';
-import type { LotItem, StockMovementFeedItem } from '@/lib/types';
+import {
+  useArrivals,
+  useLots,
+  useRecentMovements,
+  useStockByProduct,
+  useStockSummary,
+} from '@/lib/queries';
+import type { LotItem, ProductStockItem, StockMovementFeedItem } from '@/lib/types';
+import { useRefresh } from '@/lib/use-refresh';
 import { useAuth } from '@/store/auth';
 
 const STATUS_FILTERS = [
@@ -16,6 +32,8 @@ const STATUS_FILTERS = [
   { key: 'CLOSED', label: 'Clôturés' },
 ] as const;
 
+type StatusFilter = (typeof STATUS_FILTERS)[number]['key'];
+
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-1 gap-1 rounded-xl bg-slate-50 px-3 py-2.5">
@@ -23,6 +41,21 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       <Text className="text-sm font-bold text-slate-900">{value}</Text>
     </View>
   );
+}
+
+function openLot(lot: LotItem) {
+  router.push({
+    pathname: '/stock/lot',
+    params: {
+      id: lot.id,
+      code: lot.code,
+      product: lot.variant.product.name,
+      size: lot.variant.size.label || `${lot.variant.size.value}`,
+      supplier: lot.supplier?.name ?? '',
+      arrival: lot.arrival?.reference ?? '',
+      entryDate: lot.entryDate,
+    },
+  });
 }
 
 function LotRow({ lot, onPress }: { lot: LotItem; onPress: () => void }) {
@@ -79,6 +112,76 @@ function MovementRow({ movement }: { movement: StockMovementFeedItem }) {
   );
 }
 
+/** Détail d'un modèle : ses lots, pointure par pointure (clic sur le modèle). */
+function ModelLots({ productId, status }: { productId: string; status: StatusFilter }) {
+  const lots = useLots({ productId, status });
+
+  return (
+    <View className="border-t border-slate-100 bg-slate-50 pt-3">
+      <Text className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Lots · {lots.total}
+      </Text>
+      <View className="mt-2 overflow-hidden bg-white">
+        {lots.isPending ? (
+          <ActivityIndicator className="py-4" color="#208AEF" />
+        ) : lots.isError ? (
+          <ErrorPanel
+            isRetrying={lots.isRefetching}
+            message="Impossible de charger les lots."
+            onRetry={() => void lots.refetch()}
+          />
+        ) : lots.items.length === 0 ? (
+          <Text className="px-3 py-4 text-sm text-slate-400">Aucun lot pour ce modèle.</Text>
+        ) : (
+          lots.items.map((lot) => <LotRow key={lot.id} lot={lot} onPress={() => openLot(lot)} />)
+        )}
+      </View>
+      <ListFooter
+        fetchNextPage={() => void lots.fetchNextPage()}
+        hasMore={lots.hasMore}
+        isFetchingNextPage={lots.isFetchingNextPage}
+        shown={lots.items.length}
+        total={lots.total}
+      />
+    </View>
+  );
+}
+
+/** Une ligne par modèle — le clic ouvre le détail de ses pointures. */
+function ModelRow({
+  model,
+  expanded,
+  status,
+  onPress,
+}: {
+  model: ProductStockItem;
+  expanded: boolean;
+  status: StatusFilter;
+  onPress: () => void;
+}) {
+  return (
+    <View className="border-b border-slate-100 last:border-b-0">
+      <Pressable className="flex-row items-center gap-3 px-3 py-3" onPress={onPress}>
+        <View className="flex-1">
+          <Text className="text-sm font-semibold text-slate-800">{model.name}</Text>
+          <Text className="text-xs text-slate-400">
+            {formatQuantity(model.lots)} lot(s) · {formatMoney(model.value)}
+          </Text>
+        </View>
+        <Text className="text-sm font-bold text-slate-900">
+          {formatQuantity(model.quantity)} disponibles
+        </Text>
+        <Ionicons
+          color={expanded ? '#208AEF' : '#CBD5E1'}
+          name={expanded ? 'chevron-down' : 'chevron-forward'}
+          size={16}
+        />
+      </Pressable>
+      {expanded ? <ModelLots productId={model.productId} status={status} /> : null}
+    </View>
+  );
+}
+
 export default function StockScreen() {
   const user = useAuth((state) => state.user);
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -86,34 +189,33 @@ export default function StockScreen() {
   const summary = useStockSummary(null);
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [status, setStatus] = useState<'' | 'OPEN' | 'CLOSED'>('');
-  const lots = useLots({ q: debounced, status });
+  const [status, setStatus] = useState<StatusFilter>('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const models = useStockByProduct({ q: debounced, status });
   const movements = useRecentMovements();
   // Cartons dont les pointures ne sont pas encore réparties (stock « à ventiler »).
   const unventilated = useArrivals({ unventilated: true });
+  const { onRefresh, refreshing } = useRefresh(async () => {
+    await Promise.all([
+      summary.refetch(),
+      models.refetch(),
+      movements.refetch(),
+      unventilated.refetch(),
+    ]);
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(term), 300);
     return () => clearTimeout(timer);
   }, [term]);
 
-  const openLot = (lot: LotItem) =>
-    router.push({
-      pathname: '/stock/lot',
-      params: {
-        id: lot.id,
-        code: lot.code,
-        product: lot.variant.product.name,
-        size: lot.variant.size.label || `${lot.variant.size.value}`,
-        supplier: lot.supplier?.name ?? '',
-        arrival: lot.arrival?.reference ?? '',
-        entryDate: lot.entryDate,
-      },
-    });
-
   return (
     <View className="flex-1 bg-white">
-      <ScrollView contentContainerStyle={{ gap: 14, padding: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ gap: 14, padding: 16 }}
+        refreshControl={
+          <RefreshControl colors={['#208AEF']} onRefresh={onRefresh} refreshing={refreshing} />
+        }>
         <Text className="text-xl font-bold text-slate-900">Stock</Text>
 
         {/* Résumé global */}
@@ -199,26 +301,42 @@ export default function StockScreen() {
           ))}
         </View>
 
-        {/* Lots */}
+        {/* Modèles : une ligne par modèle, détail des pointures au clic */}
         <View>
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Lots · {lots.total}
+            Modèles · {models.total}
           </Text>
           <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {lots.isPending ? (
+            {models.isPending ? (
               <ActivityIndicator className="py-4" color="#208AEF" />
-            ) : lots.items.length === 0 ? (
-              <Text className="px-3 py-4 text-sm text-slate-400">Aucun lot trouvé.</Text>
+            ) : models.isError ? (
+              <ErrorPanel
+                isRetrying={models.isRefetching}
+                message="Impossible de charger les modèles."
+                onRetry={() => void models.refetch()}
+              />
+            ) : models.items.length === 0 ? (
+              <Text className="px-3 py-4 text-sm text-slate-400">Aucun modèle trouvé.</Text>
             ) : (
-              lots.items.map((lot) => <LotRow key={lot.id} lot={lot} onPress={() => openLot(lot)} />)
+              models.items.map((model) => (
+                <ModelRow
+                  expanded={expanded === model.productId}
+                  key={model.productId}
+                  model={model}
+                  onPress={() =>
+                    setExpanded((current) => (current === model.productId ? null : model.productId))
+                  }
+                  status={status}
+                />
+              ))
             )}
           </View>
           <ListFooter
-            fetchNextPage={() => void lots.fetchNextPage()}
-            hasMore={lots.hasMore}
-            isFetchingNextPage={lots.isFetchingNextPage}
-            shown={lots.items.length}
-            total={lots.total}
+            fetchNextPage={() => void models.fetchNextPage()}
+            hasMore={models.hasMore}
+            isFetchingNextPage={models.isFetchingNextPage}
+            shown={models.items.length}
+            total={models.total}
           />
         </View>
 
@@ -230,6 +348,12 @@ export default function StockScreen() {
           <View className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
             {movements.isPending ? (
               <ActivityIndicator className="py-4" color="#208AEF" />
+            ) : movements.isError ? (
+              <ErrorPanel
+                isRetrying={movements.isRefetching}
+                message="Impossible de charger les mouvements."
+                onRetry={() => void movements.refetch()}
+              />
             ) : (movements.data?.items ?? []).length === 0 ? (
               <Text className="px-3 py-4 text-sm text-slate-400">Aucun mouvement.</Text>
             ) : (

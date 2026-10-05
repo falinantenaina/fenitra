@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { useAuth } from '@/store/auth';
 
@@ -8,7 +8,13 @@ export default function TabsLayout() {
   const status = useAuth((state) => state.status);
   const user = useAuth((state) => state.user);
 
-  if (status === 'loading') return null;
+  if (status === 'loading') {
+    return (
+      <View className="flex-1 items-center justify-center bg-white">
+        <ActivityIndicator color="#208AEF" size="large" />
+      </View>
+    );
+  }
   if (status === 'signedOut') return <Redirect href="/login" />;
 
   return (

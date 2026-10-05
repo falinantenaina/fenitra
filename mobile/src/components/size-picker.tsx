@@ -21,7 +21,7 @@ interface SizePickerProps {
  * (`36-40`, `36 à 40`, `36:40`) — borne serveur 1…100, 60 valeurs max par
  * envoi, plages bornées à 61 valeurs.
  */
-function parseSizeExpression(raw: string): number[] {
+export function parseSizeExpression(raw: string): number[] {
   const values = new Set<number>();
   const text = raw.toLowerCase().replace(/\s+/g, '');
   for (const token of text.split(/[,;]/)) {

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -94,6 +95,7 @@ function UserForm({ onDone }: { onDone: () => void }) {
     try {
       await createUser.mutateAsync(buildUserPayload(values));
       onDone();
+      Alert.alert('Utilisateur créé', `${values.name} · ${values.email}`);
     } catch (error) {
       Alert.alert('Utilisateur refusé', apiMessage(error));
     }
@@ -217,6 +219,7 @@ function UserEditForm({ user, onDone }: { user: UserItem; onDone: () => void }) 
         body: { name: values.name, role },
       });
       onDone();
+      Alert.alert('Utilisateur modifié', values.name);
     } catch (error) {
       Alert.alert('Utilisateur refusé', apiMessage(error));
     }
@@ -385,6 +388,12 @@ export default function UsersSettingsScreen() {
       <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {users.isPending ? (
           <ActivityIndicator className="py-4" color="#208AEF" />
+        ) : users.isError ? (
+          <ErrorPanel
+            isRetrying={users.isRefetching}
+            message="Impossible de charger les utilisateurs."
+            onRetry={() => void users.refetch()}
+          />
         ) : items.length === 0 ? (
           <Text className="px-3 py-4 text-sm text-slate-400">Aucun utilisateur.</Text>
         ) : (
