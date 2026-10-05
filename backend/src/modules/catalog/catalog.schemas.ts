@@ -51,6 +51,8 @@ export const updateSizeSchema = z
 export const variantListQuery = listQuerySchema.extend({
   productId: z.string().min(1).optional(),
   sizeId: z.string().min(1).optional(),
+  /** `true` = uniquement les pointures encore en stock (recherche de vente). */
+  inStock: z.enum(['true', 'false']).optional(),
   sort: z.enum(['createdAt', '-createdAt', 'sku', '-sku']).default('-createdAt'),
 });
 

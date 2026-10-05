@@ -152,6 +152,105 @@ describe('Arrivages & stock', () => {
     expect(res.body.error.code).toBe('BUSINESS_RULE_VIOLATION');
   });
 
+  it('accepte un règlement à 0 Ar : dette ouverte entière, ni paiement ni caisse', async () => {
+    const product = await admin.post('/products').send({ name: `Modèle Règlement 0 ${stamp}` });
+    const sizes = await admin.get('/sizes?limit=100');
+    const size42 = sizes.body.items.find((s: { value: number }) => s.value === 42);
+    await admin
+      .post('/variants')
+      .send({ productId: product.body.id, sizeId: size42.id, sellingPrice: 50000 });
+
+    const res = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [
+        {
+          reference: 'C0',
+          productId: product.body.id,
+          totalQty: 4,
+          totalCost: 80000,
+          sizes: [{ sizeId: size42.id, quantity: 4 }],
+        },
+      ],
+      payment: { amount: 0 },
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.paidAmount).toBe('0.00');
+    expect(res.body.unpaidAmount).toBe('80000.00');
+
+    // la totalité devient une dette fournisseur ouverte
+    expect(res.body.debt.status).toBe('OPEN');
+    expect(res.body.debt.initialAmount).toBe('80000.00');
+    expect(res.body.debt.paidAmount).toBe('0.00');
+    expect(res.body.debt.remainingAmount).toBe('80000.00');
+
+    // rien de réglé : aucun paiement, aucune écriture de caisse, aucun financement
+    expect(res.body.payments).toHaveLength(0);
+    expect(res.body.fundings).toHaveLength(0);
+    const ledger = await prisma.ledgerEntry.findMany({ where: { arrivalId: res.body.id } });
+    expect(ledger).toHaveLength(0);
+    const funding = await prisma.fundingAllocation.findMany({
+      where: { arrivalId: res.body.id },
+    });
+    expect(funding).toHaveLength(0);
+  });
+
+  it('regroupe le stock par modèle puis le détaille pointure par pointure', async () => {
+    const name = `Modèle Groupé ${stamp}`;
+    const product = await admin.post('/products').send({ name });
+    const sizes = await admin.get('/sizes?limit=100');
+    const size43 = sizes.body.items.find((s: { value: number }) => s.value === 43);
+    const size44 = sizes.body.items.find((s: { value: number }) => s.value === 44);
+    await admin
+      .post('/variants')
+      .send({ productId: product.body.id, sizeId: size43.id, sellingPrice: 50000 });
+    await admin
+      .post('/variants')
+      .send({ productId: product.body.id, sizeId: size44.id, sellingPrice: 55000 });
+
+    const arrival = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [
+        {
+          reference: 'CG',
+          productId: product.body.id,
+          totalQty: 9,
+          totalCost: 90000,
+          sizes: [
+            { sizeId: size43.id, quantity: 5 },
+            { sizeId: size44.id, quantity: 4 },
+          ],
+        },
+      ],
+    });
+    expect(arrival.status).toBe(201);
+
+    // une seule ligne pour le modèle : quantité, valorisation, nombre de lots
+    const grouped = await admin.get(`/stock/by-product?q=${encodeURIComponent(name)}`);
+    expect(grouped.status).toBe(200);
+    const model = grouped.body.items.find((i: { productId: string }) => i.productId === product.body.id);
+    expect(model).toMatchObject({ name, quantity: 9, value: '90000.00', lots: 2 });
+
+    // le détail reste lot par lot (pointures), filtrable par modèle
+    const lots = await admin.get(`/stock/lots?productId=${product.body.id}`);
+    expect(lots.status).toBe(200);
+    expect(lots.body.items).toHaveLength(2);
+    expect(
+      lots.body.items.every((l: { variant: { product: { id: string } } }) => l.variant.product.id === product.body.id),
+    ).toBe(true);
+    expect(
+      lots.body.items
+        .map((l: { variant: { size: { value: number } } }) => l.variant.size.value)
+        .sort((a: number, b: number) => a - b),
+    ).toEqual([43, 44]);
+
+    // le filtre de statut s'applique au groupement (aucun lot clôturé ici)
+    const closed = await admin.get(`/stock/by-product?status=CLOSED&q=${encodeURIComponent(name)}`);
+    expect(
+      closed.body.items.find((i: { productId: string }) => i.productId === product.body.id),
+    ).toBeUndefined();
+  });
+
   it('rejette une pointure inconnue (404)', async () => {
     const res = await admin
       .post('/arrivals')

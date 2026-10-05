@@ -17,6 +17,7 @@ import {
 import {
   cancelDebt,
   createDebt,
+  debtsByParty,
   debtsSummary,
   listDebts,
   listPayments,
@@ -42,6 +43,15 @@ debtsRouter.get(
   requireAuth,
   asyncHandler(async (_req, res) => {
     res.json(await debtsSummary());
+  }),
+);
+
+/** GET /api/debts/by-party — dettes regroupées par tiers (une ligne par personne) */
+debtsRouter.get(
+  '/by-party',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await debtsByParty(parseQuery(req, debtListQuery)));
   }),
 );
 

@@ -23,10 +23,21 @@ const summaryQuery = z.object({
 
 const lotListQuery = listQuerySchema.extend({
   variantId: z.string().min(1).optional(),
+  productId: z.string().min(1).optional(),
   supplierId: z.string().min(1).optional(),
   status: z.enum(['OPEN', 'CLOSED', 'CANCELLED']).optional(),
   q: z.string().trim().min(1).max(200).optional(),
 });
+
+const byProductQuery = listQuerySchema.extend({
+  status: z.enum(['OPEN', 'CLOSED']).optional(),
+});
+
+/** Motif ILIKE brut (SQL) — les caractères spéciaux sont échappés. */
+const ilikeRaw = (q: string | undefined): Prisma.Sql =>
+  q
+    ? Prisma.sql`AND p.name ILIKE ${`%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`}`
+    : Prisma.empty;
 
 const movementListQuery = listQuerySchema.extend({
   variantId: z.string().min(1).optional(),
@@ -92,19 +103,70 @@ stockRouter.get(
   }),
 );
 
+/**
+ * GET /api/stock/by-product — stock groupé par modèle : une ligne par modèle
+ * (quantité disponible, valorisation, nombre de lots). Le détail par pointure
+ * reste `GET /api/stock/lots?productId=`.
+ */
+stockRouter.get(
+  '/by-product',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const query = parseQuery(req, byProductQuery);
+    const statusFilter = query.status ? Prisma.sql`AND l.status = ${query.status}` : Prisma.empty;
+    const search = ilikeRaw(query.q);
+    const from = Prisma.sql`
+      FROM "StockLot" l
+      JOIN "ProductVariant" v ON v.id = l."variantId"
+      JOIN "Product" p ON p.id = v."productId"
+      WHERE l.status <> 'CANCELLED' ${statusFilter} ${search}`;
+
+    const [items, counts] = await Promise.all([
+      prisma.$queryRaw<
+        { productId: string; name: string; quantity: number; value: bigint; lots: number }[]
+      >`
+        SELECT
+          p.id                              AS "productId",
+          p.name                            AS name,
+          COALESCE(SUM(GREATEST(l."remainingQty", 0)), 0)::int     AS quantity,
+          COALESCE(SUM(GREATEST(l."remainingQty", 0) * l."unitCost"), 0)::bigint AS value,
+          COUNT(*)::int                     AS lots
+        ${from}
+        GROUP BY p.id, p.name
+        ORDER BY p.name ASC
+        LIMIT ${query.limit} OFFSET ${offset(query)}`,
+      prisma.$queryRaw<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count FROM (SELECT p.id ${from} GROUP BY p.id) g`,
+    ]);
+
+    res.json({
+      items: items.map((i) => ({
+        productId: i.productId,
+        name: i.name,
+        quantity: i.quantity,
+        value: money(Number(i.value)),
+        lots: i.lots,
+      })),
+      ...pageMeta(counts[0]?.count ?? 0, query.page, query.limit),
+    });
+  }),
+);
+
 /** GET /api/stock/lots — liste des lots (FIFO) */
 stockRouter.get(
   '/lots',
   requireAuth,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, lotListQuery);
+    const variantWhere = {
+      ...(query.variantId ? { id: query.variantId } : {}),
+      ...(query.productId ? { productId: query.productId } : {}),
+      ...(ilike(query.q) ? { product: { name: ilike(query.q) } } : {}),
+    };
     const where = {
-      ...(query.variantId ? { variantId: query.variantId } : {}),
       ...(query.supplierId ? { supplierId: query.supplierId } : {}),
       ...(query.status ? { status: query.status } : {}),
-      ...(ilike(query.q)
-        ? { variant: { product: { name: ilike(query.q) } } }
-        : {}),
+      ...(Object.keys(variantWhere).length > 0 ? { variant: variantWhere } : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -270,11 +332,23 @@ stockRouter.post(
         notes: body.reason,
       });
 
-      const category = await tx.expenseCategory.upsert({
-        where: { name: 'Ajustement de stock' },
-        create: { name: 'Ajustement de stock', icon: 'warning', order: 99 },
-        update: {},
+      const categoryName = 'Ajustement de stock';
+      const existingCategory = await tx.expenseCategory.findUnique({
+        where: { name: categoryName },
       });
+      const category =
+        existingCategory ??
+        (await tx.expenseCategory
+          .create({ data: { name: categoryName, icon: 'warning', order: 99 } })
+          .catch(async (error: unknown) => {
+            if (
+              !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+              error.code !== 'P2002'
+            ) {
+              throw error;
+            }
+            return tx.expenseCategory.findUniqueOrThrow({ where: { name: categoryName } });
+          }));
 
       const expense = await tx.expense.create({
         data: {

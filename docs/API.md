@@ -127,7 +127,7 @@ sont en `manager`.
 | GET | `/api/sizes` | auth | Liste des pointures |
 | POST | `/api/sizes` | manager | Création |
 | PUT/DELETE | `/api/sizes/:id` | manager | Mise à jour, suppression |
-| GET | `/api/variants` | auth | Liste des variantes (produit × pointure) |
+| GET | `/api/variants` | auth | Liste des variantes (produit × pointure) — champ `stock` (paires dispo) et filtre `inStock=true` pour la recherche de vente |
 | POST | `/api/variants` | manager | Création |
 | GET/PUT | `/api/variants/:id` | auth / manager | Détail, mise à jour |
 | PUT | `/api/variants/:id/price` | manager | Changement de prix de vente (→ historique) |
@@ -159,13 +159,24 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | POST | `/api/arrivals/:id/ventilate` | manager | **Ventilation** : `[{ cartonId, lines: [{ sizeId, quantity }] }]` — prix unitaire **imposé** `floor(totalCost / totalQty)`, somme des quantités exacte (sinon 422) → lignes + lots + mouvement `IN`, **zéro écriture comptable** (idempotent) |
 | POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) — cartons encore à ventiler : simple retrait, transit retiré de la valorisation |
 | GET | `/api/stock/summary` | auth | Quantité + valeur (`variantId`, `from`, `to`) — inclut les **cartons à ventiler** (hors filtre `variantId`, qui porte sur des pointures) |
-| GET | `/api/stock/lots` | auth | Lots (`variantId`, `status`, `page`) |
+| GET | `/api/stock/by-product` | auth | **Stock groupé par modèle** (`q`, `status`, `page`) : `{ productId, name, quantity, value, lots }` — une ligne par modèle, le détail par pointure reste `/stock/lots?productId=` |
+| GET | `/api/stock/lots` | auth | Lots (`productId`, `variantId`, `supplierId`, `status`, `q`, `page`) |
 | GET | `/api/stock/lots/:id/movements` | auth | Mouvements d'un lot — le `lot` expose `variantId` (→ `GET /variants/:id/price-history`, §18) |
 | GET | `/api/stock/movements` | auth | Mouvements (`from`, `to`, `type`) |
 | POST | `/api/stock/adjustments` | manager | Casse/perte (`variantId`, `qty`, `reason`) |
 
 > Les règlements de la dette fournisseur passent par `POST /api/debts/:id/payments`
 > sur la dette générée à la création de l'arrivage.
+>
+> `payment.amount` accepte `0` : rien n'est réglé, la totalité devient une dette fournisseur
+> `OPEN` (aucun `Payment`, aucune écriture de caisse). Un règlement partiel
+> (`0 < amount < total`) ouvre une dette `PARTIAL`. Sans bloc `payment`, comportement
+> identique à `amount: 0`. Ce qui est réglé sort **toujours de la caisse**
+> (`SUPPLIER_PAYMENT`, `cashDelta = -amount`) ; le solde reste dû au fournisseur.
+> L'application n'envoie **plus** de bloc `funding` : plus de choix de source de
+> financement (ni emprunt, ni crédit fournisseur). Le champ reste accepté côté API —
+> `FundingAllocation` est une simple **étiquette de reporting** (§ ANALYSE A7), sans
+> aucun mouvement de caisse.
 
 ---
 
@@ -188,8 +199,9 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/debts` | auth | Liste (`type`, `status`, `partyId`, `from`, `to`, `q`, `page`) |
+| GET | `/api/debts` | auth | Liste (`type`, `direction`, `status`, `partyId`, `partyName`, `from`, `to`, `q`, `page`) |
 | GET | `/api/debts/summary` | auth | Totaux par type (dashboard) |
+| GET | `/api/debts/by-party` | auth | **Dettes groupées par tiers** (`type`, `direction`, `status`, `page`) : une ligne par personne — `{ key, party: { id, name }, type, direction, count, statusCounts, initialAmount, remainingAmount }`, le détail restant `/debts?partyId=` (ou `partyName` pour une trosa sinoa) |
 | POST | `/api/debts` | manager | Création manuelle (motif obligatoire) |
 | GET | `/api/debts/:id` | auth | Détail + historique des paiements (§50) |
 | POST | `/api/debts/:id/payments` | manager | Paiement multiple partiel |

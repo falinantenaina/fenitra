@@ -61,7 +61,8 @@ const cartonSchema = z
   });
 
 const paymentSchema = z.object({
-  amount: z.number().int().min(1, 'Montant invalide'),
+  // 0 = rien de réglé : le montant entier devient une dette fournisseur.
+  amount: z.number().int().min(0, 'Montant invalide'),
   method: z.string().trim().max(40).nullish(),
   date: z.coerce.date().optional(),
   notes: z.string().trim().max(500).nullish(),

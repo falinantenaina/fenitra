@@ -401,11 +401,12 @@ export async function cancelDebt(debtId: string, reason: string, userId: string 
   });
 }
 
-export async function listDebts(query: DebtListQuery) {
-  const where: Prisma.DebtWhereInput = {
+/** Filtres communs à la liste (`GET /debts`) et au groupement (`/debts/by-party`). */
+function debtsWhere(query: DebtListQuery): Prisma.DebtWhereInput {
+  return {
     ...(query.type ? { type: query.type } : {}),
     ...(query.direction ? { direction: query.direction } : {}),
-    ...(query.status ? { status: query.status } : { status: { not: 'CANCELLED' } }),
+    ...(query.status ? { status: query.status } : { status: { not: 'CANCELLED' as const } }),
     ...(query.partyId
       ? {
           OR: [
@@ -415,11 +416,16 @@ export async function listDebts(query: DebtListQuery) {
           ],
         }
       : {}),
+    ...(query.partyName ? { partyName: query.partyName } : {}),
     ...(query.from || query.to
       ? { date: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
       : {}),
     ...(ilike(query.q) ? { reason: ilike(query.q) } : {}),
   };
+}
+
+export async function listDebts(query: DebtListQuery) {
+  const where = debtsWhere(query);
 
   const [items, total] = await Promise.all([
     prisma.debt.findMany({
@@ -433,6 +439,90 @@ export async function listDebts(query: DebtListQuery) {
   ]);
 
   return { items: items.map(debtRow), ...pageMeta(total, query.page, query.limit) };
+}
+
+type PartyGroup = {
+  key: string;
+  party: { id: string | null; name: string };
+  type: DebtType;
+  direction: DebtDirection;
+  count: number;
+  statusCounts: Record<DebtStatus, number>;
+  initialAmount: number;
+  remainingAmount: number;
+};
+
+/**
+ * `GET /debts/by-party` — dettes regroupées par tiers : une ligne par personne
+ * (total dû, nombre de dettes, répartition par statut), le détail restant
+ * `GET /debts?partyId=` (ou `partyName` pour une trosa sinoa).
+ */
+export async function debtsByParty(query: DebtListQuery) {
+  const groups = await prisma.debt.groupBy({
+    by: ['type', 'status', 'customerId', 'onlineSellerId', 'supplierId', 'partyName'],
+    where: debtsWhere(query),
+    _count: { _all: true },
+    _sum: { initialAmount: true, remainingAmount: true },
+  });
+
+  const idsOf = (key: 'customerId' | 'onlineSellerId' | 'supplierId') => [
+    ...new Set(groups.map((g) => g[key]).filter((v): v is string => Boolean(v))),
+  ];
+
+  const [customers, sellers, suppliers] = await Promise.all([
+    prisma.customer.findMany({
+      where: { id: { in: idsOf('customerId') } },
+      select: { id: true, name: true },
+    }),
+    prisma.onlineSeller.findMany({
+      where: { id: { in: idsOf('onlineSellerId') } },
+      select: { id: true, name: true },
+    }),
+    prisma.supplier.findMany({
+      where: { id: { in: idsOf('supplierId') } },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const names = new Map<string, string>();
+  for (const party of [...customers, ...sellers, ...suppliers]) names.set(party.id, party.name);
+
+  const merged = new Map<string, PartyGroup>();
+  for (const g of groups) {
+    const partyId = g.customerId ?? g.onlineSellerId ?? g.supplierId ?? null;
+    const key = `${g.type}:${partyId ?? g.partyName ?? ''}`;
+    const row: PartyGroup = merged.get(key) ?? {
+      key,
+      party: { id: partyId, name: (partyId ? names.get(partyId) : undefined) ?? g.partyName ?? '—' },
+      type: g.type,
+      direction: directionOf(g.type),
+      count: 0,
+      statusCounts: { OPEN: 0, PARTIAL: 0, PAID: 0, CANCELLED: 0 },
+      initialAmount: 0,
+      remainingAmount: 0,
+    };
+
+    row.count += g._count._all;
+    row.statusCounts[g.status] += g._count._all;
+    row.initialAmount += g._sum.initialAmount ?? 0;
+    row.remainingAmount += g._sum.remainingAmount ?? 0;
+    merged.set(key, row);
+  }
+
+  const rows = [...merged.values()].sort(
+    (a, b) => a.party.name.localeCompare(b.party.name) || a.type.localeCompare(b.type),
+  );
+  const total = rows.length;
+  const items = rows.slice(offset(query), offset(query) + query.limit);
+
+  return {
+    items: items.map((r) => ({
+      ...r,
+      initialAmount: money(r.initialAmount),
+      remainingAmount: money(r.remainingAmount),
+    })),
+    ...pageMeta(total, query.page, query.limit),
+  };
 }
 
 /** Synthèse des dettes par type (§30) — destinée au tableau de bord. */

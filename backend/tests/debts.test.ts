@@ -220,6 +220,56 @@ describe('Dettes & règlements', () => {
     expect(payments.body.items[0]).toMatchObject({ direction: 'OUT', partyType: 'SUPPLIER', amount: '70000.00' });
   });
 
+  it('regroupe les dettes par tiers (GET /debts/by-party)', async () => {
+    const res = await admin.get('/debts/by-party?direction=PAYABLE');
+    expect(res.status).toBe(200);
+
+    // une seule ligne par personne, même si elle a plusieurs dettes
+    const keys = res.body.items.map((g: { key: string }) => g.key);
+    expect(new Set(keys).size).toBe(keys.length);
+
+    const supplierGroup = res.body.items.find(
+      (g: { party: { id: string | null } }) => g.party.id === supplierId,
+    );
+    expect(supplierGroup).toMatchObject({
+      type: 'SUPPLIER',
+      direction: 'PAYABLE',
+      party: { id: supplierId, name: `Fournisseur Dette ${stamp}` },
+    });
+    expect(supplierGroup.count).toBeGreaterThanOrEqual(1);
+    expect(supplierGroup.statusCounts.PARTIAL).toBeGreaterThanOrEqual(1);
+
+    // le total du groupe est la somme exacte des dettes de ce tiers
+    const detail = await admin.get(`/debts?partyId=${supplierId}`);
+    expect(detail.body.total).toBe(supplierGroup.count);
+    const sum = detail.body.items.reduce(
+      (s: number, d: { remainingAmount: string }) => s + Number(d.remainingAmount),
+      0,
+    );
+    expect(Number(supplierGroup.remainingAmount)).toBe(sum);
+
+    // trosa sinoa : pas de tiers enregistré, regroupée par nom
+    const trosa = res.body.items.find(
+      (g: { type: string; party: { name: string } }) =>
+        g.type === 'TROSA_SINOA' && g.party.name === 'Rakoto',
+    );
+    expect(trosa).toMatchObject({ party: { id: null, name: 'Rakoto' }, direction: 'PAYABLE' });
+
+    const byName = await admin.get(`/debts?partyName=${encodeURIComponent('Rakoto')}`);
+    expect(byName.status).toBe(200);
+    expect(byName.body.items.some((d: { id: string }) => d.id === trosaDebtId)).toBe(true);
+    expect(byName.body.items.every((d: { type: string }) => d.type === 'TROSA_SINOA')).toBe(true);
+
+    // les filtres s'appliquent aussi au groupement
+    const paidOnly = await admin.get('/debts/by-party?status=PAID');
+    expect(paidOnly.status).toBe(200);
+    expect(
+      paidOnly.body.items.every(
+        (g: { statusCounts: Record<string, number> }) => g.statusCounts.OPEN === 0,
+      ),
+    ).toBe(true);
+  });
+
   it('annule une dette manuelle par contre-passation', async () => {
     const created = await manager
       .post('/debts')

@@ -25,6 +25,8 @@ export const debtListQuery = listQuerySchema.extend({
   direction: z.enum(['RECEIVABLE', 'PAYABLE']).optional(),
   status: z.enum(['OPEN', 'PARTIAL', 'PAID', 'CANCELLED']).optional(),
   partyId: z.string().min(1).optional(),
+  /** Nom exact — détecte les dettes TROSA SINOA, qui n'ont pas de tiers enregistré. */
+  partyName: z.string().trim().min(1).max(120).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 });

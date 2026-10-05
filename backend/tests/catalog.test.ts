@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { adminToken, API, app, as, tokenFor, type AuthedRequest } from './helpers';
+import { adminToken, API, app, as, carton, tokenFor, type AuthedRequest } from './helpers';
 
 const stamp = Date.now();
 
@@ -105,7 +105,7 @@ describe('Catalogue', () => {
 
   it('refuse la suppression d\'une pointure utilisée (409)', async () => {
     const sizes = await admin.get('/sizes?limit=100');
-    const used = sizes.body.items.find((s: { value: number }) => s.value === 42);
+    const used = sizes.body.items.find((s: { value: number }) => s.value === 46);
     expect(used).toBeDefined();
 
     const res = await admin.delete(`/sizes/${used.id}`);
@@ -188,6 +188,58 @@ describe('Catalogue', () => {
     const forbidden = await cashier.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [42] });
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('inStock=true ne retourne que les pointures vendables (recherche de vente)', async () => {
+    const supplier = await admin.post('/suppliers').send({ name: `Fournisseur Stock ${stamp}` });
+    expect(supplier.status).toBe(201);
+
+    const name = `Modèle Rupture ${stamp}`;
+    const product = await admin.post('/products').send({ name });
+    expect(product.status).toBe(201);
+
+    const sizes = await admin.get('/sizes?limit=100');
+    const size40 = sizes.body.items.find((s: { value: number }) => s.value === 40);
+    const size41 = sizes.body.items.find((s: { value: number }) => s.value === 41);
+
+    const stocked = await admin
+      .post('/variants')
+      .send({ productId: product.body.id, sizeId: size40.id, sellingPrice: 30000 });
+    const empty = await admin
+      .post('/variants')
+      .send({ productId: product.body.id, sizeId: size41.id, sellingPrice: 30000 });
+    expect(stocked.status).toBe(201);
+    expect(empty.status).toBe(201);
+
+    const arrival = await admin.post('/arrivals').send({
+      supplierId: supplier.body.id,
+      cartons: [carton(product.body.id, size40.id, 7, 10000)],
+    });
+    expect(arrival.status).toBe(201);
+
+    const q = encodeURIComponent(name);
+
+    const all = await admin.get(`/variants?q=${q}`);
+    expect(all.status).toBe(200);
+    expect(all.body.items).toHaveLength(2);
+    expect(all.body.items.find((v: { id: string }) => v.id === stocked.body.id).stock).toBe(7);
+    expect(all.body.items.find((v: { id: string }) => v.id === empty.body.id).stock).toBe(0);
+
+    const inStock = await admin.get(`/variants?q=${q}&inStock=true`);
+    expect(inStock.status).toBe(200);
+    expect(inStock.body.items).toHaveLength(1);
+    expect(inStock.body.items[0].id).toBe(stocked.body.id);
+
+    // Épuisé par une vente : la pointure disparaît de la recherche de vente.
+    const sold = await admin.post('/sales').send({
+      items: [{ variantId: stocked.body.id, quantity: 7, unitPrice: 30000 }],
+      payment: { amount: 210000, method: 'Espèces' },
+    });
+    expect(sold.status).toBe(201);
+
+    const after = await admin.get(`/variants?q=${q}&inStock=true`);
+    expect(after.status).toBe(200);
+    expect(after.body.items).toHaveLength(0);
   });
 
   it('désactive un produit (DELETE = suppression douce)', async () => {

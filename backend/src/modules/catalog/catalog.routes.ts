@@ -344,17 +344,21 @@ export const variantsRouter = Router();
 const variantSort = (s: string): Record<string, 'asc' | 'desc'> =>
   s.startsWith('-') ? { [s.slice(1)]: 'desc' } : { [s]: 'asc' };
 
-/** GET /api/variants */
+/** GET /api/variants — `inStock=true` limite aux pointures vendables (§vente). */
 variantsRouter.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
     const q = parseQuery(req, variantListQuery);
+    const inStock = boolFilter(q.inStock);
+    const hasStock = { status: { not: 'CANCELLED' }, remainingQty: { gt: 0 } };
     const where = {
       ...(q.productId ? { productId: q.productId } : {}),
       ...(q.sizeId ? { sizeId: q.sizeId } : {}),
       ...(boolFilter(q.active) !== undefined ? { active: boolFilter(q.active) } : {}),
       ...(ilike(q.q) ? { OR: [{ sku: ilike(q.q) }, { product: { name: ilike(q.q) } }] } : {}),
+      ...(inStock === true ? { lots: { some: hasStock } } : {}),
+      ...(inStock === false ? { lots: { none: hasStock } } : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -363,7 +367,11 @@ variantsRouter.get(
         orderBy: variantSort(q.sort),
         skip: offset(q),
         take: q.limit,
-        include: { product: true, size: true },
+        include: {
+          product: true,
+          size: true,
+          lots: { where: { status: { not: 'CANCELLED' } }, select: { remainingQty: true } },
+        },
       }),
       prisma.productVariant.count({ where }),
     ]);
@@ -374,6 +382,10 @@ variantsRouter.get(
         sku: v.sku,
         sellingPrice: money(v.sellingPrice),
         active: v.active,
+        stock: Math.max(
+          0,
+          v.lots.reduce((sum, lot) => sum + lot.remainingQty, 0),
+        ),
         product: { id: v.product.id, name: v.product.name, active: v.product.active },
         size: { id: v.size.id, value: v.size.value, label: v.size.label, order: v.size.order },
         createdAt: v.createdAt,
