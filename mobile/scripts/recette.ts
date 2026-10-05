@@ -83,7 +83,18 @@ async function main() {
     token: t,
     body: { name: `Recette ${stamp}` },
   });
-  const sizes = await req('/sizes?limit=100', { token: t });
+  // La base part vierge (seed = login seul) : la recette crée ce qu'il lui faut.
+  let sizes = await req('/sizes?limit=100', { token: t });
+  if (!sizes.body.items.length) {
+    const created = await req('/sizes', {
+      method: 'POST',
+      token: t,
+      body: { value: 40, label: '40' },
+    });
+    ok(created.status === 201 || created.status === 409, 'pointure de référence créée', created.status);
+    sizes = await req('/sizes?limit=100', { token: t });
+  }
+  ok(Array.isArray(sizes.body.items) && sizes.body.items.length > 0, 'pointure disponible');
   const size = sizes.body.items[0];
   const variant = await req('/variants', {
     method: 'POST',
@@ -94,7 +105,17 @@ async function main() {
   const V = variant.body.id as string;
 
   const categories = await req('/expense-categories?limit=200', { token: t });
-  const categoryId = categories.body.items.find((c: { active: boolean }) => c.active).id;
+  let categoryId: string | undefined = (categories.body.items as { id: string; active: boolean }[])
+    .find((c) => c.active)?.id;
+  if (!categoryId) {
+    const created = await req('/expense-categories', {
+      method: 'POST',
+      token: t,
+      body: { name: `Recette ${stamp}`, icon: 'box' },
+    });
+    ok(created.status === 201, 'catégorie de dépense créée', created.status);
+    categoryId = created.body.id as string;
+  }
 
   /* ── 1. Arrivage réglé d'emblée ───────────────────────── */
 

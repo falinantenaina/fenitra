@@ -88,7 +88,10 @@ gestion_vente/
 │   ├── prisma/
 │   │   ├── schema.prisma
 │   │   ├── migrations/
-│   │   └── seed.ts
+│   │   ├── seed.ts                  # rôles + admin UNIQUEMENT (base vierge)
+│   │   ├── reference.ts             # pointures, catégories, modes — tests + démo
+│   │   ├── demo.ts                  # données de démonstration (services métier)
+│   │   └── seed-demo.ts             # `npm run db:seed:demo` (optionnel)
 │   ├── src/
 │   │   ├── index.ts                 # bootstrap Express
 │   │   ├── app.ts                   # helmet, cors, routes, errorHandler
@@ -1082,6 +1085,13 @@ GET    /health
 - `/mobile` : app Expo (Expo Router), code TS, validation, auth, `.env.example`
 - `docs/ANALYSE.md`, `docs/FORMULES.md`, `docs/API.md`
 - `README.md` : installation, lancement, build Android (APK/AAB)
+
+**Politique du seed** (choix explicite) : `npm run db:seed` ne crée **que** les
+rôles et `admin@test.local` — la base part vierge, aucune donnée métier, pour
+tout tester depuis l'interface. `prisma/reference.ts` (pointures 36-44, 6
+catégories de dépenses, 4 modes de paiement) est appelé par la suite de tests
+(`tests/setup/global.ts`) et par `npm run db:seed:demo`, qui ajoute les données
+de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 
 ---
 

@@ -50,7 +50,7 @@ describe('Référentiels et réglages', () => {
     expect(res.status).toBe(403);
   });
 
-  it('liste les catégories de dépenses du seed', async () => {
+  it('liste les catégories de dépenses de référence', async () => {
     const res = await admin.get('/expense-categories');
     expect(res.status).toBe(200);
     expect(res.body.total).toBeGreaterThanOrEqual(6);
@@ -83,7 +83,7 @@ describe('Référentiels et réglages', () => {
     expect(all.body.items.some((c: { id: string }) => c.id === id)).toBe(true);
   });
 
-  it('liste les modes de paiement du seed', async () => {
+  it('liste les modes de paiement de référence', async () => {
     const res = await admin.get('/payment-methods');
     expect(res.status).toBe(200);
     expect(res.body.total).toBeGreaterThanOrEqual(4);

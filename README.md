@@ -38,7 +38,7 @@ cd backend
 npm install
 cp .env.example .env            # puis renseigner DATABASE_URL / TEST_DATABASE_URL / les secrets JWT
 npm run db:migrate              # première migration
-npm run db:seed                 # rôles + admin@test.local / admin1234
+npm run db:seed                 # rôles + admin@test.local / admin1234 (base vierge)
 npm run dev                     # http://localhost:4000  (tsx watch)
 ```
 
@@ -83,6 +83,19 @@ Comptes créés par `npm run db:seed` :
 | Rôle | Email | Mot de passe |
 |---|---|---|
 | ADMIN | `admin@test.local` | `admin1234` |
+
+`npm run db:seed` ne crée **que** les rôles et ce compte de connexion : la base
+part vierge (aucune pointure, catégorie, produit, arrivage ni dette), pour que
+l'application soit testée de zéro depuis l'interface.
+
+```bash
+npm run db:seed            # rôles + admin (base vierge)
+npm run db:seed:demo       # optionnel : + référentiels et données de démo
+                           #   (produits, arrivages, ventes, dettes, dépenses)
+```
+
+La suite de tests se crée elle-même ses référentiels (`prisma/reference.ts`) ;
+la recette mobile (`mobile/scripts/recette.ts`) aussi.
 
 ---
 

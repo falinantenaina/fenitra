@@ -56,7 +56,7 @@ describe('12 scénarios E2E', () => {
 
     const size40 = sizes.body.items.find((s: { value: number }) => s.value === 40);
     const size42 = sizes.body.items.find((s: { value: number }) => s.value === 42);
-    if (!size40 || !size42) throw new Error('Pointures 40/42 absentes du seed');
+    if (!size40 || !size42) throw new Error('Pointures 40/42 absentes des référentiels');
 
     const product = await admin.post('/products').send({ name: `Chaussures E2E ${stamp}` });
     const [va, vc] = await Promise.all([

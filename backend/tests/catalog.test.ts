@@ -22,7 +22,7 @@ describe('Catalogue', () => {
     expect(res.status).toBe(401);
   });
 
-  it('liste les pointures du seed', async () => {
+  it('liste les pointures de référence', async () => {
     const res = await admin.get('/sizes?limit=100');
     expect(res.status).toBe(200);
     expect(res.body.total).toBeGreaterThanOrEqual(9);
@@ -123,7 +123,7 @@ describe('Catalogue', () => {
     expect(product.status).toBe(201);
     bulkProductId = product.body.id;
 
-    // 40 existe déjà (seed), 47 / 48 sont créées à la volée, 47 en doublon dans la requête.
+    // 40 existe déjà (référentiel), 47 / 48 sont créées à la volée, 47 en doublon dans la requête.
     const res = await admin
       .post(`/products/${bulkProductId}/variants`)
       .send({ sizeValues: [47, 40, 47, 48], sellingPrice: 50000 });
