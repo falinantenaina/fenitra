@@ -152,14 +152,13 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status`, `q`, `page`) |
-| POST | `/api/arrivals` | manager | Transaction complète (cartons → lignes → lots → dette fournisseur → financements → ledger) |
-| POST | `/api/arrivals/drafts` | manager | **Brouillon à ventiler** : cartons déclarés (montant par carton) — aucun lot, dette ni écriture |
+| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status` = `RECEIVED|CANCELLED`, `unventilated`, `q`, `page`) |
+| POST | `/api/arrivals` | manager | Transaction complète — cartons **avec** pointures (`items`) ou **sans** (`productId` + `totalQty` + `totalCost`, pointures à ventiler plus tard) → lots le cas échéant, dette fournisseur, financements, ledger |
 | GET | `/api/arrivals/reference-preview` | auth | Prochaine référence `ARR-xxxx` |
-| GET | `/api/arrivals/:id` | auth | Cartons + lignes + lots + dette + paiements + financements |
-| POST | `/api/arrivals/:id/receive` | manager | **Ventilation** d'un brouillon : grille pointures → lignes → lots → dette → paiement (idempotent) |
-| POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) — sur un brouillon : simple retrait |
-| GET | `/api/stock/summary` | auth | Quantité + valeur (`variantId`, `from`, `to`) |
+| GET | `/api/arrivals/:id` | auth | Cartons (+ `ventilated`, `transitValue`, `transitQty`) + lots + dette + paiements + financements |
+| POST | `/api/arrivals/:id/ventilate` | manager | **Ventilation** : `[{ cartonId, lines: [{ sizeId, quantity }] }]` — prix unitaire **imposé** `floor(totalCost / totalQty)`, somme des quantités exacte (sinon 422) → lignes + lots + mouvement `IN`, **zéro écriture comptable** (idempotent) |
+| POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) — cartons encore à ventiler : simple retrait, transit retiré de la valorisation |
+| GET | `/api/stock/summary` | auth | Quantité + valeur (`variantId`, `from`, `to`) — inclut les **cartons à ventiler** (hors filtre `variantId`, qui porte sur des pointures) |
 | GET | `/api/stock/lots` | auth | Lots (`variantId`, `status`, `page`) |
 | GET | `/api/stock/lots/:id/movements` | auth | Mouvements d'un lot — le `lot` expose `variantId` (→ `GET /variants/:id/price-history`, §18) |
 | GET | `/api/stock/movements` | auth | Mouvements (`from`, `to`, `type`) |

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { transitValueSql } from '../src/services/metrics/queries';
 
 /**
  * Contrôle d'identité comptable (§4) :
@@ -39,9 +40,14 @@ export async function accountingIdentity(): Promise<IdentitySnapshot> {
         }),
       ]);
 
+      // Lots + cartons dont les pointures sont inconnues : même terme que le
+      // dashboard, un arrivage ayant bougé caisse et dette dès l'enregistrement.
+      // `lots` reste le compteur de pièces en lot (les cartons à ventiler n'y
+      // figurent pas) — il sert de contrôle « du stock réel existe ».
       const stockValue = (
         await tx.$queryRaw<{ value: number | bigint }[]>`
-          SELECT COALESCE(SUM("remainingQty" * "unitCost"), 0)::bigint AS value
+          SELECT COALESCE(SUM("remainingQty" * "unitCost"), 0)::bigint
+               + ${transitValueSql} AS value
           FROM "StockLot" WHERE status <> 'CANCELLED'`
       )[0]!.value;
 

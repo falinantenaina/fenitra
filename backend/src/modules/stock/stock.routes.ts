@@ -9,7 +9,7 @@ import { notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { ilike, listQuerySchema, offset, pageMeta } from '../../lib/pagination';
 import { allocateFIFO } from '../../services/fifo';
-import { n } from '../../services/metrics/queries';
+import { n, transitQtySql, transitValueSql } from '../../services/metrics/queries';
 import { idParamSchema } from '../../lib/zod';
 import { utc } from '../../lib/sql';
 
@@ -61,12 +61,16 @@ stockRouter.get(
     const query = parseQuery(req, summaryQuery);
     const at = query.to ?? new Date();
     const variantFilter = query.variantId ? Prisma.sql`AND l."variantId" = ${query.variantId}` : Prisma.empty;
+    // Les cartons à ventiler n'ont ni pointure ni variante : un filtre par
+    // pointure ne les inclut pas (la valorisation globale, elle, les inclut).
+    const transitValue = query.variantId ? Prisma.sql`0::bigint` : transitValueSql;
+    const transitQty = query.variantId ? Prisma.sql`0::bigint` : transitQtySql;
 
     const rows = await prisma.$queryRaw<{ value: number | bigint; quantity: number | bigint; lots: number }[]>`
       SELECT
-        COALESCE(SUM(GREATEST(qty, 0) * l."unitCost"), 0)::bigint AS value,
-        COALESCE(SUM(GREATEST(qty, 0)), 0)::bigint                AS quantity,
-        COUNT(*)::int                                             AS lots
+        COALESCE(SUM(GREATEST(qty, 0) * l."unitCost"), 0)::bigint + ${transitValue} AS value,
+        COALESCE(SUM(GREATEST(qty, 0)), 0)::bigint + ${transitQty}                  AS quantity,
+        COUNT(*)::int                                                               AS lots
       FROM (
         SELECT l.id, l."unitCost",
           l."initialQty" + COALESCE((

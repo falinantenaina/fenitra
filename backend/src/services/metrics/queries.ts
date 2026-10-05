@@ -221,18 +221,53 @@ export async function loadBalance(
 }
 
 /**
+ * Part des cartons dont les pointures sont inconnues : `montant − Σ lignes`.
+ * Nul dès que le carton est ventilé — un carton a des lots s'il a des lignes,
+ * donc ce terme et celui des lots ne se doublonnent jamais. Les cartons d'un
+ * arrivage annulé sont exclus (leurs lots aussi, par `status <> 'CANCELLED'`).
+ */
+export const transitValueSql = Prisma.sql`
+  (SELECT COALESCE(SUM(c."totalCost" - COALESCE(lx.cost, 0)), 0)::bigint
+     FROM "ArrivalCarton" c
+     JOIN "Arrival" a ON a."id" = c."arrivalId"
+     LEFT JOIN (
+       SELECT "cartonId", SUM("lineTotal") AS cost FROM "ArrivalItem" GROUP BY "cartonId"
+     ) lx ON lx."cartonId" = c."id"
+    WHERE a."status" <> 'CANCELLED')`;
+
+/** Même terme, en quantité : `quantité annoncée − paires déjà réparties`. */
+export const transitQtySql = Prisma.sql`
+  (SELECT COALESCE(SUM(c."totalQty" - COALESCE(lq.qty, 0)), 0)::bigint
+     FROM "ArrivalCarton" c
+     JOIN "Arrival" a ON a."id" = c."arrivalId"
+     LEFT JOIN (
+       SELECT "cartonId", SUM("quantity") AS qty FROM "ArrivalItem" GROUP BY "cartonId"
+     ) lq ON lq."cartonId" = c."id"
+    WHERE a."status" <> 'CANCELLED')`;
+
+/**
  * Valorisation du stock à une date (§17) :
  *   valeur = Σ (quantité restante à T × prix d'achat du lot)
+ *          + Σ (cartons à ventiler : montant − lignes déjà réparties)
  * Jamais `quantité totale × prix d'achat actuel`.
+ *
+ * Le second terme couvre les cartons dont les pointures sont inconnues — le
+ * modèle, la quantité et le montant sont déjà comptabilisés à l'enregistrement.
+ * `montant − Σ lignes` est nul dès que le carton est ventilé, donc les deux
+ * termes ne se chevauchent jamais (un carton a des lots s'il a des lignes).
  */
 export async function loadStockAt(
   date: Date,
   db: Db = prisma,
 ): Promise<{ value: number; quantity: number }> {
-  const rows = await db.$queryRaw<{ value: Num; quantity: Num }[]>`
+  const rows = await db.$queryRaw<
+    { value: Num; quantity: Num; transit_value: Num; transit_qty: Num }[]
+  >`
     SELECT
       COALESCE(SUM(GREATEST(qty, 0) * l."unitCost"), 0)::bigint AS value,
-      COALESCE(SUM(GREATEST(qty, 0)), 0)::bigint                AS quantity
+      COALESCE(SUM(GREATEST(qty, 0)), 0)::bigint                AS quantity,
+      ${transitValueSql} AS transit_value,
+      ${transitQtySql}   AS transit_qty
     FROM (
       SELECT
         l.id,
@@ -246,7 +281,11 @@ export async function loadStockAt(
       WHERE l.status <> 'CANCELLED'
     ) l`;
 
-  return { value: n(rows[0]?.value), quantity: n(rows[0]?.quantity) };
+  const row = rows[0];
+  return {
+    value: n(row?.value) + n(row?.transit_value),
+    quantity: n(row?.quantity) + n(row?.transit_qty),
+  };
 }
 
 /** Écritures d'un indicateur, pour le drill-down du dashboard (§62). */
@@ -403,7 +442,7 @@ export async function stockDrillEntries(to: Date, limit = 2000): Promise<DrillRo
     ORDER BY l."entryDate" DESC, l.code DESC
     LIMIT ${limit}`;
 
-  return rows.map((r) => ({
+  const lotRows = rows.map((r) => ({
     id: r.id,
     seq: 0n,
     date: r.entryDate,
@@ -415,6 +454,44 @@ export async function stockDrillEntries(to: Date, limit = 2000): Promise<DrillRo
     refType: 'STOCK_LOT',
     refId: r.id,
   }));
+
+  // Cartons dont les pointures sont inconnues — même terme que `loadStockAt`,
+  // pour que `Σ amount` retombe sur `stock.value` (§62).
+  const cartons = await prisma.$queryRaw<
+    { id: string; reference: string; date: Date; product: string; value: Num; qty: Num }[]
+  >`
+    SELECT
+      c.id, c.reference, c.date, p.name AS product,
+      c."totalCost" - COALESCE(lx.cost, 0) AS value,
+      c."totalQty" - COALESCE(lq.qty, 0)   AS qty
+    FROM "ArrivalCarton" c
+    JOIN "Arrival" a ON a."id" = c."arrivalId"
+    JOIN "Product" p ON p.id = c."productId"
+    LEFT JOIN (
+      SELECT "cartonId", SUM("lineTotal") AS cost FROM "ArrivalItem" GROUP BY "cartonId"
+    ) lx ON lx."cartonId" = c."id"
+    LEFT JOIN (
+      SELECT "cartonId", SUM("quantity") AS qty FROM "ArrivalItem" GROUP BY "cartonId"
+    ) lq ON lq."cartonId" = c."id"
+    WHERE a."status" <> 'CANCELLED'
+      AND c."totalCost" - COALESCE(lx.cost, 0) <> 0
+    ORDER BY c."date" DESC, c."reference" DESC
+    LIMIT ${limit}`;
+
+  const cartonRows = cartons.map((c) => ({
+    id: c.id,
+    seq: 0n,
+    date: c.date,
+    kind: 'CARTON',
+    amount: n(c.value),
+    cashDelta: 0,
+    description: `${c.product} · carton ${c.reference} · ${n(c.qty)} p. à ventiler`,
+    reference: c.reference,
+    refType: 'ARRIVAL_CARTON',
+    refId: c.id,
+  }));
+
+  return [...lotRows, ...cartonRows];
 }
 
 

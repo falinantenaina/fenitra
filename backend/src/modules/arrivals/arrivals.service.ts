@@ -5,7 +5,7 @@ import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { nextReference, peekReference } from '../../services/sequences';
 import { reverseEntries } from '../../services/ledger';
-import type { ArrivalListQuery, CreateArrivalDraftInput, CreateArrivalInput } from './arrivals.schemas';
+import type { ArrivalListQuery, CreateArrivalInput, VentilateInput } from './arrivals.schemas';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -14,6 +14,7 @@ const includeDetail = {
   cartons: {
     orderBy: { reference: 'asc' as const },
     include: {
+      product: { select: { id: true, name: true } },
       items: {
         include: {
           variant: {
@@ -50,6 +51,8 @@ export async function loadArrival(db: Db, id: string) {
   const arrival = await db.arrival.findUnique({ where: { id }, include: includeDetail });
   if (!arrival) throw notFound('Arrivage introuvable');
 
+  const cancelled = arrival.status === 'CANCELLED';
+
   return {
     id: arrival.id,
     reference: arrival.reference,
@@ -63,24 +66,38 @@ export async function loadArrival(db: Db, id: string) {
     cancelledAt: arrival.cancelledAt,
     cancelReason: arrival.cancelReason,
     supplier: arrival.supplier,
-    cartons: arrival.cartons.map((c) => ({
-      id: c.id,
-      reference: c.reference,
-      date: c.date,
-      notes: c.notes,
-      totalCost: money(c.totalCost),
-      totalQty: c.totalQty,
-      items: c.items.map((i) => ({
-        id: i.id,
-        variantId: i.variantId,
-        quantity: i.quantity,
-        unitCost: money(i.unitCost),
-        lineTotal: money(i.lineTotal),
-        product: i.variant.product,
-        size: i.variant.size,
-        sku: i.variant.sku,
-      })),
-    })),
+    cartons: arrival.cartons.map((c) => {
+      const linedQty = c.items.reduce((sum, i) => sum + i.quantity, 0);
+      const linedCost = c.items.reduce((sum, i) => sum + i.lineTotal, 0);
+      return {
+        id: c.id,
+        reference: c.reference,
+        date: c.date,
+        notes: c.notes,
+        productId: c.productId,
+        product: c.product,
+        totalCost: money(c.totalCost),
+        totalQty: c.totalQty,
+        ventilatedAt: c.ventilatedAt,
+        ventilated: c.ventilatedAt !== null,
+        /**
+         * Part encore inconnue des pointures — entre dans la valorisation.
+         * Un arrivage annulé ne pèse plus : ses cartons ne sont plus à ventiler.
+         */
+        transitValue: cancelled ? money(0) : money(c.totalCost - linedCost),
+        transitQty: cancelled ? 0 : c.totalQty - linedQty,
+        items: c.items.map((i) => ({
+          id: i.id,
+          variantId: i.variantId,
+          quantity: i.quantity,
+          unitCost: money(i.unitCost),
+          lineTotal: money(i.lineTotal),
+          product: i.variant.product,
+          size: i.variant.size,
+          sku: i.variant.sku,
+        })),
+      };
+    }),
     lots: arrival.lots.map((l) => ({
       id: l.id,
       code: l.code,
@@ -127,7 +144,7 @@ export async function loadArrival(db: Db, id: string) {
   };
 }
 
-/** Résultat des contrôles communs : fournisseur, variantes, références, totaux. */
+/** Résultat des contrôles communs : fournisseur, variantes, modèles, totaux. */
 interface ArrivalPlan {
   supplierId: string;
   supplierName: string;
@@ -137,19 +154,17 @@ interface ArrivalPlan {
   paid: number;
   date: Date;
   variantById: Map<string, { id: string; sizeId: string }>;
+  /** Un par entrée `input.cartons`, dans l'ordre : modèle + totaux du carton. */
+  cartons: { productId: string; totalQty: number; totalCost: number }[];
 }
 
-/** Contrôles partagés par la création directe et la réception d'un brouillon. */
-async function planArrival(
-  tx: Db,
-  input: CreateArrivalInput,
-  fallbackDate?: Date,
-): Promise<ArrivalPlan> {
+/** Contrôles partagés — qu'il y ait des pointures (saisies d'office) ou non. */
+async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPlan> {
   const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
   if (!supplier) throw notFound('Fournisseur introuvable');
   if (!supplier.active) throw businessRule('Ce fournisseur est désactivé');
 
-  const variantIds = [...new Set(input.cartons.flatMap((c) => c.items.map((i) => i.variantId)))];
+  const variantIds = [...new Set(input.cartons.flatMap((c) => (c.items ?? []).map((i) => i.variantId)))];
   const variants = await tx.productVariant.findMany({
     where: { id: { in: variantIds } },
     select: { id: true, sizeId: true, active: true, product: { select: { id: true, name: true } } },
@@ -160,16 +175,46 @@ async function planArrival(
   const inactive = variants.find((v) => !v.active);
   if (inactive) throw businessRule(`La variante ${inactive.id} est désactivée`);
 
+  // Un carton = un modèle : déduit des lignes, ou déclaré quand il n'y en a pas.
+  const cartons: ArrivalPlan['cartons'] = input.cartons.map((carton, index) => {
+    const items = carton.items ?? [];
+    const reference = carton.reference ?? `C${index + 1}`;
+    const quantity = items.reduce((sum, item) => sum + item.quantity, 0);
+    const cost = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+
+    if (items.length === 0) {
+      return { productId: carton.productId!, totalQty: carton.totalQty!, totalCost: carton.totalCost! };
+    }
+
+    const productIds = new Set(items.map((item) => variantById.get(item.variantId)!.product.id));
+    if (productIds.size > 1) {
+      throw businessRule(`Le carton ${reference} mélange plusieurs modèles`);
+    }
+    const [productId] = [...productIds];
+    if (carton.productId && carton.productId !== productId) {
+      throw businessRule(`Le carton ${reference} n'est pas le modèle annoncé`);
+    }
+    return { productId: productId!, totalQty: quantity, totalCost: cost };
+  });
+
+  const productIds = [...new Set(cartons.map((carton) => carton.productId))];
+  const products = await tx.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, name: true, active: true },
+  });
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const missingProduct = productIds.find((id) => !productById.has(id));
+  if (missingProduct) throw notFound(`Modèle introuvable : ${missingProduct}`);
+  const inactiveProduct = products.find((p) => !p.active);
+  if (inactiveProduct) throw businessRule(`Le modèle ${inactiveProduct.name} est désactivé`);
+
   const references = input.cartons.map((c, i) => c.reference ?? `C${i + 1}`);
   if (new Set(references).size !== references.length) {
     throw businessRule('Références de cartons en doublon dans cet arrivage');
   }
 
-  const totalQty = input.cartons.reduce((s, c) => s + c.items.reduce((a, i) => a + i.quantity, 0), 0);
-  const totalCost = input.cartons.reduce(
-    (s, c) => s + c.items.reduce((a, i) => a + i.quantity * i.unitCost, 0),
-    0,
-  );
+  const totalQty = cartons.reduce((sum, carton) => sum + carton.totalQty, 0);
+  const totalCost = cartons.reduce((sum, carton) => sum + carton.totalCost, 0);
   const paid = input.payment?.amount ?? 0;
 
   if (paid > totalCost) {
@@ -178,7 +223,7 @@ async function planArrival(
     );
   }
 
-  const date = input.date ?? fallbackDate ?? new Date();
+  const date = input.date ?? new Date();
   return {
     supplierId: supplier.id,
     supplierName: supplier.name,
@@ -188,6 +233,7 @@ async function planArrival(
     paid,
     date,
     variantById: new Map(variants.map((v) => [v.id, { id: v.id, sizeId: v.sizeId }])),
+    cartons,
   };
 }
 
@@ -200,21 +246,24 @@ async function fillArrival(
   userId: string | null,
 ) {
   for (const [index, carton] of input.cartons.entries()) {
-    const cartonQty = carton.items.reduce((a, i) => a + i.quantity, 0);
-    const cartonCost = carton.items.reduce((a, i) => a + i.quantity * i.unitCost, 0);
+    const planCarton = plan.cartons[index]!;
+    const items = carton.items ?? [];
 
     const created = await tx.arrivalCarton.create({
       data: {
         reference: plan.references[index]!,
         arrivalId: arrival.id,
+        productId: planCarton.productId,
         date: carton.date ?? plan.date,
         notes: carton.notes ?? null,
-        totalCost: cartonCost,
-        totalQty: cartonQty,
+        totalCost: planCarton.totalCost,
+        totalQty: planCarton.totalQty,
+        // Pointures fournies → ventilé d'office ; sinon « à ventiler ».
+        ventilatedAt: items.length > 0 ? new Date() : null,
       },
     });
 
-    for (const item of carton.items) {
+    for (const item of items) {
       const variant = plan.variantById.get(item.variantId)!;
       const lineTotal = item.quantity * item.unitCost;
 
@@ -365,93 +414,125 @@ export async function createArrival(input: CreateArrivalInput, userId: string | 
 }
 
 /**
- * POST /arrivals/drafts — **brouillon à ventiler** : le montant du carton est
- * déclaré sans ventilation par pointure. Aucun lot, aucune dette, aucune
- * écriture de journal : l'arrivage n'existe comptablement qu'après réception.
+ * `POST /arrivals/:id/ventilate` — répartition des pointures d'un carton déjà
+ * enregistré (modèle, quantité et montant connus ; pointures non).
+ *
+ * Aucune écriture comptable : caisse, dette et journal ont été posés à
+ * l'enregistrement de l'arrivage. Seul le stock se déplace, du « carton à
+ * ventiler » vers des lots par pointure — la valorisation totale ne bouge pas.
+ *
+ * Prix d'achat unitaire **imposé** : `floor(montant du carton / quantité)`.
+ * La somme des quantités doit être exactement celle du carton, sinon rien
+ * n'est écrit (transaction).
  */
-export async function createArrivalDraft(input: CreateArrivalDraftInput, userId: string | null) {
+export async function ventilateArrival(id: string, input: VentilateInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {
-    const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
-    if (!supplier) throw notFound('Fournisseur introuvable');
-    if (!supplier.active) throw businessRule('Ce fournisseur est désactivé');
+    const arrival = await tx.arrival.findUnique({ where: { id }, include: { cartons: true } });
+    if (!arrival) throw notFound('Arrivage introuvable');
+    if (arrival.status === 'CANCELLED') throw businessRule('Cet arrivage est annulé');
 
-    const references = input.cartons.map((c, i) => c.reference ?? `C${i + 1}`);
-    if (new Set(references).size !== references.length) {
-      throw businessRule('Références de cartons en doublon dans cet arrivage');
+    const cartonById = new Map(arrival.cartons.map((carton) => [carton.id, carton]));
+    const seen = new Set<string>();
+    const sizeIds = new Set<string>();
+
+    for (const entry of input.cartons) {
+      const carton = cartonById.get(entry.cartonId);
+      if (!carton) throw notFound(`Carton introuvable : ${entry.cartonId}`);
+      if (seen.has(entry.cartonId)) {
+        throw businessRule(`Le carton ${carton.reference} est listé deux fois`);
+      }
+      seen.add(entry.cartonId);
+      if (carton.ventilatedAt) throw businessRule(`Le carton ${carton.reference} est déjà ventilé`);
+
+      const quantity = entry.lines.reduce((sum, line) => sum + line.quantity, 0);
+      if (quantity !== carton.totalQty) {
+        throw businessRule(
+          `Le carton ${carton.reference} : ${quantity} paires ventilées pour ${carton.totalQty} annoncées`,
+        );
+      }
+      const lineSizes = entry.lines.map((line) => line.sizeId);
+      if (new Set(lineSizes).size !== lineSizes.length) {
+        throw businessRule(`Le carton ${carton.reference} : une pointure est listée deux fois`);
+      }
+      if (Math.floor(carton.totalCost / carton.totalQty) < 1) {
+        throw businessRule(
+          `Le carton ${carton.reference} : montant trop faible pour en dériver un prix unitaire`,
+        );
+      }
+      lineSizes.forEach((sizeId) => sizeIds.add(sizeId));
     }
 
-    const totalCost = input.cartons.reduce((sum, carton) => sum + carton.totalCost, 0);
-    const date = input.date ?? new Date();
-    const reference = await nextReference(tx, 'arrival');
-
-    const arrival = await tx.arrival.create({
-      data: {
-        reference,
-        supplierId: supplier.id,
-        date,
-        notes: input.notes ?? null,
-        status: 'DRAFT',
-        totalCost,
-        totalQty: 0,
-        paidAmount: 0,
-        unpaidAmount: 0,
-        createdById: userId,
-      },
+    const sizes = await tx.size.findMany({
+      where: { id: { in: [...sizeIds] } },
+      select: { id: true },
     });
+    const knownSizes = new Set(sizes.map((size) => size.id));
+    const unknownSize = [...sizeIds].find((sizeId) => !knownSizes.has(sizeId));
+    if (unknownSize) throw notFound(`Pointure inconnue : ${unknownSize}`);
 
-    for (const [index, carton] of input.cartons.entries()) {
-      await tx.arrivalCarton.create({
-        data: {
-          reference: references[index]!,
-          arrivalId: arrival.id,
-          date: carton.date ?? date,
-          notes: carton.notes ?? null,
-          totalCost: carton.totalCost,
-          totalQty: 0,
-        },
+    for (const entry of input.cartons) {
+      const carton = cartonById.get(entry.cartonId)!;
+      const unitCost = Math.floor(carton.totalCost / carton.totalQty);
+
+      for (const line of entry.lines) {
+        // Le modèle est déjà connu : la pointure devient la variante vendable
+        // (créée si besoin, réactivée si elle avait été masquée).
+        const variant = await tx.productVariant.upsert({
+          where: { productId_sizeId: { productId: carton.productId, sizeId: line.sizeId } },
+          create: { productId: carton.productId, sizeId: line.sizeId, sellingPrice: 0, active: true },
+          update: { active: true },
+        });
+        const lineTotal = line.quantity * unitCost;
+
+        const arrivalItem = await tx.arrivalItem.create({
+          data: {
+            cartonId: carton.id,
+            variantId: variant.id,
+            quantity: line.quantity,
+            unitCost,
+            lineTotal,
+          },
+        });
+
+        const lot = await tx.stockLot.create({
+          data: {
+            code: await nextReference(tx, 'lot'),
+            arrivalId: arrival.id,
+            cartonId: carton.id,
+            arrivalItemId: arrivalItem.id,
+            supplierId: arrival.supplierId,
+            variantId: variant.id,
+            sizeId: line.sizeId,
+            initialQty: line.quantity,
+            remainingQty: line.quantity,
+            unitCost,
+            totalCost: lineTotal,
+            entryDate: carton.date,
+            status: 'OPEN',
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            lotId: lot.id,
+            variantId: variant.id,
+            type: 'IN',
+            delta: line.quantity,
+            unitCost,
+            refType: 'ARRIVAL',
+            refId: arrival.id,
+            date: carton.date,
+            userId,
+          },
+        });
+      }
+
+      await tx.arrivalCarton.update({
+        where: { id: carton.id },
+        data: { ventilatedAt: new Date() },
       });
     }
 
-    return loadArrival(tx, arrival.id);
-  });
-}
-
-/**
- * POST /arrivals/:id/receive — **ventilation** d'un brouillon : les cartons
- * déclarés sont remplacés par la grille ventilée, puis le chemin est celui de
- * l'arrivage complet (lignes → lots → dette → paiement → journal).
- */
-export async function receiveArrival(
-  id: string,
-  input: CreateArrivalInput,
-  userId: string | null,
-) {
-  return prisma.$transaction(async (tx) => {
-    const draft = await tx.arrival.findUnique({ where: { id } });
-    if (!draft) throw notFound('Arrivage introuvable');
-    if (draft.status === 'CANCELLED') throw businessRule('Cet arrivage est annulé');
-    if (draft.status !== 'DRAFT') throw businessRule('Cet arrivage est déjà réceptionné');
-
-    const plan = await planArrival(tx, input, draft.date);
-
-    // Les cartons du brouillon n'ont ni ligne ni lot : leur remplacement est anodin.
-    await tx.arrivalCarton.deleteMany({ where: { arrivalId: id } });
-
-    const arrival = await tx.arrival.update({
-      where: { id },
-      data: {
-        supplierId: plan.supplierId,
-        date: plan.date,
-        notes: input.notes ?? draft.notes,
-        status: 'RECEIVED',
-        totalCost: plan.totalCost,
-        totalQty: plan.totalQty,
-        paidAmount: plan.paid,
-        unpaidAmount: plan.totalCost - plan.paid,
-      },
-    });
-
-    await fillArrival(tx, arrival, plan, input, userId);
     return loadArrival(tx, id);
   });
 }
@@ -555,6 +636,14 @@ export async function listArrivals(query: ArrivalListQuery) {
   const where = {
     ...(query.supplierId ? { supplierId: query.supplierId } : {}),
     ...(query.status ? { status: query.status } : {}),
+    // `unventilated=true` → arrivages ayant encore des pointures à répartir
+    // (les cartons annulés n'ont rien à ventiler).
+    ...(query.unventilated === 'true'
+      ? {
+          cartons: { some: { ventilatedAt: null } },
+          ...(query.status ? {} : { status: 'RECEIVED' as const }),
+        }
+      : {}),
     ...(query.from || query.to
       ? {
           date: {

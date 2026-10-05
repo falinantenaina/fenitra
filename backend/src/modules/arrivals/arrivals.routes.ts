@@ -7,19 +7,18 @@ import { conflict } from '../../lib/errors';
 import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
 import {
   cancelSchema,
-  createArrivalDraftSchema,
   createArrivalSchema,
   idParamSchema,
   arrivalListQuery,
+  ventilateSchema,
 } from './arrivals.schemas';
 import {
   cancelArrival,
   createArrival,
-  createArrivalDraft,
   listArrivals,
   loadArrival,
   previewArrivalReference,
-  receiveArrival,
+  ventilateArrival,
 } from './arrivals.service';
 
 export const arrivalsRouter = Router();
@@ -40,16 +39,6 @@ arrivalsRouter.get(
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, arrivalListQuery);
     res.json(await listArrivals(query));
-  }),
-);
-
-/** POST /api/arrivals/drafts — brouillon à ventiler (aucun impact stock/caisse) */
-arrivalsRouter.post(
-  '/drafts',
-  managerOrAdmin,
-  asyncHandler(async (req, res) => {
-    const body = parseBody(req, createArrivalDraftSchema);
-    res.status(201).json(await createArrivalDraft(body, req.user!.id));
   }),
 );
 
@@ -92,15 +81,15 @@ arrivalsRouter.get(
   }),
 );
 
-/** POST /api/arrivals/:id/receive — ventile un brouillon, idempotent si `Idempotency-Key` */
+/** POST /api/arrivals/:id/ventilate — pointures d'un carton déjà enregistré */
 arrivalsRouter.post(
-  '/:id/receive',
+  '/:id/ventilate',
   managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
-    const body = parseBody(req, createArrivalSchema);
+    const body = parseBody(req, ventilateSchema);
     const key = idempotencyKey(req);
-    const endpoint = 'POST /arrivals/:id/receive';
+    const endpoint = 'POST /arrivals/:id/ventilate';
     const claim = key ? await beginIdempotent(key, endpoint, req.user!.id) : null;
 
     if (claim?.kind === 'replay') {
@@ -112,7 +101,7 @@ arrivalsRouter.post(
     }
 
     try {
-      const arrival = await receiveArrival(id, body, req.user!.id);
+      const arrival = await ventilateArrival(id, body, req.user!.id);
       if (key) await finishIdempotent(key, endpoint, 201, arrival, req.user!.id);
       res.status(201).json(arrival);
     } catch (error) {

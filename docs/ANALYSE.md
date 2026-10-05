@@ -33,7 +33,7 @@ Argent (propre / trosa sinoa / caisse)
 |---|---|---|
 | §2, §62 | Journal de mouvements comme source de vérité ; tout montant du dashboard est cliquable | Table `LedgerEntry` + agrégats + endpoint de drill-down |
 | §14, §66 | Un nouvel arrivage ne **jamais** écrase un ancien prix | `StockLot` unitaire par ligne de carton, `unitCost` immuable |
-| §16, §17 | FIFO + valorisation par lots | Allocation FIFO + `Σ remainingQty × unitCost` |
+| §16, §17 | FIFO + valorisation par lots | Allocation FIFO + `Σ remainingQty × unitCost` + cartons à ventiler |
 | §19 | Le prix de vente d'une vente est figé | `SaleItem.unitPrice` copié à la création |
 | §41→§46 | CA ≠ recettes ≠ bénéfice ≠ caisse ≠ stock ≠ dettes ≠ capital | Formules distinctes (§8 de ce document) |
 | §28, §67 | Les vendeurs en ligne n'ont **aucun** module de dépenses/revenus/bénéfices | Entité limitée à achats + paiements + dettes |
@@ -218,7 +218,7 @@ enum RoleName            { ADMIN MANAGER CASHIER }
 enum PaymentDirection    { IN OUT }
 enum PaymentPartyType    { CUSTOMER ONLINE_SELLER SUPPLIER TROSA_SINOA SELF OTHER }
 enum SaleStatus          { PAID PARTIAL UNPAID CANCELLED }
-enum ArrivalStatus       { DRAFT RECEIVED CANCELLED }
+enum ArrivalStatus       { RECEIVED CANCELLED }
 enum DebtType            { CUSTOMER ONLINE_SELLER SUPPLIER TROSA_SINOA }
 enum DebtDirection       { RECEIVABLE PAYABLE }
 enum DebtOrigin          { SALE ARRIVAL MANUAL }
@@ -815,7 +815,7 @@ allocateFIFO(tx, variantId, qtyRequested):
 | Indicateur | Formule | Source |
 |---|---|---|
 | **Caisse** | `soldeInitial + Σ cashDelta` (toutes écritures, toutes périodes) | `LedgerEntry` |
-| **Valeur du stock** | `Σ (StockLot.remainingQty × StockLot.unitCost)` | `StockLot` |
+| **Valeur du stock** | `Σ (StockLot.remainingQty × StockLot.unitCost)` + `Σ (ArrivalCarton.totalCost − Σ ArrivalItem.lineTotal)` hors arrivages annulés | `StockLot`, `ArrivalCarton` |
 | **Dettes clients** | `Σ remainingAmount WHERE type='CUSTOMER' AND status ≠ 'PAID'` | `Debt` |
 | **Dettes vendeurs en ligne** | `Σ remainingAmount WHERE type='ONLINE_SELLER'` | `Debt` |
 | **Dettes fournisseurs** | `Σ remainingAmount WHERE type='SUPPLIER'` | `Debt` |
@@ -823,7 +823,7 @@ allocateFIFO(tx, variantId, qtyRequested):
 | **Argent à recevoir** | dettes clients + dettes vendeurs + trosa (créance) | `Debt` |
 | **Argent à payer** | dettes fournisseurs + trosa (dette) | `Debt` |
 | **Argent propre engagé (K)** | `Σ capital IN − Σ capital OUT` | `PersonalCapitalMovement` |
-| **Quantité stock** | `Σ StockLot.remainingQty` | `StockLot` |
+| **Quantité stock** | `Σ StockLot.remainingQty` + `Σ (ArrivalCarton.totalQty − Σ ArrivalItem.quantity)` hors arrivages annulés | `StockLot`, `ArrivalCarton` |
 
 ### 8.3 Agrégats dérivés (identité comptable)
 
@@ -968,12 +968,11 @@ GET|POST /online-sellers      GET|PUT|DELETE /online-sellers/:id
 
 ### Arrivages, cartons, lots
 ```
-GET    /arrivals?from&to&supplierId&status&q&page
-POST   /arrivals                           ← transaction complète (§55)
-POST   /arrivals/drafts                    ← brouillon à ventiler (montant par carton, aucun impact)
+GET    /arrivals?from&to&supplierId&status&unventilated&q&page
+POST   /arrivals                           ← transaction complète, pointures facultatives (§55)
 GET    /arrivals/:id                       ← cartons + lignes + lots + dette + paiements + financements
-POST   /arrivals/:id/receive               ← ventile un brouillon (grille → lots → dette)
-POST   /arrivals/:id/cancel                { reason } → contre-passation (brouillon : simple retrait)
+POST   /arrivals/:id/ventilate             ← répartit les pointures d'un carton (prix unitaire imposé)
+POST   /arrivals/:id/cancel                { reason } → contre-passation (pointures inconnues : simple retrait)
 POST   /arrivals/:id/payments              → règlement de dette fournisseur
 GET    /arrivals/reference-preview
 
@@ -1426,19 +1425,30 @@ l'ouverture et sauvegardé à chaque changement (`watch`), vidé après une écr
 réussie. Survite à une perte de focus, pas au redémarrage (pas de persistance
 disque).
 
-**Mode brouillon à ventiler (Lot 3)** : interrupteur « Brouillon (à ventiler) »
-dans l'en-tête — il masque la grille et le paiement/financement et remplace la
-saisie pointures par **un montant par carton** (`carton.amount` →
-`buildDraftPayload` → `POST /arrivals/drafts`). Validation dédiée dans
-`superRefine` (montant ≥ 1 par carton, aucune exigence de modèle ni de lignes),
-`formTotals` additionne alors les montants. Enregistrement → `status = DRAFT`,
-`totalQty = 0` : aucun lot, dette ni écriture (le résumé fournisseur exclut les
-`DRAFT`). La **ventilation** part du détail (`arrivals/[id]` → bandeau ambre →
-« Ventiler l'arrivage » → `/arrival/new?draftId=`) : le formulaire se recharge
-depuis `GET /arrivals/:id` (fournisseur, date, notes, montants des cartons),
-masque l'interrupteur et soumet `POST /arrivals/:id/receive` (idempotent) avec
-la grille ventilée — les cartons brouillon sont remplacés, la référence
-`ARR-xxxx` est conservée.
+**Cartons sans pointures (Plan A)** : on ne connaît parfois que la **quantité
+et le montant** d'un carton — les pointures arrivent plus tard. Le carton porte
+alors `productId` (un carton = un modèle), `totalQty` et `totalCost`, sans
+`items` : `POST /arrivals` l'enregistre **directement en `RECEIVED`** avec ses
+effets complets (dette, paiement, écriture `SUPPLIER_PAYMENT`) mais **aucun
+lot** — il existe comme « à ventiler ». Sa valeur (`totalCost − Σ lineTotal`)
+et sa quantité entrent dans la valorisation `GET /stock/summary` et dans
+l'identité comptable : dès que les pointures sont réparties, le résidu tombe à
+zéro (ou à l'arrondi `floor(montant / quantité)`) — jamais de double comptage,
+aucune porte au calendrier.
+
+**Ventilation** : `GET /arrivals?unventilated=true` liste les arrivages en
+attente ; le détail (`arrivals/[id]`) affiche le bandeau des cartons à ventiler
+→ « Ventiler l'arrivage » ouvre la grille de pointures, qui soumet
+`POST /arrivals/:id/ventilate` (manager, idempotent). Le **prix unitaire n'est
+pas saisi** : il vaut `floor(totalCost / totalQty)` et la **somme des quantités
+doit être exactement celle du carton** (sinon 422, transaction annulée). Chaque
+pointure devient une variante du modèle (créée ou réactivée), un lot et un
+mouvement `IN` — **zéro écriture comptable** : la caisse et la dette datent de
+l'enregistrement de l'arrivage.
+
+**Annulation** : un arrivage dont les cartons sont encore à ventiler
+s'annule sans contre-passation de stock (aucun lot), le transit disparaît de la
+valorisation ; son journal (paiement éventuel) est contre-passé normalement.
 
 **Prix groupé** : `src/components/price-bulk-modal.tsx` — « Appliquer un prix
 d'achat » pré-sélectionne les lignes déjà chiffrées, coche/décoche Tout/Aucun,

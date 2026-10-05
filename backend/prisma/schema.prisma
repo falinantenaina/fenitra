@@ -48,7 +48,6 @@ enum SaleStatus {
 }
 
 enum ArrivalStatus {
-  DRAFT
   RECEIVED
   CANCELLED
 }
@@ -192,6 +191,7 @@ model Product {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   variants    ProductVariant[]
+  cartons     ArrivalCarton[]
 
   @@index([name])
 }
@@ -308,10 +308,15 @@ model ArrivalCarton {
   reference String
   arrivalId String
   arrival   Arrival       @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+  /// Un carton = un modèle (connu dès l'arrivage).
+  productId String
+  product   Product       @relation(fields: [productId], references: [id])
   date      DateTime      @default(now())
   notes     String?
   totalCost Int           @default(0)
   totalQty  Int           @default(0)
+  /// `null` = pointures encore inconnues : le carton reste « à ventiler ».
+  ventilatedAt DateTime?
   createdAt DateTime      @default(now())
 
   items ArrivalItem[]
@@ -319,6 +324,7 @@ model ArrivalCarton {
 
   @@unique([arrivalId, reference])
   @@index([arrivalId])
+  @@index([productId])
 }
 
 /// Une ligne = modèle × pointure × quantité × PRIX D'ACHAT de cette ligne.

@@ -166,6 +166,12 @@ Jamais toute la caisse n'est considérée comme du bénéfice (§7).
    COGS = `Σ (quantité sortie × unitCost du lot)`.
 4. **Valorisation** = `Σ (remainingQty × unitCost)` — jamais
    `quantité totale × prix d'achat actuel`.
+   + **Cartons à ventiler** : `Σ (ArrivalCarton.totalCost − Σ ArrivalItem.lineTotal)`
+   et `Σ (ArrivalCarton.totalQty − Σ ArrivalItem.quantity)`, hors arrivages
+   annulés. Un arrivage enregistré sans pointures pèse donc déjà dans le stock
+   (son paiement ayant bougé la caisse et la dette) ; la ventilation ne fait que
+   déplacer ce montant vers des lots — le résidu tombe à 0 (ou à l'arrondi
+   `floor(montant / quantité)`), d'où **aucun double comptage**.
 5. **Historique des prix** = lecture directe des `StockLot` du variant, triés par `entryDate`.
 6. Chaque variation de `remainingQty` génère un `StockMovement` (`delta` signé).
 

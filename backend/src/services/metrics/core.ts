@@ -36,7 +36,7 @@ export interface RawBalance {
   cashAtStart: number;
   /** Solde de caisse à la fin de la période = ouverture + Σ cashDelta */
   cashAtEnd: number;
-  /** Σ (StockLot.remainingQty × unitCost) */
+  /** Σ (StockLot.remainingQty × unitCost) + cartons à ventiler (montant − lignes) */
   stockValue: number;
   /** Σ StockLot.remainingQty */
   stockQuantity: number;
@@ -97,6 +97,7 @@ export interface BalanceMetrics {
   cash: number;
   cashAtStart: number;
   cashDelta: number;
+  /** Lots + cartons dont les pointures sont inconnues (§17) */
   stockValue: number;
   stockQuantity: number;
   customerDebts: number;
