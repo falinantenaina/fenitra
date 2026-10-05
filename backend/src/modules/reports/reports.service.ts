@@ -234,7 +234,7 @@ export interface ReportSaleLine {
   party: string | null;
   items: {
     product: { id: string; name: string };
-      size: { label: string | null } | null;
+      size: { value: number; label: string | null } | null;
       sku: string | null;
     quantity: number;
     unitPrice: string;
@@ -249,7 +249,7 @@ export interface ReportTopProduct {
   variantId: string;
   sku: string | null;
   product: { id: string; name: string } | null;
-  size: { label: string | null } | null;
+  size: { value: number; label: string | null } | null;
   quantity: number;
   revenue: string;
   cogs: string;
@@ -315,7 +315,7 @@ async function buildReport(
               select: {
                 sku: true,
                 product: { select: { id: true, name: true } },
-                size: { select: { label: true } },
+                size: { select: { value: true, label: true } },
               },
             },
           },
@@ -336,7 +336,7 @@ async function buildReport(
       id: true,
       sku: true,
       product: { select: { id: true, name: true } },
-      size: { select: { label: true } },
+      size: { select: { value: true, label: true } },
     },
   });
   const variantById = new Map(variants.map((v) => [v.id, v]));
@@ -752,7 +752,7 @@ export async function exportReportPdf(query: { type: 'daily' | 'monthly'; date?:
 
 function productLines(items: ReportTopProduct[], take = 15): string[] {
   return items.slice(0, take).map((t) => {
-    const name = `${t.product?.name ?? '?'} ${t.size?.label ?? ''}`.padEnd(28).slice(0, 28);
+    const name = `${t.product?.name ?? '?'} ${t.size?.label ?? t.size?.value ?? ''}`.padEnd(28).slice(0, 28);
     return `${name} x${String(t.quantity).padStart(4)}  ${t.revenue.padStart(12)}  marge ${t.margin}`;
   });
 }

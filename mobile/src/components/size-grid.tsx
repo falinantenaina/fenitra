@@ -95,6 +95,7 @@ export function SizeGrid({
       {variants.map((variant) => {
         const cell = values[variant.id] ?? { quantity: 0, unitCost: 0 };
         const filled = cell.quantity > 0;
+        const sizeLabel = variant.size.label || `${variant.size.value}`;
 
         return (
           <View
@@ -103,7 +104,7 @@ export function SizeGrid({
             }`}
             key={variant.id}>
             <View className="w-14">
-              <Text className="text-sm font-semibold text-slate-900">{variant.size.label}</Text>
+              <Text className="text-sm font-semibold text-slate-900">{sizeLabel}</Text>
               <Text className="text-[10px] text-slate-400">{formatMoney(variant.sellingPrice)}</Text>
             </View>
 
@@ -123,14 +124,14 @@ export function SizeGrid({
 
             <View className="w-16 flex-row items-center justify-center gap-1">
               <Pressable
-                accessibilityLabel={`Copier le prix de la pointure ${variant.size.label}`}
+                accessibilityLabel={`Copier le prix de la pointure ${sizeLabel}`}
                 className="h-8 w-7 items-center justify-center rounded-md bg-slate-100"
                 onPress={() => onCopy(variant.id)}>
                 <Ionicons color="#475569" name="copy-outline" size={15} />
               </Pressable>
               {clipboard ? (
                 <Pressable
-                  accessibilityLabel={`Coller ${formatMoney(clipboard.unitCost)} sur la pointure ${variant.size.label}`}
+                    accessibilityLabel={`Coller ${formatMoney(clipboard.unitCost)} sur la pointure ${sizeLabel}`}
                   className="h-8 w-7 items-center justify-center rounded-md bg-brand/15"
                   onPress={() => onPaste(variant.id)}>
                   <Ionicons color="#208AEF" name="clipboard-outline" size={15} />

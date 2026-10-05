@@ -152,6 +152,34 @@ describe('Catalogue', () => {
     expect(empty.status).toBe(400);
   });
 
+  it('réactive une pointure désactivée du modèle au lieu de la refuser', async () => {
+    const read = await admin.get(`/products/${bulkProductId}`);
+    const variant41 = read.body.variants.find(
+      (v: { size: { value: number } }) => v.size.value === 41,
+    );
+    expect(variant41).toBeDefined();
+
+    const off = await admin.put(`/variants/${variant41.id}`).send({ active: false });
+    expect(off.status).toBe(200);
+    expect(off.body.active).toBe(false);
+
+    const afterOff = await admin.get(`/products/${bulkProductId}`);
+    expect(
+      afterOff.body.variants.find((v: { size: { value: number } }) => v.size.value === 41).active,
+    ).toBe(false);
+
+    const res = await admin.post(`/products/${bulkProductId}/variants`).send({ sizeValues: [41] });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(0);
+    expect(res.body.reactivated).toBe(1);
+    expect(res.body.skipped).toBe(0);
+
+    const restored = await admin.get(`/products/${bulkProductId}`);
+    expect(
+      restored.body.variants.find((v: { size: { value: number } }) => v.size.value === 41).active,
+    ).toBe(true);
+  });
+
   it('refuse la création en bloc sur un produit inconnu (404) ou à un caissier (403)', async () => {
     const missing = await admin.post('/products/produit-inexistant/variants').send({ sizeValues: [40] });
     expect(missing.status).toBe(404);

@@ -171,7 +171,7 @@ function ReportBodyView({ report }: { report: DailyReport | MonthlyReport }) {
               <View className="flex-1">
                 <Text className="text-sm font-medium text-slate-800" numberOfLines={1}>
                   {item.product?.name ?? 'Article'}
-                  {item.size?.label ? ` · ${item.size.label}` : ''}
+                  {item.size ? ` · ${item.size.label || item.size.value}` : ''}
                 </Text>
                 <Text className="text-xs text-slate-400">
                   {item.quantity} vendu(s)

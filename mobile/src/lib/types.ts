@@ -148,7 +148,7 @@ export interface ReportSalesLine {
   party: string | null;
   items: {
     product: { id: string; name: string } | null;
-    size: { label: string | null } | null;
+    size: { value: number; label: string | null } | null;
     sku: string | null;
     quantity: number;
     unitPrice: string;
@@ -163,7 +163,7 @@ export interface ReportTopProduct {
   variantId: string;
   sku: string | null;
   product: { id: string; name: string } | null;
-  size: { label: string | null } | null;
+  size: { value: number; label: string | null } | null;
   quantity: number;
   revenue: string;
   cogs: string;
@@ -828,8 +828,28 @@ export interface BulkVariantsBody {
 /** Réponse de `POST /products/:id/variants` : variantes du produit, triées par pointure. */
 export interface BulkVariantsResponse {
   created: number;
+  /** Pointures déjà présentes sur le modèle mais désactivées, remises à actives. */
+  reactivated: number;
   skipped: number;
   variants: VariantItem[];
+}
+
+/** Corps de `PUT /variants/:id` — une pointure du modèle (prix, actif, SKU). */
+export interface UpdateVariantBody {
+  sku?: string | null;
+  sellingPrice?: number;
+  active?: boolean;
+}
+
+/** Réponse de `PUT /variants/:id`. */
+export interface VariantUpdated {
+  id: string;
+  sku: string | null;
+  sellingPrice: string;
+  active: boolean;
+  product: { id: string; name: string };
+  size: { id: string; value: number; label: string | null };
+  updatedAt: string;
 }
 
 export interface UpdateProductBody {

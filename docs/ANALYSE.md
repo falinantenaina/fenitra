@@ -949,7 +949,7 @@ GET    /roles
 ### Catalogue
 ```
 GET|POST /products            GET|PUT|DELETE /products/:id
-POST     /products/:id/variants { sizeValues[] }            ← variantes en bloc (saisie rapide)
+POST     /products/:id/variants { sizeValues[] }            ← pointures DU MODÈLE (saisie rapide)
 GET|POST /sizes               GET|PUT|DELETE /sizes/:id
 GET|POST /variants            GET|PUT /variants/:id
 PUT      /variants/:id/price  { sellingPrice }             ← historique vente figé ailleurs
@@ -1392,12 +1392,17 @@ rôles `ADMIN`/`MANAGER` seulement (le backend impose `managerOrAdmin` → 403).
    `GET /products?active=true&q=`) au-dessus des chips — sans recherche, les
    chips listent les modèles actifs (`GET /products?active=true`). Quand le
    terme saisi ne correspond à aucun modèle, le bouton **« Créer »** crée le
-   produit (`POST /products`), lui ajoute les variantes de **toutes les
-   pointures du catalogue** (`POST /products/:id/variants { sizeValues[] }` —
-   pointures manquantes créées côté serveur, doublons ignorés) puis sélectionne
-   le modèle : **modèle choisi par recherche et création à la volée**. Sans
-   modèle sélectionné, la grille est remplacée par un état vide qui invite à
-   chercher ou créer ; au changement de modèle la grille se recharge depuis
+   produit (`POST /products`) **sans pointure** et ouvre le
+   **sélecteur de pointures du modèle** (`src/components/size-picker.tsx`) :
+   chips issues du dictionnaire `GET /sizes`, plus une saisie libre — une
+   valeur (`43`), une liste (`36,40`) ou une plage (`36-40`, `36 à 40`) —
+   pour des pointures absentes (le serveur les crée à la volée) →
+   `POST /products/:id/variants { sizeValues[] }` (doublons ignorés, pointure
+   désactivée sur ce modèle **réactivée**). **Chaque modèle porte ses propres
+   pointures** : la grille n'affiche que ses propres variantes, et le bouton
+   **« Pointure »** sous la grille en ajoute une à tout moment (pointure reçue
+   imprévue). Sans modèle sélectionné, la grille est remplacée par un état vide
+   qui invite à chercher ou créer ; au changement de modèle la grille se recharge depuis
    `GET /products/:id` (variantes triées par pointure).
    **Grille contrôlée pointure × quantité × prix d'achat** avec copier/coller
    d'une ligne et sous-total par carton.
@@ -1736,11 +1741,22 @@ liste les sections ; la ligne « Utilisateurs & rôles » n'apparaît que pour
 un `ADMIN`, et chaque écran rappelle que l'écriture est réservée à
 ADMIN/MANAGER (les boutons sont masqués pour un `CASHIER`).
 
-**`/settings/catalogue`** — pointures (`GET /sizes`, création `POST /sizes`,
-suppression `DELETE /sizes/:id` avec le `409` « pointure utilisée »
-affiché comme aide) et produits (`GET /products?q=` sans filtre d'actif,
+**`/settings/catalogue`** — deux sections. **« Valeurs de pointures »** :
+le dictionnaire `GET /sizes` (création `POST /sizes`, suppression
+`DELETE /sizes/:id` avec le `409` « pointure utilisée » affiché comme aide) —
+il ne sert plus qu'à alimenter les sélecteurs, les pointures d'un modèle se
+gèrent sur le modèle. **Produits** (`GET /products?q=` sans filtre d'actif,
 création `POST /products`, `PUT /products/:id` pour renommer, activer ou
-désactiver — jamais de suppression définitive, l'historique reste lisible).
+désactiver — jamais de suppression définitive, l'historique reste lisible) :
+un modèle sélectionné ouvre le panneau **« Pointures du modèle »**
+(`GET /products/:id` → `variants[]`) qui liste ses pointures avec le **prix
+de vente saisi par pointure** (`PUT /variants/:id { sellingPrice }`),
+l'ajout via `SizePicker` (`POST /products/:id/variants`, saisie libre `43`,
+`36,40` ou plage `36-40` ; une valeur inconnue est créée dans le dictionnaire
+avec `label = valeur`) et le masquage `PUT /variants/:id
+{ active:false }` — la pointure quitte la grille mais garde ses lots, ventes
+et prix d'achat ; la remettre active se fait par un simple réajout. Le
+libellé de `Size` restant optionnel, l'interface affiche `label || value`.
 
 **`/settings/tiers`** — trois segments Fournisseurs / Clients / Vendeurs
 en ligne sur `GET|POST|PUT /suppliers|customers|online-sellers`, recherche

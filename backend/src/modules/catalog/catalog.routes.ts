@@ -101,9 +101,11 @@ productsRouter.post(
 );
 
 /**
- * POST /api/products/:id/variants — création en bloc par pointures.
- * Saisie rapide d'un modèle (arrivage) : les pointures manquantes sont créées
- * à la volée, les combinaisons déjà pourvues sont ignorées (skipDuplicates).
+ * POST /api/products/:id/variants — pointures **du modèle** (création en bloc).
+ * Saisie rapide d'un arrivage : chaque modèle porte ses propres pointures ;
+ * les valeurs absentes du dictionnaire sont créées à la volée, les
+ * combinaisons déjà actives sont ignorées (`skipDuplicates`) et une pointure
+ * **désactivée** sur ce modèle est réactivée au lieu d'être refusée.
  */
 productsRouter.post(
   '/:id/variants',
@@ -118,24 +120,43 @@ productsRouter.post(
 
     const values = [...new Set(body.sizeValues)].sort((a, b) => a - b);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const { created, reactivated, skipped } = await prisma.$transaction(async (tx) => {
       for (const value of values) {
         const size = await tx.size.findUnique({ where: { value } });
-        if (!size) await tx.size.create({ data: { value, order: value } });
+        if (!size) await tx.size.create({ data: { value, order: value, label: String(value) } });
       }
       const sizes = await tx.size.findMany({ where: { value: { in: values } } });
+      const existing = await tx.productVariant.findMany({
+        where: { productId: id, sizeId: { in: sizes.map((s) => s.id) } },
+        include: { size: true },
+      });
+      const alreadyUsed = new Set(existing.map((v) => v.size.value));
+
+      let reactivatedCount = 0;
+      for (const variant of existing) {
+        if (variant.active) continue;
+        await tx.productVariant.update({ where: { id: variant.id }, data: { active: true } });
+        reactivatedCount += 1;
+      }
+
+      const toCreate = sizes.filter((size) => !alreadyUsed.has(size.value));
       const result = await tx.productVariant.createMany({
-        data: sizes.map((size) => ({
+        data: toCreate.map((size) => ({
           productId: id,
           sizeId: size.id,
           sellingPrice: body.sellingPrice,
         })),
         skipDuplicates: true,
       });
-      return result.count;
+
+      return {
+        created: result.count,
+        reactivated: reactivatedCount,
+        skipped: values.length - result.count - reactivatedCount,
+      };
     });
 
-    if (created === 0) throw conflict('Ces pointures sont déjà pourvues sur ce produit');
+    if (created === 0 && reactivated === 0) throw conflict('Ces pointures sont déjà pourvues sur ce produit');
 
     const variants = await prisma.productVariant.findMany({
       where: { productId: id },
@@ -145,7 +166,8 @@ productsRouter.post(
 
     res.status(201).json({
       created,
-      skipped: values.length - created,
+      reactivated,
+      skipped,
       variants: variants.map((v) => ({
         id: v.id,
         sku: v.sku,

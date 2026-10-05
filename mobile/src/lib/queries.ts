@@ -72,9 +72,11 @@ import type {
   UpdatePartyBody,
   UpdateProductBody,
   UpdateUserBody,
+  UpdateVariantBody,
   UserItem,
   VariantPriceHistory,
   VariantSearchItem,
+  VariantUpdated,
 } from '@/lib/types';
 
 /** `GET /api/dashboard?period=` — KPI de la période demandée. */
@@ -1028,6 +1030,22 @@ export function useCreateVariantsBulk() {
       void client.invalidateQueries({ queryKey: ['products'] });
       void client.invalidateQueries({ queryKey: ['product', variables.productId] });
       void client.invalidateQueries({ queryKey: ['sizes'] });
+    },
+  });
+}
+
+/** `PUT /variants/:id` — une pointure du modèle : prix de vente, actif, SKU. */
+export function useUpdateVariant() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateVariantBody }) => {
+      const { data } = await api.put<VariantUpdated>(`/variants/${id}`, body);
+      return data;
+    },
+    onSuccess: (data) => {
+      void client.invalidateQueries({ queryKey: ['product', data.product.id] });
+      void client.invalidateQueries({ queryKey: ['products'] });
+      void client.invalidateQueries({ queryKey: ['variants'] });
     },
   });
 }

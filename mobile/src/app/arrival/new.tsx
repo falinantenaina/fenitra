@@ -17,6 +17,7 @@ import {
 
 import { PriceBulkModal } from '@/components/price-bulk-modal';
 import { SizeGrid, type PriceClipboard } from '@/components/size-grid';
+import { SizePicker } from '@/components/size-picker';
 import { apiMessage } from '@/lib/api';
 import {
   arrivalFormSchema,
@@ -43,7 +44,6 @@ import {
   useProductSearch,
   useProducts,
   useReceiveArrival,
-  useSizeList,
   useSuppliers,
 } from '@/lib/queries';
 import type { FundingSource, ProductListItem } from '@/lib/types';
@@ -108,8 +108,8 @@ function CartonCard({
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [creating, setCreating] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const results = useProductSearch(debounced);
-  const sizes = useSizeList();
   const createProduct = useCreateProduct();
   const createVariants = useCreateVariantsBulk();
 
@@ -122,21 +122,17 @@ function CartonCard({
   const searching = term.length > 0;
   const shown = searching ? (results.data?.items ?? []) : (products ?? []);
   const nameTaken = shown.some((p) => p.name.trim().toLowerCase() === term.toLowerCase());
-  const canCreate =
-    term.length >= 2 && searching && !nameTaken && !results.isPending && !sizes.isPending;
+  const canCreate = term.length >= 2 && searching && !nameTaken && !results.isPending;
 
   const createModel = async () => {
     if (!canCreate || creating) return;
     setCreating(true);
     try {
       const product = await createProduct.mutateAsync({ name: term });
-      const sizeValues = (sizes.data?.items ?? []).map((size) => size.value);
-      if (sizeValues.length > 0) {
-        await createVariants.mutateAsync({ productId: product.id, sizeValues });
-      }
       onPatch({ activeProductId: product.id });
       setSearch('');
       setDebounced('');
+      setPickerOpen(true);
     } catch (error) {
       Alert.alert('Création refusée', apiMessage(error));
     } finally {
@@ -145,6 +141,13 @@ function CartonCard({
   };
 
   const variants = (productQuery.data?.variants ?? []).filter((variant) => variant.active);
+
+  /** Pose des pointures sur le modèle actif (§12 : pointures par modèle). */
+  const addSizes = async (values: number[]) => {
+    if (!carton.activeProductId) return;
+    await createVariants.mutateAsync({ productId: carton.activeProductId, sizeValues: values });
+    setPickerOpen(false);
+  };
   const totals = cartonTotals(carton);
 
   const changeCell = (variantId: string, patch: Partial<GridCell>) => {
@@ -303,19 +306,42 @@ function CartonCard({
         </View>
       ) : productQuery.isPending ? (
         <ActivityIndicator color="#208AEF" />
+      ) : variants.length === 0 ? (
+        <View className="gap-2">
+          <Text className="text-sm text-slate-500">
+            Aucune pointure sur ce modèle — choisissez celles que vous recevez.
+          </Text>
+          <SizePicker onAdd={addSizes} takenValues={[]} />
+        </View>
       ) : (
-        <SizeGrid
-          clipboard={clipboard}
-          onCellChange={changeCell}
-          onCopy={(variantId) =>
-            setClipboard({ variantId, unitCost: carton.items[variantId]?.unitCost ?? 0 })
-          }
-          onPaste={(variantId) => {
-            if (clipboard) changeCell(variantId, { unitCost: clipboard.unitCost });
-          }}
-          values={carton.items}
-          variants={variants}
-        />
+        <View className="gap-2">
+          <SizeGrid
+            clipboard={clipboard}
+            onCellChange={changeCell}
+            onCopy={(variantId) =>
+              setClipboard({ variantId, unitCost: carton.items[variantId]?.unitCost ?? 0 })
+            }
+            onPaste={(variantId) => {
+              if (clipboard) changeCell(variantId, { unitCost: clipboard.unitCost });
+            }}
+            values={carton.items}
+            variants={variants}
+          />
+          <Pressable
+            className="flex-row items-center gap-1.5 self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5"
+            onPress={() => setPickerOpen((open) => !open)}>
+            <Ionicons color="#208AEF" name="add" size={14} />
+            <Text className="text-sm font-medium text-brand">Pointure</Text>
+          </Pressable>
+          {pickerOpen ? (
+            <SizePicker
+              onCancel={() => setPickerOpen(false)}
+              onAdd={addSizes}
+              takenValues={variants.map((variant) => variant.size.value)}
+              title="Ajouter une pointure"
+            />
+          ) : null}
+        </View>
       )}
 
       <View className="flex-row flex-wrap items-center gap-2">

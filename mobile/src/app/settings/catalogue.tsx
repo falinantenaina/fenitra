@@ -12,14 +12,18 @@ import {
 } from 'react-native';
 
 import { FieldError } from '@/components/field';
+import { SizePicker } from '@/components/size-picker';
 import { apiMessage } from '@/lib/api';
 import {
   useCreateProduct,
   useCreateSize,
+  useCreateVariantsBulk,
   useDeleteSize,
+  useProduct,
   useProductList,
   useSizeList,
   useUpdateProduct,
+  useUpdateVariant,
 } from '@/lib/queries';
 import {
   buildProductPayload,
@@ -30,7 +34,7 @@ import {
   type ProductFormValues,
   type SizeFormValues,
 } from '@/lib/settings';
-import type { ProductListItem, SizeListItem } from '@/lib/types';
+import type { ProductListItem, SizeListItem, VariantItem } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
 const inputClass =
@@ -245,6 +249,136 @@ function ProductForm({
   );
 }
 
+/* ════════════ Pointures d'un modèle ════════════ */
+
+/**
+ * §12 : chaque modèle porte **ses** propres pointures. Ce panneau les liste
+ * (ajout via `SizePicker`, masquage = `active: false`, prix de vente saisi
+ * par pointure).
+ */
+function ProductSizesPanel({ productId, canManage }: { productId: string; canManage: boolean }) {
+  const product = useProduct(productId);
+  const addSizes = useCreateVariantsBulk();
+  const updateVariant = useUpdateVariant();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const variants = product.data?.variants ?? [];
+  const pending = addSizes.isPending || updateVariant.isPending;
+
+  const displayPrice = (variant: VariantItem) =>
+    drafts[variant.id] ?? (Number(variant.sellingPrice) ? String(Number(variant.sellingPrice)) : '');
+
+  const clearDraft = (id: string) =>
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+
+  const savePrice = (variant: VariantItem) => {
+    const digits = displayPrice(variant).replace(/[^0-9]/g, '');
+    const value = Number(digits);
+    if (!digits || Number.isNaN(value) || value === Number(variant.sellingPrice)) {
+      clearDraft(variant.id);
+      return;
+    }
+    updateVariant.mutate(
+      { id: variant.id, body: { sellingPrice: value } },
+      {
+        onSuccess: () => clearDraft(variant.id),
+        onError: (error) => Alert.alert('Pointure refusée', apiMessage(error)),
+      },
+    );
+  };
+
+  const toggleVariant = (variant: VariantItem) => {
+    updateVariant.mutate(
+      { id: variant.id, body: { active: !variant.active } },
+      { onError: (error) => Alert.alert('Pointure refusée', apiMessage(error)) },
+    );
+  };
+
+  const addPointures = async (values: number[]) => {
+    await addSizes.mutateAsync({ productId, sizeValues: values });
+    setPickerOpen(false);
+  };
+
+  return (
+    <View className="gap-2 rounded-xl border border-slate-200 bg-white p-3">
+      <View className="flex-row items-center justify-between">
+        <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Pointures du modèle ({variants.length})
+        </Text>
+        {canManage ? (
+          <Pressable
+            className="h-8 items-center justify-center rounded-lg bg-slate-100 px-3"
+            disabled={pending}
+            onPress={() => setPickerOpen((open) => !open)}>
+            <Text className="text-sm font-medium text-slate-700">
+              {pickerOpen ? 'Fermer' : 'Ajouter'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {product.isPending ? (
+        <ActivityIndicator color="#208AEF" />
+      ) : variants.length === 0 ? (
+        <Text className="text-sm text-slate-400">
+          Aucune pointure sur ce modèle — ajoutez celles que vous vendez.
+        </Text>
+      ) : null}
+
+      {variants.map((variant) => (
+        <View
+          className="flex-row items-center gap-2 border-t border-slate-100 py-2"
+          key={variant.id}>
+          <Text
+            className={`w-10 text-sm font-semibold ${
+              variant.active ? 'text-slate-800' : 'text-slate-400 line-through'
+            }`}>
+            {variant.size.value}
+          </Text>
+          <TextInput
+            className="h-9 flex-1 rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+            editable={canManage && !pending}
+            keyboardType="numeric"
+            onChangeText={(text) => setDrafts((current) => ({ ...current, [variant.id]: text }))}
+            onEndEditing={() => savePrice(variant)}
+            placeholder="Prix de vente"
+            placeholderTextColor="#94A3B8"
+            returnKeyType="done"
+            selectionColor="#208AEF"
+            value={displayPrice(variant)}
+          />
+          {canManage ? (
+            <Pressable
+              className={`h-9 items-center justify-center rounded-lg px-3 ${
+                variant.active ? 'bg-red-50' : 'bg-emerald-50'
+              }`}
+              disabled={pending}
+              onPress={() => toggleVariant(variant)}>
+              <Text className={`text-sm font-medium ${variant.active ? 'text-red-600' : 'text-emerald-700'}`}>
+                {variant.active ? 'Masquer' : 'Afficher'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ))}
+
+      {pickerOpen && canManage ? (
+        <SizePicker
+          onCancel={() => setPickerOpen(false)}
+          onAdd={addPointures}
+          takenValues={variants.filter((variant) => variant.active).map((v) => v.size.value)}
+          title="Pointures à ajouter"
+        />
+      ) : null}
+    </View>
+  );
+}
+
 /* ════════════ Écran ════════════ */
 
 export default function CatalogueSettingsScreen() {
@@ -294,7 +428,7 @@ export default function CatalogueSettingsScreen() {
       <View className="gap-3">
         <View className="flex-row items-center justify-between">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Pointures ({sizeItems.length})
+            Valeurs de pointures ({sizeItems.length})
           </Text>
           {canManage ? (
             <Pressable
@@ -306,6 +440,11 @@ export default function CatalogueSettingsScreen() {
             </Pressable>
           ) : null}
         </View>
+
+        <Text className="text-xs text-slate-400">
+          Dictionnaire des valeurs proposées par les sélecteurs — les pointures d&apos;un modèle
+          se gèrent sur le modèle, dans la section Produits.
+        </Text>
 
         {showNewSize && canManage ? <SizeForm onDone={() => setShowNewSize(false)} /> : null}
 
@@ -393,6 +532,9 @@ export default function CatalogueSettingsScreen() {
             onDone={() => setSelectedProductId(null)}
             product={selectedProduct}
           />
+        ) : null}
+        {selectedProduct ? (
+          <ProductSizesPanel canManage={canManage} productId={selectedProduct.id} />
         ) : null}
 
         <View className="overflow-hidden rounded-xl border border-slate-200 bg-white">

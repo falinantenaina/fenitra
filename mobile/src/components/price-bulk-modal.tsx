@@ -90,7 +90,7 @@ function BulkContent({
                 size={22}
               />
               <Text className="flex-1 text-sm font-medium text-slate-800">
-                {variant.size.label}
+                {variant.size.label || variant.size.value}
               </Text>
               <Text className="text-xs text-slate-400">
                 {quantities[variant.id] ? `${quantities[variant.id]} p.` : '—'}

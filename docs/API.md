@@ -123,7 +123,7 @@ sont en `manager`.
 | GET | `/api/products` | auth | Liste des produits |
 | POST | `/api/products` | manager | Création |
 | GET/PUT/DELETE | `/api/products/:id` | auth / manager / manager | Détail, mise à jour, suppression |
-| POST | `/api/products/:id/variants` | manager | Création **en bloc** par `sizeValues[]` (pointures manquantes créées à la volée, doublons ignorés) |
+| POST | `/api/products/:id/variants` | manager | Pointures **du modèle** par `sizeValues[]` : valeurs inconnues créées à la volée, doublons ignorés, pointure désactivée **réactivée** |
 | GET | `/api/sizes` | auth | Liste des pointures |
 | POST | `/api/sizes` | manager | Création |
 | PUT/DELETE | `/api/sizes/:id` | manager | Mise à jour, suppression |
