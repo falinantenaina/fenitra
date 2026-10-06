@@ -16,11 +16,21 @@ const app = createApp();
 
 module.exports = app;
 
+const underPassenger = typeof PhusionPassenger !== 'undefined';
 const port = Number(process.env.PORT) || 4000;
 
-app.listen(port, () => {
-  console.log(`API prete sur le port ${port} [passenger=${typeof PhusionPassenger !== 'undefined'}]`);
-}).on('error', (error) => {
-  console.error(`listen a echoue sur le port ${port} : ${error.message}`);
-  process.exit(1);
-});
+if (underPassenger) {
+  if (typeof PhusionPassenger.configure === 'function') {
+    PhusionPassenger.configure({ autoInstall: false });
+  }
+  app.listen('passenger', () => {
+    console.log('API prete [passenger=true]');
+  });
+} else {
+  app.listen(port, () => {
+    console.log(`API prete sur le port ${port} [passenger=false]`);
+  }).on('error', (error) => {
+    console.error(`listen a echoue sur le port ${port} : ${error.message}`);
+    process.exit(1);
+  });
+}

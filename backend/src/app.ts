@@ -24,7 +24,12 @@ export function createApp(): Express {
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', env: env.NODE_ENV, time: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      env: env.NODE_ENV,
+      time: new Date().toISOString(),
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    });
   });
 
   app.use(env.API_PREFIX, apiRouter);

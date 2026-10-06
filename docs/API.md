@@ -97,7 +97,7 @@ sont en `manager`.
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/health` | public | Santé du service (hors `/api`) : `{ status, env, time }` |
+| GET | `/health` | public | Santé du service (hors `/api`) : `{ status, env, time, rss }` — `rss` en Mo, pour surveiller la mémoire du process (limites LVE/CloudLinux) |
 | GET | `/api/health` | public | Santé du service : `{ status, uptime, timestamp }` |
 | GET | `/api/` | public | Catalogue des points d'entrée (`name`, `version`, `endpoints[]`) |
 
