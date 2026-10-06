@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -14,6 +13,7 @@ import {
 
 import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { useChangePassword, useSettings, useUpdateSettings } from '@/lib/queries';
 import {
@@ -51,20 +51,13 @@ function PasswordForm() {
         newPassword: values.newPassword,
       });
       reset({ currentPassword: '', newPassword: '', confirm: '' });
-      Alert.alert(
+      toast.success(
         'Mot de passe modifié',
         'Toutes vos sessions sont révoquées : reconnectez-vous.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              void signOut().then(() => router.replace('/login'));
-            },
-          },
-        ],
       );
+      void signOut().then(() => router.replace('/login'));
     } catch (error) {
-      Alert.alert('Changement refusé', apiMessage(error));
+      toast.error('Changement refusé', apiMessage(error));
     }
   });
 
@@ -157,9 +150,9 @@ function SettingsForm({ presetKey }: { presetKey: { key: string; value: string }
   const onSubmit = handleSubmit(async (values) => {
     try {
       await updateSettings.mutateAsync(buildSettingsPayload(values));
-      Alert.alert('Réglage enregistré', values.key);
+      toast.success('Réglage enregistré', values.key);
     } catch (error) {
-      Alert.alert('Réglage refusé', apiMessage(error));
+      toast.error('Réglage refusé', apiMessage(error));
     }
   });
 

@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+import { ToastHost } from '@/components/toast';
 import { QueryProvider } from '@/providers/query-provider';
 import { useAuth } from '@/store/auth';
 
@@ -123,6 +124,7 @@ export default function RootLayout() {
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Général' }}
           />
         </Stack>
+        <ToastHost />
         <StatusBar style="auto" />
       </ThemeProvider>
     </QueryProvider>

@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney, formatQuantity } from '@/lib/format';
 import { pick } from '@/lib/params';
@@ -85,11 +85,11 @@ export default function VentilateArrivalScreen() {
           })),
         },
       });
-      Alert.alert(
+      toast.success(
         'Pointures ventilées',
         `${pending.length} carton(s) réparti(s) — les lots sont créés.`,
-        [{ text: 'OK', onPress: () => router.back() }],
       );
+      router.back();
     } catch (error) {
       setSubmitError(apiMessage(error));
     }

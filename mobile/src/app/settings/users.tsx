@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -14,6 +13,7 @@ import {
 import { Chip } from '@/components/chip';
 import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -95,9 +95,9 @@ function UserForm({ onDone }: { onDone: () => void }) {
     try {
       await createUser.mutateAsync(buildUserPayload(values));
       onDone();
-      Alert.alert('Utilisateur créé', `${values.name} · ${values.email}`);
+      toast.success('Utilisateur créé', `${values.name} · ${values.email}`);
     } catch (error) {
-      Alert.alert('Utilisateur refusé', apiMessage(error));
+      toast.error('Utilisateur refusé', apiMessage(error));
     }
   });
 
@@ -219,9 +219,9 @@ function UserEditForm({ user, onDone }: { user: UserItem; onDone: () => void }) 
         body: { name: values.name, role },
       });
       onDone();
-      Alert.alert('Utilisateur modifié', values.name);
+      toast.success('Utilisateur modifié', values.name);
     } catch (error) {
-      Alert.alert('Utilisateur refusé', apiMessage(error));
+      toast.error('Utilisateur refusé', apiMessage(error));
     }
   });
 
@@ -229,7 +229,7 @@ function UserEditForm({ user, onDone }: { user: UserItem; onDone: () => void }) 
     try {
       await updateUser.mutateAsync({ id: user.id, body: { active: !user.active } });
     } catch (error) {
-      Alert.alert('Utilisateur refusé', apiMessage(error));
+      toast.error('Utilisateur refusé', apiMessage(error));
     }
   };
 
@@ -238,9 +238,9 @@ function UserEditForm({ user, onDone }: { user: UserItem; onDone: () => void }) 
       await resetPassword.mutateAsync({ id: user.id, newPassword: values.newPassword });
       resetForm.reset({ newPassword: '' });
       setShowReset(false);
-      Alert.alert('Mot de passe réinitialisé', 'Toutes les sessions de cet utilisateur sont révoquées.');
+      toast.success('Mot de passe réinitialisé', 'Toutes les sessions de cet utilisateur sont révoquées.');
     } catch (error) {
-      Alert.alert('Réinitialisation refusée', apiMessage(error));
+      toast.error('Réinitialisation refusée', apiMessage(error));
     }
   });
 

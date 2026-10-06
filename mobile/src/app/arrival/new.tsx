@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { useFieldArray, useForm, type FieldPath } from "react-hook-form";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import {
 } from "react-native";
 
 import { parseSizeExpression } from "@/components/size-picker";
+import { toast } from "@/components/toast";
 import { apiMessage } from "@/lib/api";
 import {
   arrivalFormSchema,
@@ -189,7 +189,7 @@ function CartonCard({
       setSearch("");
       setDebounced("");
     } catch (error) {
-      Alert.alert("Création refusée", apiMessage(error));
+      toast.error("Création refusée", apiMessage(error));
     } finally {
       setCreating(false);
     }
@@ -217,7 +217,7 @@ function CartonCard({
   const addSizeLines = async () => {
     const values = parseSizeExpression(sizeExpr);
     if (values.length === 0) {
-      Alert.alert(
+      toast.error(
         "Pointure invalide",
         "Ex. 43, 36-40 ou 36,40 (valeurs 1 à 100).",
       );
@@ -253,7 +253,7 @@ function CartonCard({
       onPatch({ sizes: next });
       setSizeExpr("");
     } catch (error) {
-      Alert.alert("Pointure refusée", apiMessage(error));
+      toast.error("Pointure refusée", apiMessage(error));
     } finally {
       setAddingSize(false);
     }
@@ -655,7 +655,7 @@ export default function NewArrivalScreen() {
       setSupplierNotice(supplierTerm);
       setSupplierSearch("");
     } catch (error) {
-      Alert.alert("Création refusée", apiMessage(error));
+      toast.error("Création refusée", apiMessage(error));
     } finally {
       setCreatingSupplier(false);
     }
@@ -669,14 +669,14 @@ export default function NewArrivalScreen() {
       );
       useArrivalDraft.getState().clear();
       const toVentilate = cartonsToVentilate(formValues);
-      Alert.alert(
+      toast.success(
         "Arrivage enregistré",
-        `${created.reference}\n${created.totalQty} pièce(s) — ${formatMoney(created.totalCost)}` +
+        `${created.reference} — ${created.totalQty} pièce(s), ${formatMoney(created.totalCost)}` +
           (toVentilate > 0
-            ? `\n${toVentilate} carton(s) à ventiler (pointures)`
+            ? ` · ${toVentilate} carton(s) à ventiler`
             : ""),
-        [{ text: "OK", onPress: () => router.back() }],
       );
+      router.back();
     } catch (error) {
       setSubmitError(apiMessage(error));
     }

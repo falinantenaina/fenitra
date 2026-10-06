@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -11,6 +10,7 @@ import {
 
 import { CancelPanel } from '@/components/cancel-panel';
 import { Section } from '@/components/section';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { pick } from '@/lib/params';
@@ -33,14 +33,14 @@ export default function ArrivalDetailScreen() {
     const hasLots = (arrival.data?.lots.length ?? 0) > 0;
     try {
       await cancelArrival.mutateAsync({ id, reason });
-      Alert.alert(
+      toast.success(
         'Arrivage annulé',
         hasLots
           ? 'Les lots et les écritures ont été contre-passés.'
           : 'Aucun lot : le stock en transit disparaît, le journal est contre-passé.',
       );
     } catch (error) {
-      Alert.alert('Annulation refusée', apiMessage(error));
+      toast.error('Annulation refusée', apiMessage(error));
     }
   };
 

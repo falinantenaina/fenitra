@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 
 import { Chip } from '@/components/chip';
 import { ErrorText, Field } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -44,13 +44,13 @@ export default function NewCapitalScreen() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       const movement = await createCapital.mutateAsync(buildCapitalPayload(values));
-      Alert.alert(
+      toast.success(
         'Mouvement enregistré',
         `${movement.type === 'IN' ? 'Injection' : 'Retrait'} — ${formatMoney(movement.amount)}`,
-        [{ text: 'OK', onPress: () => router.back() }],
       );
+      router.back();
     } catch (error) {
-      Alert.alert('Mouvement refusé', apiMessage(error));
+      toast.error('Mouvement refusé', apiMessage(error));
     }
   });
 

@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,6 +15,7 @@ import { DateField } from '@/components/date-field';
 import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
 import { Section } from '@/components/section';
+import { toast } from '@/components/toast';
 import { todayISO } from '@/lib/finance';
 import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import {
@@ -349,10 +349,10 @@ export default function ReportsScreen() {
       } else if (segment === 'monthly') {
         await exportAndShareReport({ type: 'monthly', year: Number(year), month: Number(month) });
       } else {
-        Alert.alert('Journal', "L'export PDF concerne les rapports journalier et mensuel.");
+        toast.error('Journal', "L'export PDF concerne les rapports journalier et mensuel.");
       }
     } catch (error) {
-      Alert.alert('Export impossible', error instanceof Error ? error.message : 'Erreur inattendue');
+      toast.error('Export impossible', error instanceof Error ? error.message : 'Erreur inattendue');
     } finally {
       setSharing(false);
     }

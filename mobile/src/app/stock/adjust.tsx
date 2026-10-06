@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -66,19 +66,18 @@ export default function AdjustStockScreen() {
 
   const onSubmit = handleSubmit(async (values) => {
     if (selected && values.qty > available) {
-      Alert.alert('Stock insuffisant', `Seulement ${available} unité(s) en stock.`);
+      toast.error('Stock insuffisant', `Seulement ${available} unité(s) en stock.`);
       return;
     }
     try {
       const result = await adjust.mutateAsync(buildAdjustPayload(values));
-      Alert.alert(
+      toast.success(
         'Ajustement enregistré',
-        `${result.quantity} unité(s) retirée(s) — perte ${formatMoney(result.lostValue)}\n` +
-          'Une dépense de casse a été créée.',
-        [{ text: 'OK', onPress: () => router.back() }],
+        `${result.quantity} unité(s) retirée(s) — perte ${formatMoney(result.lostValue)} · dépense de casse créée.`,
       );
+      router.back();
     } catch (error) {
-      Alert.alert('Ajustement refusé', apiMessage(error));
+      toast.error('Ajustement refusé', apiMessage(error));
     }
   });
 

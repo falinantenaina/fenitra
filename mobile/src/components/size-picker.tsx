@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { useSizeList } from '@/lib/queries';
 
@@ -73,7 +74,7 @@ export function SizePicker({
   const addExtra = () => {
     const values = parseSizeExpression(extra).filter((value) => !taken.has(value));
     if (values.length === 0) {
-      Alert.alert('Pointure invalide', 'Ex. 43, 36-40, 36 à 40 ou 36,40 (valeurs 1 à 100).');
+      toast.error('Pointure invalide', 'Ex. 43, 36-40, 36 à 40 ou 36,40 (valeurs 1 à 100).');
       return;
     }
     setSelected((current) => [...new Set([...current, ...values])].sort((a, b) => a - b));
@@ -87,7 +88,7 @@ export function SizePicker({
       await onAdd([...selected].sort((a, b) => a - b));
       setSelected([]);
     } catch (error) {
-      Alert.alert('Pointures refusées', apiMessage(error));
+      toast.error('Pointures refusées', apiMessage(error));
     } finally {
       setPending(false);
     }

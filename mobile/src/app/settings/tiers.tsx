@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -14,6 +13,7 @@ import {
 import { Chip } from '@/components/chip';
 import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { useCreateParty, usePartyList, useUpdateParty } from '@/lib/queries';
 import {
@@ -84,12 +84,12 @@ function PartyForm({
         await createParty.mutateAsync({ kind, body: buildPartyPayload(values) });
       }
       onDone();
-      Alert.alert(
+      toast.success(
         `${KIND_LABEL[kind]} ${party ? 'modifié' : 'créé'}`,
         values.name,
       );
     } catch (error) {
-      Alert.alert('Tiers refusé', apiMessage(error));
+      toast.error('Tiers refusé', apiMessage(error));
     }
   });
 
@@ -102,7 +102,7 @@ function PartyForm({
         body: { active: !party.active },
       });
     } catch (error) {
-      Alert.alert('Tiers refusé', apiMessage(error));
+      toast.error('Tiers refusé', apiMessage(error));
     }
   };
 

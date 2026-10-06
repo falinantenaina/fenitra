@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -13,6 +12,7 @@ import {
 
 import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import {
   useCreateCategory,
@@ -90,9 +90,9 @@ function CategoryForm({
         await createCategory.mutateAsync(buildCategoryPayload(values));
       }
       onDone();
-      Alert.alert(category ? 'Catégorie modifiée' : 'Catégorie créée', values.name);
+      toast.success(category ? 'Catégorie modifiée' : 'Catégorie créée', values.name);
     } catch (error) {
-      Alert.alert('Catégorie refusée', apiMessage(error));
+      toast.error('Catégorie refusée', apiMessage(error));
     }
   });
 
@@ -101,7 +101,7 @@ function CategoryForm({
     try {
       await updateCategory.mutateAsync({ id: category.id, body: { active: !category.active } });
     } catch (error) {
-      Alert.alert('Catégorie refusée', apiMessage(error));
+      toast.error('Catégorie refusée', apiMessage(error));
     }
   };
 
@@ -186,9 +186,9 @@ function MethodForm({ onDone }: { onDone: () => void }) {
     try {
       await createMethod.mutateAsync(buildMethodPayload(values));
       onDone();
-      Alert.alert('Mode de paiement créé', values.name);
+      toast.success('Mode de paiement créé', values.name);
     } catch (error) {
-      Alert.alert('Mode de paiement refusé', apiMessage(error));
+      toast.error('Mode de paiement refusé', apiMessage(error));
     }
   });
 
@@ -259,7 +259,7 @@ export default function CategoriesSettingsScreen() {
     try {
       await updateMethod.mutateAsync({ id: method.id, body: { active: !method.active } });
     } catch (error) {
-      Alert.alert('Mode de paiement refusé', apiMessage(error));
+      toast.error('Mode de paiement refusé', apiMessage(error));
     }
   };
 

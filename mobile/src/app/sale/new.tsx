@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -19,6 +18,7 @@ import {
 import { Chip } from '@/components/chip';
 import { ErrorPanel } from '@/components/error-panel';
 import { SeriesSheet, type SeriesLine } from '@/components/series-sheet';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -178,22 +178,22 @@ export default function NewSaleScreen() {
       setCustomerName('');
       setCustomerPhone('');
       setValue('customerId', party.id);
-      Alert.alert('Client créé', `${party.name} est sélectionné pour cette vente.`);
+      toast.success('Client créé', `${party.name} est sélectionné pour cette vente.`);
     } catch (error) {
-      Alert.alert('Création refusée', apiMessage(error));
+      toast.error('Création refusée', apiMessage(error));
     }
   };
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       const sale = await createSale.mutateAsync(buildSalePayload(values));
-      Alert.alert(
+      toast.success(
         'Vente enregistrée',
-        `${sale.reference}\nTotal ${formatMoney(sale.totalAmount)} — réglé ${formatMoney(sale.paidAmount)}`,
-        [{ text: 'OK', onPress: () => router.back() }],
+        `${sale.reference} — total ${formatMoney(sale.totalAmount)}, réglé ${formatMoney(sale.paidAmount)}`,
       );
+      router.back();
     } catch (error) {
-      Alert.alert('Vente refusée', apiMessage(error));
+      toast.error('Vente refusée', apiMessage(error));
     }
   });
 

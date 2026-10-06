@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -16,6 +15,7 @@ import {
 import { CancelPanel } from '@/components/cancel-panel';
 import { Chip } from '@/components/chip';
 import { Section } from '@/components/section';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import {
@@ -58,7 +58,7 @@ export default function SaleDetailScreen() {
   const onSubmit = handleSubmit(async (values) => {
     if (!id) return;
     if (values.amount > remaining) {
-      Alert.alert('Montant trop élevé', `Le solde restant est de ${formatMoney(remaining)}.`);
+      toast.error('Montant trop élevé', `Le solde restant est de ${formatMoney(remaining)}.`);
       return;
     }
     try {
@@ -66,12 +66,10 @@ export default function SaleDetailScreen() {
         id,
         body: buildDebtPaymentPayload({ ...values, method }),
       });
-      Alert.alert('Règlement enregistré', `Reste ${formatMoney(remaining - values.amount)}`, [
-        { text: 'OK' },
-      ]);
+      toast.success('Règlement enregistré', `Reste ${formatMoney(remaining - values.amount)}`);
       setValue('amount', 0);
     } catch (error) {
-      Alert.alert('Règlement refusé', apiMessage(error));
+      toast.error('Règlement refusé', apiMessage(error));
     }
   });
 
@@ -79,9 +77,9 @@ export default function SaleDetailScreen() {
     if (!id) return;
     try {
       await cancelSale.mutateAsync({ id, reason });
-      Alert.alert('Vente annulée', 'Le stock a été restitué et les écritures contre-passées.');
+      toast.success('Vente annulée', 'Le stock a été restitué et les écritures contre-passées.');
     } catch (error) {
-      Alert.alert('Annulation refusée', apiMessage(error));
+      toast.error('Annulation refusée', apiMessage(error));
     }
   };
 

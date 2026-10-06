@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -47,11 +47,10 @@ export default function NewExpenseScreen() {
       const expense = await createExpense.mutateAsync(
         buildExpensePayload({ ...values, method }),
       );
-      Alert.alert('Dépense enregistrée', formatMoney(expense.amount), [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success('Dépense enregistrée', formatMoney(expense.amount));
+      router.back();
     } catch (error) {
-      Alert.alert('Dépense refusée', apiMessage(error));
+      toast.error('Dépense refusée', apiMessage(error));
     }
   });
 

@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import {
 
 import { Chip } from '@/components/chip';
 import { ErrorText, Field } from '@/components/field';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -53,18 +53,13 @@ export default function NewSupplierDebtScreen() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       const debt = await createDebt.mutateAsync(buildSupplierDebtPayload(values));
-      Alert.alert(
+      toast.success(
         'Dette enregistrée',
         `${debt.party?.name ?? ''} — ${formatMoney(debt.initialAmount)}`,
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace({ pathname: '/dettes/[id]', params: { id: debt.id } }),
-          },
-        ],
       );
+      router.replace({ pathname: '/dettes/[id]', params: { id: debt.id } });
     } catch (error) {
-      Alert.alert('Dette refusée', apiMessage(error));
+      toast.error('Dette refusée', apiMessage(error));
     }
   });
 

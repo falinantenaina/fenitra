@@ -14,6 +14,7 @@ import {
 import { ErrorPanel } from '@/components/error-panel';
 import { FieldError } from '@/components/field';
 import { SizePicker } from '@/components/size-picker';
+import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import {
   useCreateProduct,
@@ -59,12 +60,12 @@ function SizeForm({ onDone }: { onDone: () => void }) {
     try {
       await createSize.mutateAsync(buildSizePayload(values));
       onDone();
-      Alert.alert(
+      toast.success(
         'Pointure créée',
         values.label?.trim() ? `${values.value} — ${values.label}` : `${values.value}`,
       );
     } catch (error) {
-      Alert.alert('Pointure refusée', apiMessage(error));
+      toast.error('Pointure refusée', apiMessage(error));
     }
   });
 
@@ -167,9 +168,9 @@ function ProductForm({
         await createProduct.mutateAsync(buildProductPayload(values));
       }
       onDone();
-      Alert.alert(product ? 'Produit modifié' : 'Produit créé', values.name);
+      toast.success(product ? 'Produit modifié' : 'Produit créé', values.name);
     } catch (error) {
-      Alert.alert('Produit refusé', apiMessage(error));
+      toast.error('Produit refusé', apiMessage(error));
     }
   });
 
@@ -178,7 +179,7 @@ function ProductForm({
     try {
       await updateProduct.mutateAsync({ id: product.id, body: { active: !product.active } });
     } catch (error) {
-      Alert.alert('Produit refusé', apiMessage(error));
+      toast.error('Produit refusé', apiMessage(error));
     }
   };
 
@@ -293,7 +294,7 @@ function ProductSizesPanel({ productId, canManage }: { productId: string; canMan
       { id: variant.id, body: { sellingPrice: value } },
       {
         onSuccess: () => clearDraft(variant.id),
-        onError: (error) => Alert.alert('Pointure refusée', apiMessage(error)),
+        onError: (error) => toast.error('Pointure refusée', apiMessage(error)),
       },
     );
   };
@@ -301,14 +302,14 @@ function ProductSizesPanel({ productId, canManage }: { productId: string; canMan
   const toggleVariant = (variant: VariantItem) => {
     updateVariant.mutate(
       { id: variant.id, body: { active: !variant.active } },
-      { onError: (error) => Alert.alert('Pointure refusée', apiMessage(error)) },
+      { onError: (error) => toast.error('Pointure refusée', apiMessage(error)) },
     );
   };
 
   const addPointures = async (values: number[]) => {
     await addSizes.mutateAsync({ productId, sizeValues: values });
     setPickerOpen(false);
-    Alert.alert('Pointures ajoutées', values.join(', '));
+    toast.success('Pointures ajoutées', values.join(', '));
   };
 
   return (
@@ -418,7 +419,7 @@ export default function CatalogueSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             deleteSize.mutate(size.id, {
-              onError: (error) => Alert.alert('Suppression refusée', apiMessage(error)),
+              onError: (error) => toast.error('Suppression refusée', apiMessage(error)),
             });
           },
         },
