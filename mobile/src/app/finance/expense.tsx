@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 
 import { Chip } from '@/components/chip';
+import { SelectField } from '@/components/select-field';
 import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
@@ -37,7 +37,6 @@ export default function NewExpenseScreen() {
   const methods = usePaymentMethods();
   const createExpense = useCreateExpense();
   const [method, setMethod] = useState<string | undefined>(undefined);
-  const [search, setSearch] = useState('');
   const [createdTitle, setCreatedTitle] = useState<string | null>(null);
 
   const {
@@ -64,20 +63,12 @@ export default function NewExpenseScreen() {
   });
 
   const categoryId = useWatch({ control, name: 'categoryId' });
-
-  const term = search.trim();
   const knownTitles = categories.data ?? [];
-  const suggestions = term
-    ? knownTitles.filter((item) => item.name.toLowerCase().includes(term.toLowerCase()))
-    : knownTitles;
-  const titleExists = knownTitles.some((item) => item.name.toLowerCase() === term.toLowerCase());
-  const canCreate = term.length > 0 && !titleExists;
 
-  const createTitle = async () => {
+  const createTitle = async (term: string) => {
     try {
       const category = await createCategory.mutateAsync({ name: term });
       setValue('categoryId', category.id, { shouldValidate: true });
-      setSearch('');
       setCreatedTitle(term);
     } catch (error) {
       toast.error('Titre refusé', apiMessage(error));
@@ -99,67 +90,25 @@ export default function NewExpenseScreen() {
         <Text className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Titre
         </Text>
-        <View className="mt-2 flex-row items-center gap-2">
-          <TextInput
-            className="h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900"
-            onChangeText={setSearch}
+        <View className="mt-2">
+          <SelectField
+            createPending={createCategory.isPending}
+            emptyText="Aucun titre trouvé."
+            error={errors.categoryId?.message ?? null}
+            hint={createdTitle ? `Titre « ${createdTitle} » créé et sélectionné.` : null}
+            loading={categories.isPending}
+            options={knownTitles.map((category) => ({ id: category.id, label: category.name }))}
             placeholder="Rechercher ou créer un titre…"
-            placeholderTextColor="#94A3B8"
-            selectionColor="#208AEF"
-            value={search}
+            title="Titre"
+            value={categoryId}
+            valueLabel={knownTitles.find((category) => category.id === categoryId)?.name}
+            onCreate={createTitle}
+            onSelect={(id) => {
+              setValue('categoryId', id, { shouldValidate: true });
+              setCreatedTitle(null);
+            }}
           />
-          {search ? (
-            <Pressable
-              accessibilityLabel="Effacer la recherche"
-              className="h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white"
-              onPress={() => setSearch('')}>
-              <Ionicons color="#64748B" name="close" size={16} />
-            </Pressable>
-          ) : null}
         </View>
-        <ScrollView
-          className="mt-2"
-          contentContainerStyle={{ gap: 8 }}
-          horizontal
-          showsHorizontalScrollIndicator={false}>
-          {categories.isPending ? (
-            <ActivityIndicator color="#208AEF" />
-          ) : suggestions.length === 0 ? (
-            <Text className="text-sm text-slate-500">Aucun titre trouvé.</Text>
-          ) : (
-            suggestions.map((category) => (
-              <Chip
-                key={category.id}
-                label={category.name}
-                selected={categoryId === category.id}
-                onPress={() => {
-                  setValue('categoryId', category.id, { shouldValidate: true });
-                  setSearch('');
-                  setCreatedTitle(null);
-                }}
-              />
-            ))
-          )}
-        </ScrollView>
-        {canCreate ? (
-          <Pressable
-            className="mt-2 flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
-            disabled={createCategory.isPending}
-            onPress={() => void createTitle()}>
-            <Ionicons color="#208AEF" name="add" size={15} />
-            <Text className="text-sm font-semibold text-brand">
-              {createCategory.isPending ? 'Création…' : `Créer « ${term} »`}
-            </Text>
-          </Pressable>
-        ) : null}
-        {createdTitle ? (
-          <Text className="mt-2 text-xs font-semibold text-emerald-600">
-            Titre « {createdTitle} » créé et sélectionné.
-          </Text>
-        ) : null}
-        {errors.categoryId ? (
-          <Text className="mt-1 text-xs text-red-600">{errors.categoryId.message}</Text>
-        ) : null}
 
         {/* Montant */}
         <View className="mt-5 gap-1.5">

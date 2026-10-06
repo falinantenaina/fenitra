@@ -17,6 +17,7 @@ import {
 
 import { Chip } from '@/components/chip';
 import { ErrorPanel } from '@/components/error-panel';
+import { SelectField } from '@/components/select-field';
 import { SeriesSheet, type SeriesLine } from '@/components/series-sheet';
 import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
@@ -370,34 +371,29 @@ export default function NewSaleScreen() {
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Client
           </Text>
-          <ScrollView
-            className="mt-2"
-            contentContainerStyle={{ gap: 8 }}
-            horizontal
-            showsHorizontalScrollIndicator={false}>
-            <Chip
-              label="Comptoir"
-              selected={customerId === ''}
-              onPress={() => selectCustomer('')}
+          <View className="mt-2">
+            <SelectField
+              createVerb="Nouveau client"
+              emptyText="Aucun client trouvé."
+              error={errors.customerId?.message ?? null}
+              loading={customers.isPending}
+              options={[
+                { id: '', label: 'Comptoir' },
+                ...(customers.data ?? []).map((customer) => ({
+                  id: customer.id,
+                  label: customer.name,
+                })),
+              ]}
+              placeholder="Rechercher ou créer un client…"
+              title="Client"
+              value={customerId}
+              onCreate={async (term) => {
+                setCustomerName(term);
+                setCustomerModal(true);
+              }}
+              onSelect={selectCustomer}
             />
-            {(customers.data ?? []).map((customer) => (
-              <Chip
-                key={customer.id}
-                label={customer.name}
-                selected={customerId === customer.id}
-                onPress={() => selectCustomer(customer.id)}
-              />
-            ))}
-            <Chip
-              label="+ Nouveau client"
-              selected={false}
-              onPress={() => setCustomerModal(true)}
-            />
-          </ScrollView>
-
-          {errors.customerId?.message ? (
-            <Text className="mt-2 text-xs text-red-600">{errors.customerId.message}</Text>
-          ) : null}
+          </View>
         </View>
 
         {/* Règlement */}

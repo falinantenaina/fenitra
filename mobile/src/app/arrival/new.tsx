@@ -16,6 +16,7 @@ import {
 } from "react-native";
 
 import { parseSizeExpression } from "@/components/size-picker";
+import { SelectField } from "@/components/select-field";
 import { toast } from "@/components/toast";
 import { apiMessage } from "@/lib/api";
 import {
@@ -169,27 +170,16 @@ function CartonCard({
 
   const term = debounced.trim();
   const searching = term.length > 0;
-  // Une fois le modèle choisi, la liste complète disparaît : seule la puce
-  // sélectionnée reste affichée (la recherche reste disponible).
-  const selected = (products ?? []).find(
-    (p) => p.id === carton.activeProductId,
-  );
-  const shown = searching
-    ? (results.data?.items ?? [])
-    : selected
-      ? [selected]
-      : (products ?? []);
-  const nameTaken = shown.some(
-    (p) => p.name.trim().toLowerCase() === term.toLowerCase(),
-  );
-  const canCreate =
-    term.length >= 2 && searching && !nameTaken && !results.isPending;
+  const selected =
+    (products ?? []).find((p) => p.id === carton.activeProductId) ??
+    (results.data?.items ?? []).find((p) => p.id === carton.activeProductId);
+  const shown = searching ? (results.data?.items ?? []) : (products ?? []);
 
-  const createModel = async () => {
-    if (!canCreate || creating) return;
+  const createModel = async (name: string) => {
+    if (creating) return;
     setCreating(true);
     try {
-      const product = await createProduct.mutateAsync({ name: term });
+      const product = await createProduct.mutateAsync({ name });
       onPatch({ activeProductId: product.id });
       setCreatedModel(product.name);
       setSearch("");
@@ -292,90 +282,32 @@ function CartonCard({
         <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
           1 · Modèle
         </Text>
-        <View className="mb-2 flex-row items-center gap-2">
-          <TextInput
-            className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
-            onChangeText={(text) => {
-              setSearch(text);
-              setCreatedModel(null);
-            }}
-            placeholder="Rechercher ou créer un modèle…"
-            placeholderTextColor="#94A3B8"
-            selectionColor="#208AEF"
-            value={search}
-          />
-          {search ? (
-            <Pressable
-              accessibilityLabel="Effacer la recherche"
-              className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
-              onPress={() => setSearch("")}
-            >
-              <Ionicons color="#64748B" name="close" size={16} />
-            </Pressable>
-          ) : null}
-        </View>
-
-        <ScrollView
-          contentContainerStyle={{ gap: 8 }}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {(searching && results.isPending) ||
-          (!searching && productsPending && !products) ? (
-            <ActivityIndicator color="#208AEF" />
-          ) : shown.length === 0 ? (
-            <Text className="text-sm text-slate-500">
-              {searching
-                ? "Aucun modèle trouvé."
-                : "Aucun modèle actif — créez-en un d&apos;abord."}
-            </Text>
-          ) : (
-            shown.map((product) => {
-              const active = product.id === carton.activeProductId;
-              return (
-                <Pressable
-                  className={`flex-row items-center gap-1.5 rounded-full border px-3 py-1.5 ${
-                    active
-                      ? "border-brand bg-brand"
-                      : "border-slate-200 bg-white"
-                  }`}
-                  key={product.id}
-                  onPress={() => {
-                    onPatch({ activeProductId: product.id });
-                    setSearch("");
-                    setDebounced("");
-                    setCreatedModel(null);
-                  }}
-                >
-                  <Text
-                    className={`text-sm ${active ? "font-semibold text-white" : "text-slate-600"}`}
-                  >
-                    {product.name}
-                  </Text>
-                </Pressable>
-              );
-            })
-          )}
-        </ScrollView>
-
-        {canCreate ? (
-          <Pressable
-            className="mt-2 flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
-            disabled={creating}
-            onPress={() => void createModel()}
-          >
-            <Ionicons color="#208AEF" name="add" size={15} />
-            <Text className="text-sm font-semibold text-brand">
-              {creating ? "Création…" : `Créer « ${term} »`}
-            </Text>
-          </Pressable>
-        ) : null}
-
-        {createdModel ? (
-          <Text className="mt-2 text-xs font-semibold text-emerald-600">
-            Modèle « {createdModel} » créé et sélectionné.
-          </Text>
-        ) : null}
+        <SelectField
+          compact
+          createPending={creating}
+          createDisabled={searching && results.isPending}
+          emptyText={
+            searching ? "Aucun modèle trouvé." : "Aucun modèle actif — créez-en un d'abord."
+          }
+          hint={createdModel ? `Modèle « ${createdModel} » créé et sélectionné.` : null}
+          loading={productsPending || (searching && results.isPending)}
+          options={shown.map((product) => ({ id: product.id, label: product.name }))}
+          placeholder="Rechercher ou créer un modèle…"
+          title="Modèle"
+          value={carton.activeProductId ?? ""}
+          valueLabel={selected?.name}
+          onCreate={createModel}
+          onSearch={(text) => {
+            setSearch(text);
+            setCreatedModel(null);
+          }}
+          onSelect={(id) => {
+            onPatch({ activeProductId: id });
+            setSearch("");
+            setDebounced("");
+            setCreatedModel(null);
+          }}
+        />
       </View>
 
       {/* Étape 2 — quantité et montant du carton */}
@@ -567,7 +499,6 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
   const editing = Boolean(editId);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [supplierSearch, setSupplierSearch] = useState("");
   const [supplierNotice, setSupplierNotice] = useState<string | null>(null);
   const [creatingSupplier, setCreatingSupplier] = useState(false);
   /** Récapitulatif à confirmer avant l'envoi, voir `onReview`. */
@@ -686,31 +617,18 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
     if (next) setValue("payment.amount", totals.cost);
   };
 
-  // Fournisseur : recherche + création à la volée, comme pour les modèles.
-  const supplierTerm = supplierSearch.trim();
-  const supplierLower = supplierTerm.toLowerCase();
   const supplierList = suppliers.data ?? [];
-  const supplierMatches = supplierTerm
-    ? supplierList.filter((supplier) =>
-        supplier.name.toLowerCase().includes(supplierLower),
-      )
-    : supplierList;
-  const supplierTaken = supplierList.some(
-    (supplier) => supplier.name.trim().toLowerCase() === supplierLower,
-  );
-  const canCreateSupplier = supplierTerm.length >= 2 && !supplierTaken;
 
-  const createSupplier = async () => {
-    if (!canCreateSupplier || creatingSupplier) return;
+  const createSupplier = async (name: string) => {
+    if (creatingSupplier) return;
     setCreatingSupplier(true);
     try {
       const supplier = await createParty.mutateAsync({
         kind: "suppliers",
-        body: { name: supplierTerm },
+        body: { name },
       });
       setValue("supplierId", supplier.id);
-      setSupplierNotice(supplierTerm);
-      setSupplierSearch("");
+      setSupplierNotice(name);
     } catch (error) {
       toast.error("Création refusée", apiMessage(error));
     } finally {
@@ -807,81 +725,28 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
             <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Fournisseur
             </Text>
-            <View className="flex-row items-center gap-2">
-              <TextInput
-                className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
-                onChangeText={(text) => {
-                  setSupplierSearch(text);
-                  setSupplierNotice(null);
-                }}
-                placeholder="Rechercher ou créer un fournisseur…"
-                placeholderTextColor="#94A3B8"
-                selectionColor="#208AEF"
-                value={supplierSearch}
-              />
-              {supplierSearch ? (
-                <Pressable
-                  accessibilityLabel="Effacer la recherche"
-                  className="h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white"
-                  onPress={() => setSupplierSearch("")}
-                >
-                  <Ionicons color="#64748B" name="close" size={16} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <ScrollView
-              contentContainerStyle={{ gap: 8 }}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-            >
-              {suppliers.isPending ? (
-                <ActivityIndicator color="#208AEF" />
-              ) : supplierMatches.length === 0 ? (
-                <Text className="text-sm text-slate-500">
-                  {supplierTerm
-                    ? "Aucun fournisseur trouvé."
-                    : "Aucun fournisseur actif."}
-                </Text>
-              ) : (
-                supplierMatches.map((supplier) => (
-                  <Chip
-                    active={supplier.id === supplierId}
-                    key={supplier.id}
-                    label={supplier.name}
-                    onPress={() => {
-                      setValue("supplierId", supplier.id);
-                      setSupplierNotice(null);
-                    }}
-                  />
-                ))
-              )}
-            </ScrollView>
-
-            {canCreateSupplier ? (
-              <Pressable
-                className="flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
-                disabled={creatingSupplier}
-                onPress={() => void createSupplier()}
-              >
-                <Ionicons color="#208AEF" name="add" size={15} />
-                <Text className="text-sm font-semibold text-brand">
-                  {creatingSupplier ? "Création…" : `Créer « ${supplierTerm} »`}
-                </Text>
-              </Pressable>
-            ) : null}
-
-            {supplierNotice ? (
-              <Text className="text-xs font-semibold text-emerald-600">
-                Fournisseur « {supplierNotice} » créé et sélectionné.
-              </Text>
-            ) : null}
-
-            {errors.supplierId ? (
-              <Text className="text-xs text-red-600">
-                {errors.supplierId.message}
-              </Text>
-            ) : null}
+            <SelectField
+              compact
+              createPending={creatingSupplier}
+              emptyText={
+                supplierList.length === 0 ? "Aucun fournisseur actif." : "Aucun fournisseur trouvé."
+              }
+              error={errors.supplierId ? errors.supplierId.message : null}
+              hint={
+                supplierNotice ? `Fournisseur « ${supplierNotice} » créé et sélectionné.` : null
+              }
+              loading={suppliers.isPending}
+              options={supplierList.map((supplier) => ({ id: supplier.id, label: supplier.name }))}
+              placeholder="Rechercher ou créer un fournisseur…"
+              title="Fournisseur"
+              value={supplierId}
+              valueLabel={supplierList.find((supplier) => supplier.id === supplierId)?.name}
+              onCreate={createSupplier}
+              onSelect={(id) => {
+                setValue("supplierId", id);
+                setSupplierNotice(null);
+              }}
+            />
           </View>
 
           <View className="flex-row items-end gap-3">
