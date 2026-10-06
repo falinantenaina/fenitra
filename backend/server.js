@@ -22,4 +22,5 @@ app.listen(port, () => {
   console.log(`API prete sur le port ${port} [passenger=${typeof PhusionPassenger !== 'undefined'}]`);
 }).on('error', (error) => {
   console.error(`listen a echoue sur le port ${port} : ${error.message}`);
+  process.exit(1);
 });
