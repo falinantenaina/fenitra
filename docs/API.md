@@ -216,10 +216,10 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET/POST | `/api/expenses` | auth / manager | Liste et création (toujours réglée → caisse −amount) |
+| GET/POST | `/api/expenses` | auth / manager | Liste (`q` cherche dans la description **et** le titre = nom de catégorie) et création (toujours réglée → caisse −amount ; `description` facultative — le libellé du journal retombe sur le titre) |
 | GET | `/api/expenses/summary` | auth | Agrégats par catégorie |
 | GET/PUT/DELETE | `/api/expenses/:id` | auth / manager / manager | Détail, mise à jour, suppression |
-| GET/POST | `/api/expense-categories` | auth / manager | Catégories |
+| GET/POST | `/api/expense-categories` | auth / manager | Catégories = **titres** des dépenses (création à la volée si le titre n'existe pas encore) |
 | PUT | `/api/expense-categories/:id` | manager | `{ active: false }` = désactivation |
 | GET/POST | `/api/versements` | auth / manager | Versements (charge ou remboursement, détection automatique A2) — `period`, `from`/`to`, `personName`, `treatment` |
 | GET | `/api/versements/summary` | auth | §38 historique par personne : `items[] { personName, count, amount, charge, debtSettlement, lastDate }`, `totalAmount`, `totalCount` |

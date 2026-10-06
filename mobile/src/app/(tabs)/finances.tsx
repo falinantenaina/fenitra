@@ -96,10 +96,11 @@ function ExpenseList() {
           key={expense.id}>
           <View className="flex-1">
             <Text className="text-sm font-semibold text-slate-800" numberOfLines={1}>
-              {expense.description}
+              {expense.description || expense.category?.name || '—'}
             </Text>
             <Text className="text-xs text-slate-400">
-              {expense.category?.name ?? '—'} · {formatDateTime(expense.date)}
+              {expense.description ? `${expense.category?.name ?? '—'} · ` : ''}
+              {formatDateTime(expense.date)}
             </Text>
           </View>
           <Text className="text-sm font-bold text-red-600">−{formatMoney(expense.amount)}</Text>

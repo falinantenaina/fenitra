@@ -39,6 +39,10 @@ async function assertCategory(tx: Db, categoryId: string) {
   return category;
 }
 
+/** Libellé du journal : la description est facultative → on retombe sur le titre. */
+const expenseLabel = (description: string | null | undefined, title: string) =>
+  `Dépense — ${description?.trim() || title}`;
+
 async function createEntry(
   tx: Db,
   expenseId: string,
@@ -66,7 +70,7 @@ async function createEntry(
 /** POST /expenses — sortie de caisse + écriture `EXPENSE` (A8 : toujours réglée). */
 export async function createExpense(input: CreateExpenseInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {
-    await assertCategory(tx, input.categoryId);
+    const category = await assertCategory(tx, input.categoryId);
     const date = input.date ?? new Date();
 
     const expense = await tx.expense.create({
@@ -74,7 +78,7 @@ export async function createExpense(input: CreateExpenseInput, userId: string | 
         categoryId: input.categoryId,
         amount: input.amount,
         date,
-        description: input.description,
+        description: input.description ?? '',
         method: input.method ?? null,
         reference: input.reference ?? null,
         notes: input.notes ?? null,
@@ -82,7 +86,7 @@ export async function createExpense(input: CreateExpenseInput, userId: string | 
       },
     });
 
-    await createEntry(tx, expense.id, input.amount, date, `Dépense — ${input.description}`, userId);
+    await createEntry(tx, expense.id, input.amount, date, expenseLabel(input.description, category.name), userId);
 
     return loadExpense(tx, expense.id);
   });
@@ -96,7 +100,7 @@ export async function updateExpense(id: string, input: UpdateExpenseInput, userI
   return prisma.$transaction(async (tx) => {
     const existing = await tx.expense.findUnique({ where: { id } });
     if (!existing) throw notFound('Dépense introuvable');
-    await assertCategory(tx, input.categoryId);
+    const category = await assertCategory(tx, input.categoryId);
 
     const date = input.date ?? existing.date;
 
@@ -106,15 +110,15 @@ export async function updateExpense(id: string, input: UpdateExpenseInput, userI
         categoryId: input.categoryId,
         amount: input.amount,
         date,
-        description: input.description,
+        description: input.description ?? '',
         method: input.method ?? null,
         reference: input.reference ?? null,
         notes: input.notes ?? null,
       },
     });
 
-    await reverseEntries(tx, 'EXPENSE', id, `Correction dépense — ${input.description}`, userId);
-    await createEntry(tx, id, input.amount, date, `Dépense — ${input.description}`, userId);
+    await reverseEntries(tx, 'EXPENSE', id, `Correction dépense — ${expenseLabel(input.description, category.name)}`, userId);
+    await createEntry(tx, id, input.amount, date, expenseLabel(input.description, category.name), userId);
 
     return loadExpense(tx, id);
   });
@@ -151,7 +155,9 @@ export async function listExpenses(query: ExpenseListQuery) {
     ...(query.from || query.to
       ? { date: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
       : {}),
-    ...(ilike(query.q) ? { description: ilike(query.q) } : {}),
+    ...(ilike(query.q)
+      ? { OR: [{ description: ilike(query.q) }, { category: { name: ilike(query.q) } }] }
+      : {}),
   };
 
   const [items, total] = await Promise.all([

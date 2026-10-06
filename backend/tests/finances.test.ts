@@ -92,6 +92,24 @@ describe('Finances — dépenses, versements, argent propre, trosa', () => {
     expect(Number(summary.body.totalAmount)).toBeGreaterThanOrEqual(15000);
   });
 
+  it('enregistre une dépense sans description (titre seul) et la retrouve par q', async () => {
+    const title = `Finances ${stamp}`;
+    const res = await admin.post('/expenses').send({ categoryId, amount: 700 });
+    expect(res.status).toBe(201);
+    expect(res.body.description).toBe('');
+
+    const entry = await prisma.ledgerEntry.findFirst({
+      where: { refType: 'EXPENSE', refId: res.body.id, kind: 'EXPENSE' },
+    });
+    expect(entry?.description).toBe(`Dépense — ${title}`);
+
+    const search = await admin.get(`/expenses?q=${encodeURIComponent(title)}&limit=100`);
+    expect(search.status).toBe(200);
+    expect(search.body.items.some((e: { id: string }) => e.id === res.body.id)).toBe(true);
+
+    await admin.delete(`/expenses/${res.body.id}`).send({ reason: 'Test sans description' });
+  });
+
   it('corrige une dépense par contre-passation (PUT)', async () => {
     const res = await admin.put(`/expenses/${expenseId}`).send({
       categoryId,

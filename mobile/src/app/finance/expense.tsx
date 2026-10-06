@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -23,13 +24,21 @@ import {
   todayISO,
   type ExpenseFormValues,
 } from '@/lib/finance';
-import { useCreateExpense, useExpenseCategories, usePaymentMethods } from '@/lib/queries';
+import {
+  useCreateCategory,
+  useCreateExpense,
+  useExpenseCategories,
+  usePaymentMethods,
+} from '@/lib/queries';
 
 export default function NewExpenseScreen() {
   const categories = useExpenseCategories();
+  const createCategory = useCreateCategory();
   const methods = usePaymentMethods();
   const createExpense = useCreateExpense();
   const [method, setMethod] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState('');
+  const [createdTitle, setCreatedTitle] = useState<string | null>(null);
 
   const {
     control,
@@ -56,6 +65,25 @@ export default function NewExpenseScreen() {
 
   const categoryId = useWatch({ control, name: 'categoryId' });
 
+  const term = search.trim();
+  const knownTitles = categories.data ?? [];
+  const suggestions = term
+    ? knownTitles.filter((item) => item.name.toLowerCase().includes(term.toLowerCase()))
+    : knownTitles;
+  const titleExists = knownTitles.some((item) => item.name.toLowerCase() === term.toLowerCase());
+  const canCreate = term.length > 0 && !titleExists;
+
+  const createTitle = async () => {
+    try {
+      const category = await createCategory.mutateAsync({ name: term });
+      setValue('categoryId', category.id, { shouldValidate: true });
+      setSearch('');
+      setCreatedTitle(term);
+    } catch (error) {
+      toast.error('Titre refusé', apiMessage(error));
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-slate-50"
@@ -67,10 +95,28 @@ export default function NewExpenseScreen() {
           </Text>
         </View>
 
-        {/* Catégorie */}
+        {/* Titre (recherche ou création — remplace la catégorie) */}
         <Text className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Catégorie
+          Titre
         </Text>
+        <View className="mt-2 flex-row items-center gap-2">
+          <TextInput
+            className="h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900"
+            onChangeText={setSearch}
+            placeholder="Rechercher ou créer un titre…"
+            placeholderTextColor="#94A3B8"
+            selectionColor="#208AEF"
+            value={search}
+          />
+          {search ? (
+            <Pressable
+              accessibilityLabel="Effacer la recherche"
+              className="h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white"
+              onPress={() => setSearch('')}>
+              <Ionicons color="#64748B" name="close" size={16} />
+            </Pressable>
+          ) : null}
+        </View>
         <ScrollView
           className="mt-2"
           contentContainerStyle={{ gap: 8 }}
@@ -78,19 +124,39 @@ export default function NewExpenseScreen() {
           showsHorizontalScrollIndicator={false}>
           {categories.isPending ? (
             <ActivityIndicator color="#208AEF" />
-          ) : (categories.data ?? []).length === 0 ? (
-            <Text className="text-sm text-slate-400">Aucune catégorie active.</Text>
+          ) : suggestions.length === 0 ? (
+            <Text className="text-sm text-slate-500">Aucun titre trouvé.</Text>
           ) : (
-            (categories.data ?? []).map((category) => (
+            suggestions.map((category) => (
               <Chip
                 key={category.id}
                 label={category.name}
                 selected={categoryId === category.id}
-                onPress={() => setValue('categoryId', category.id, { shouldValidate: true })}
+                onPress={() => {
+                  setValue('categoryId', category.id, { shouldValidate: true });
+                  setSearch('');
+                  setCreatedTitle(null);
+                }}
               />
             ))
           )}
         </ScrollView>
+        {canCreate ? (
+          <Pressable
+            className="mt-2 flex-row items-center gap-1.5 self-start rounded-lg border border-dashed border-brand bg-brand/5 px-3 py-2"
+            disabled={createCategory.isPending}
+            onPress={() => void createTitle()}>
+            <Ionicons color="#208AEF" name="add" size={15} />
+            <Text className="text-sm font-semibold text-brand">
+              {createCategory.isPending ? 'Création…' : `Créer « ${term} »`}
+            </Text>
+          </Pressable>
+        ) : null}
+        {createdTitle ? (
+          <Text className="mt-2 text-xs font-semibold text-emerald-600">
+            Titre « {createdTitle} » créé et sélectionné.
+          </Text>
+        ) : null}
         {errors.categoryId ? (
           <Text className="mt-1 text-xs text-red-600">{errors.categoryId.message}</Text>
         ) : null}
@@ -126,7 +192,7 @@ export default function NewExpenseScreen() {
         {/* Description */}
         <View className="mt-5 gap-1.5">
           <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Description
+            Description (facultatif)
           </Text>
           <Controller
             control={control}
@@ -138,7 +204,7 @@ export default function NewExpenseScreen() {
                 placeholder="Carburant, réparation, snack…"
                 placeholderTextColor="#94A3B8"
                 selectionColor="#208AEF"
-                value={field.value}
+                value={field.value ?? ''}
               />
             )}
           />

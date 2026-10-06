@@ -789,7 +789,7 @@ export interface CreateExpenseBody {
   categoryId: string;
   amount: number;
   date?: string;
-  description: string;
+  description?: string;
   method?: string | null;
   reference?: string | null;
   notes?: string | null;

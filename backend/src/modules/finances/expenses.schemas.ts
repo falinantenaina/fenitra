@@ -5,7 +5,7 @@ const expenseFields = {
   categoryId: z.string().min(1, 'Catégorie requise'),
   amount: z.number().int().min(1, 'Montant invalide'),
   date: z.coerce.date().optional(),
-  description: z.string().trim().min(3, 'Description requise').max(300),
+  description: z.string().trim().min(3, 'Description requise').max(300).nullish(),
   method: z.string().trim().max(40).nullish(),
   reference: z.string().trim().max(60).nullish(),
   notes: z.string().trim().max(1000).nullish(),

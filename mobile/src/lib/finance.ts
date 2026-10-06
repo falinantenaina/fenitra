@@ -40,13 +40,18 @@ export function buildAdjustPayload(form: AdjustFormValues): AdjustStockBody {
 /* ════════════ Dépense (A8 : toujours réglée) ════════════ */
 
 export const expenseFormSchema = z.object({
-  categoryId: z.string().min(1, 'Catégorie requise'),
+  categoryId: z.string().min(1, 'Titre requis'),
   amount: z
     .number({ invalid_type_error: 'Montant invalide' })
     .int('Montant entier en ariary')
     .min(1, 'Montant minimal : 1 Ar'),
   date: dateField,
-  description: z.string().trim().min(3, 'Description requise').max(300, 'Description trop longue'),
+  description: z
+    .string()
+    .trim()
+    .max(300, 'Description trop longue')
+    .refine((v) => v.length === 0 || v.length >= 3, 'Description : 3 caractères minimum')
+    .optional(),
   method: z.string().optional(),
   notes: z.string().trim().max(1000, 'Notes trop longues').optional(),
 });
@@ -58,7 +63,7 @@ export function buildExpensePayload(form: ExpenseFormValues): CreateExpenseBody 
     categoryId: form.categoryId,
     amount: form.amount,
     date: form.date,
-    description: form.description,
+    ...(form.description ? { description: form.description } : {}),
     ...(form.method ? { method: form.method } : {}),
     ...(form.notes ? { notes: form.notes } : {}),
   };
