@@ -28,6 +28,7 @@ const cartonSchema = z
     notes: z.string().trim().max(500).nullish(),
     totalQty: z.number().int().min(1, 'Quantité invalide').max(10000),
     totalCost: z.number().int().min(1, 'Montant invalide'),
+    sellingPrice: z.number().int().min(0, 'Prix de vente invalide').nullish(),
     sizes: z.array(cartonSizeLine).max(60).optional(),
   })
   .superRefine((carton, ctx) => {

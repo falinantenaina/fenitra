@@ -500,6 +500,59 @@ describe('Arrivages & stock', () => {
     expect(identityBalance(await accountingIdentity()).delta).toBe(0);
   });
 
+  it('applique le prix de vente par défaut du carton sans écraser un prix existant', async () => {
+    const sizes = await admin.get('/sizes?limit=100');
+    const size38 = sizes.body.items.find((s: { value: number }) => s.value === 38);
+    const size39 = sizes.body.items.find((s: { value: number }) => s.value === 39);
+
+    const created = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [
+        {
+          productId,
+          totalQty: 6,
+          totalCost: 180000,
+          sellingPrice: 75000,
+          sizes: [
+            { sizeId: size40Id, quantity: 2 },
+            { sizeId: size38.id, quantity: 4 },
+          ],
+        },
+        { productId, totalQty: 5, totalCost: 150000, sellingPrice: 80000 },
+      ],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.cartons[0].sellingPrice).toBe('75000.00');
+    expect(created.body.cartons[1].sellingPrice).toBe('80000.00');
+    expect(created.body.cartons[1].ventilated).toBe(false);
+
+    const variants = await admin.get(`/variants?productId=${productId}&limit=100`);
+    const priceOf = (value: number) =>
+      variants.body.items.find((v: { size: { value: number } }) => v.size.value === value).sellingPrice;
+    expect(priceOf(38)).toBe('75000.00');
+    expect(priceOf(40)).toBe('45000.00');
+
+    const ok = await admin.post(`/arrivals/${created.body.id}/ventilate`).send({
+      cartons: [
+        {
+          cartonId: created.body.cartons[1].id,
+          lines: [
+            { sizeId: size39.id, quantity: 3 },
+            { sizeId: size41Id, quantity: 2 },
+          ],
+        },
+      ],
+    });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+
+    const after = await admin.get(`/variants?productId=${productId}&limit=100`);
+    const pricedAfter = (value: number) =>
+      after.body.items.find((v: { size: { value: number } }) => v.size.value === value).sellingPrice;
+    expect(pricedAfter(39)).toBe('80000.00');
+    expect(pricedAfter(41)).toBe('47000.00');
+    expect(identityBalance(await accountingIdentity()).delta).toBe(0);
+  });
+
   it('exige une somme exacte et garde le résidu d\'arrondi à ventiler', async () => {
     const created = await admin.post('/arrivals').send({
       supplierId,

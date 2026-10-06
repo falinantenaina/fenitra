@@ -21,6 +21,7 @@ export const cartonDraftSchema = z.object({
   quantity: nonNegativeInt,
   /** Montant total du carton (Ar) — le prix unitaire en dérive. */
   amount: nonNegativeInt,
+  sellingPrice: nonNegativeInt.optional(),
   /** Pointures listées, quantité 0 = ligne ignorée. */
   sizes: z.record(z.string(), nonNegativeInt),
 });
@@ -156,6 +157,7 @@ export function buildArrivalPayload(form: ArrivalFormValues): CreateArrivalBody 
       productId: carton.activeProductId,
       totalQty: carton.quantity,
       totalCost: carton.amount,
+      ...(carton.sellingPrice ? { sellingPrice: carton.sellingPrice } : {}),
       ...(sizes.length > 0 ? { sizes } : {}),
       ...notes,
     };

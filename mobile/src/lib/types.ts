@@ -335,6 +335,7 @@ export interface CreateArrivalBody {
     productId: string;
     totalQty: number;
     totalCost: number;
+    sellingPrice?: number;
     /** Pointures connues à la saisie — somme = `totalQty`. */
     sizes?: ArrivalCartonLine[];
   }[];
@@ -502,6 +503,7 @@ export interface ArrivalDetail extends ArrivalRow {
     product: { id: string; name: string };
     totalCost: string;
     totalQty: number;
+    sellingPrice: string | null;
     /** Pointures réparties (ou non) sur ce carton. */
     ventilatedAt: string | null;
     ventilated: boolean;

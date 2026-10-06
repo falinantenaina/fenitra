@@ -315,6 +315,7 @@ model ArrivalCarton {
   notes     String?
   totalCost Int           @default(0)
   totalQty  Int           @default(0)
+  sellingPrice Int?
   /// `null` = pointures encore inconnues : le carton reste « à ventiler ».
   ventilatedAt DateTime?
   createdAt DateTime      @default(now())

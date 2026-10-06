@@ -415,6 +415,27 @@ function CartonCard({
             quantité, imposé partout).
           </Text>
         </View>
+
+        <View className="gap-1.5">
+          <Text className="text-xs font-semibold text-slate-500">
+            Prix de vente par paire (facultatif)
+          </Text>
+          <TextInput
+            className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
+            keyboardType="numeric"
+            onChangeText={(raw) =>
+              onPatch({ sellingPrice: Number(raw.replace(/[^0-9]/g, "")) || 0 })
+            }
+            placeholder="0"
+            placeholderTextColor="#94A3B8"
+            selectionColor="#208AEF"
+            value={carton.sellingPrice ? String(carton.sellingPrice) : ""}
+          />
+          <Text className="text-xs text-slate-400">
+            Appliqué aux pointures créées à l&apos;arrivage — modifiable ensuite
+            depuis Stock.
+          </Text>
+        </View>
       </View>
 
       {/* Étape 3 — pointures, quand on les connaît */}

@@ -179,6 +179,9 @@ export default function VentilateArrivalScreen() {
                     <Text className="text-xs text-slate-400">
                       {formatQuantity(carton.totalQty)} p. · {formatMoney(carton.totalCost)} ·
                       unitaire {formatMoney(unitCost)}
+                      {carton.sellingPrice
+                        ? ` · prix de vente ${formatMoney(carton.sellingPrice)}`
+                        : ''}
                     </Text>
                   </View>
                   <View

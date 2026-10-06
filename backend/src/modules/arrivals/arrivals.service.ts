@@ -78,6 +78,7 @@ export async function loadArrival(db: Db, id: string) {
         product: c.product,
         totalCost: money(c.totalCost),
         totalQty: c.totalQty,
+        sellingPrice: c.sellingPrice === null ? null : money(c.sellingPrice),
         ventilatedAt: c.ventilatedAt,
         ventilated: c.ventilatedAt !== null,
         /**
@@ -165,6 +166,7 @@ interface PlanCarton {
   totalQty: number;
   totalCost: number;
   unitCost: number;
+  sellingPrice: number | null;
   /** Pointures listées à la saisie — vide = carton « à ventiler ». */
   sizes: { sizeId: string; quantity: number }[];
 }
@@ -185,6 +187,7 @@ async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPl
       totalQty: carton.totalQty,
       totalCost: carton.totalCost,
       unitCost,
+      sellingPrice: carton.sellingPrice ?? null,
       sizes: carton.sizes ?? [],
     };
   });
@@ -246,6 +249,7 @@ async function writeCartonLines(
     arrival: { id: string; supplierId: string };
     carton: { id: string; productId: string; date: Date };
     unitCost: number;
+    sellingPrice: number | null;
     userId: string | null;
   },
   lines: { sizeId: string; quantity: number }[],
@@ -253,9 +257,21 @@ async function writeCartonLines(
   for (const line of lines) {
     const variant = await tx.productVariant.upsert({
       where: { productId_sizeId: { productId: ctx.carton.productId, sizeId: line.sizeId } },
-      create: { productId: ctx.carton.productId, sizeId: line.sizeId, sellingPrice: 0, active: true },
+      create: {
+        productId: ctx.carton.productId,
+        sizeId: line.sizeId,
+        sellingPrice: ctx.sellingPrice ?? 0,
+        active: true,
+      },
       update: { active: true },
     });
+
+    if (ctx.sellingPrice && variant.sellingPrice === 0) {
+      await tx.productVariant.update({
+        where: { id: variant.id },
+        data: { sellingPrice: ctx.sellingPrice },
+      });
+    }
     const lineTotal = line.quantity * ctx.unitCost;
 
     const arrivalItem = await tx.arrivalItem.create({
@@ -322,6 +338,7 @@ async function fillArrival(
         notes: carton.notes ?? null,
         totalCost: planCarton.totalCost,
         totalQty: planCarton.totalQty,
+        sellingPrice: planCarton.sellingPrice,
         // Pointures listées à la saisie → ventilé d'office ; sinon « à ventiler ».
         ventilatedAt: planCarton.sizes.length > 0 ? new Date() : null,
       },
@@ -334,6 +351,7 @@ async function fillArrival(
           arrival,
           carton: { id: created.id, productId: planCarton.productId, date: created.date },
           unitCost: planCarton.unitCost,
+          sellingPrice: planCarton.sellingPrice,
           userId,
         },
         planCarton.sizes,
@@ -509,6 +527,7 @@ export async function ventilateArrival(id: string, input: VentilateInput, userId
           arrival: { id: arrival.id, supplierId: arrival.supplierId },
           carton: { id: carton.id, productId: carton.productId, date: carton.date },
           unitCost: Math.floor(carton.totalCost / carton.totalQty),
+          sellingPrice: carton.sellingPrice,
           userId,
         },
         entry.lines,

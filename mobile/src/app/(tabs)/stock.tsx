@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,11 +19,13 @@ import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import {
   useArrivals,
   useLots,
+  useProductVariants,
   useRecentMovements,
   useStockByProduct,
   useStockSummary,
+  useUpdateVariant,
 } from '@/lib/queries';
-import type { LotItem, ProductStockItem, StockMovementFeedItem } from '@/lib/types';
+import type { LotItem, ProductStockItem, StockMovementFeedItem, VariantSearchItem } from '@/lib/types';
 import { useRefresh } from '@/lib/use-refresh';
 import { useAuth } from '@/store/auth';
 
@@ -114,7 +117,36 @@ function MovementRow({ movement }: { movement: StockMovementFeedItem }) {
 
 /** Détail d'un modèle : ses lots, pointure par pointure (clic sur le modèle). */
 function ModelLots({ productId, status }: { productId: string; status: StatusFilter }) {
+  const user = useAuth((state) => state.user);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const lots = useLots({ productId, status });
+  const variants = useProductVariants(productId);
+  const updateVariant = useUpdateVariant();
+  const [edited, setEdited] = useState<VariantSearchItem | null>(null);
+  const [priceText, setPriceText] = useState('');
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  function openPrice(variant: VariantSearchItem) {
+    setPriceText(String(Number(variant.sellingPrice.replace(/[^0-9]/g, '')) || 0));
+    setPriceError(null);
+    setEdited(variant);
+  }
+
+  function savePrice() {
+    if (!edited) return;
+    const sellingPrice = Number(priceText.replace(/[^0-9]/g, ''));
+    if (sellingPrice < 1) {
+      setPriceError('Prix de vente invalide.');
+      return;
+    }
+    updateVariant.mutate(
+      { id: edited.id, body: { sellingPrice } },
+      {
+        onSuccess: () => setEdited(null),
+        onError: () => setPriceError('Enregistrement impossible — réessayez.'),
+      },
+    );
+  }
 
   return (
     <View className="border-t border-slate-100 bg-slate-50 pt-3">
@@ -143,6 +175,90 @@ function ModelLots({ productId, status }: { productId: string; status: StatusFil
         shown={lots.items.length}
         total={lots.total}
       />
+
+      <Text className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Prix de vente · {variants.data?.length ?? 0}
+      </Text>
+      <View className="mt-2 overflow-hidden bg-white">
+        {variants.isPending ? (
+          <ActivityIndicator className="py-4" color="#208AEF" />
+        ) : variants.isError ? (
+          <ErrorPanel
+            isRetrying={variants.isRefetching}
+            message="Impossible de charger les prix de vente."
+            onRetry={() => void variants.refetch()}
+          />
+        ) : (variants.data ?? []).length === 0 ? (
+          <Text className="px-3 py-4 text-sm text-slate-400">
+            Aucune pointure à vendre pour ce modèle.
+          </Text>
+        ) : (
+          (variants.data ?? []).map((variant) => (
+            <Pressable
+              accessibilityLabel={`Prix de vente pointure ${variant.size.label || variant.size.value}`}
+              className="flex-row items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"
+              disabled={!canManage}
+              key={variant.id}
+              onPress={() => openPrice(variant)}>
+              <Text className="w-14 text-sm font-semibold text-slate-800">
+                {variant.size.label || variant.size.value}
+              </Text>
+              <Text className="flex-1 text-xs text-slate-400">
+                {formatQuantity(variant.stock)} en stock
+              </Text>
+              <Text className="text-sm font-bold text-slate-900">
+                {formatMoney(variant.sellingPrice)}
+              </Text>
+              {canManage ? <Ionicons color="#94A3B8" name="pencil" size={14} /> : null}
+            </Pressable>
+          ))
+        )}
+      </View>
+      {canManage && !variants.isPending && (variants.data ?? []).length > 0 ? (
+        <Text className="px-3 pb-1 pt-2 text-xs text-slate-400">
+          Touchez une pointure pour corriger son prix de vente.
+        </Text>
+      ) : null}
+
+      {edited ? (
+        <Modal animationType="fade" onRequestClose={() => setEdited(null)} transparent visible>
+          <View className="flex-1 items-center justify-center bg-slate-900/50 px-6">
+            <View className="w-full gap-3 rounded-2xl bg-white p-4">
+              <Text className="text-sm font-bold text-slate-900">
+                Prix de vente — {edited.product.name}{' '}
+                {edited.size.label || edited.size.value}
+              </Text>
+              <TextInput
+                className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
+                keyboardType="numeric"
+                onChangeText={setPriceText}
+                placeholder="0"
+                placeholderTextColor="#94A3B8"
+                selectionColor="#208AEF"
+                value={priceText}
+              />
+              {priceError ? <Text className="text-xs text-red-600">{priceError}</Text> : null}
+              <View className="flex-row gap-2">
+                <Pressable
+                  className="h-11 flex-1 items-center justify-center rounded-xl border border-slate-300 bg-white"
+                  onPress={() => setEdited(null)}>
+                  <Text className="font-semibold text-slate-700">Annuler</Text>
+                </Pressable>
+                <Pressable
+                  className="h-11 flex-1 items-center justify-center rounded-xl bg-brand"
+                  disabled={updateVariant.isPending}
+                  onPress={savePrice}>
+                  {updateVariant.isPending ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text className="font-semibold text-white">Enregistrer</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </View>
   );
 }
