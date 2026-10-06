@@ -30,6 +30,7 @@ import {
   useSaleReference,
   useSaleVariants,
   useStockSummary,
+  useUpdateParty,
 } from '@/lib/queries';
 import {
   PAYMENT_MODES,
@@ -97,6 +98,7 @@ export default function NewSaleScreen() {
 
   const createSale = useCreateSale();
   const createParty = useCreateParty();
+  const updateParty = useUpdateParty();
   const reference = useSaleReference();
   const customers = useCustomers();
   const methods = usePaymentMethods();
@@ -182,6 +184,16 @@ export default function NewSaleScreen() {
       toast.success('Client créé', `${party.name} est sélectionné pour cette vente.`);
     } catch (error) {
       toast.error('Création refusée', apiMessage(error));
+    }
+  };
+
+  const renameCustomer = async (name: string) => {
+    if (!customerId) return;
+    try {
+      await updateParty.mutateAsync({ kind: 'customers', id: customerId, body: { name } });
+      toast.success('Client renommé', name);
+    } catch (error) {
+      toast.error('Renommage refusé', apiMessage(error));
     }
   };
 
@@ -385,12 +397,14 @@ export default function NewSaleScreen() {
                 })),
               ]}
               placeholder="Rechercher ou créer un client…"
+              renameTitle="Renommer le client"
               title="Client"
               value={customerId}
               onCreate={async (term) => {
                 setCustomerName(term);
                 setCustomerModal(true);
               }}
+              onRename={customerId ? renameCustomer : undefined}
               onSelect={selectCustomer}
             />
           </View>

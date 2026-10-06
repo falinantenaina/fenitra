@@ -1204,6 +1204,8 @@ export function useUpdateParty() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['parties'] });
       void client.invalidateQueries({ queryKey: ['suppliers'] });
+      void client.invalidateQueries({ queryKey: ['customers'] });
+      void client.invalidateQueries({ queryKey: ['online-sellers'] });
     },
   });
 }

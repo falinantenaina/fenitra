@@ -48,6 +48,8 @@ import {
   useSizeList,
   useSuppliers,
   useUpdateArrival,
+  useUpdateParty,
+  useUpdateProduct,
 } from "@/lib/queries";
 import type { ProductListItem, SizeListItem } from "@/lib/types";
 import { useArrivalDraft } from "@/store/arrival-draft";
@@ -151,9 +153,10 @@ function CartonCard({
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [creating, setCreating] = useState(false);
-  const [createdModel, setCreatedModel] = useState<string | null>(null);
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
   const results = useProductSearch(debounced);
   const createProduct = useCreateProduct();
+  const updateProduct = useUpdateProduct();
 
   // Dictionnaire des pointures — le serveur créera les variantes au besoin.
   const sizes = useSizeList();
@@ -181,13 +184,24 @@ function CartonCard({
     try {
       const product = await createProduct.mutateAsync({ name });
       onPatch({ activeProductId: product.id });
-      setCreatedModel(product.name);
+      setModelNotice(`Modèle « ${product.name} » créé et sélectionné.`);
       setSearch("");
       setDebounced("");
     } catch (error) {
       toast.error("Création refusée", apiMessage(error));
     } finally {
       setCreating(false);
+    }
+  };
+
+  const renameModel = async (name: string) => {
+    const id = carton.activeProductId;
+    if (!id) return;
+    try {
+      await updateProduct.mutateAsync({ id, body: { name } });
+      setModelNotice(`Modèle renommé « ${name} ».`);
+    } catch (error) {
+      toast.error("Renommage refusé", apiMessage(error));
     }
   };
 
@@ -289,23 +303,25 @@ function CartonCard({
           emptyText={
             searching ? "Aucun modèle trouvé." : "Aucun modèle actif — créez-en un d'abord."
           }
-          hint={createdModel ? `Modèle « ${createdModel} » créé et sélectionné.` : null}
+          hint={modelNotice}
           loading={productsPending || (searching && results.isPending)}
           options={shown.map((product) => ({ id: product.id, label: product.name }))}
           placeholder="Rechercher ou créer un modèle…"
+          renameTitle="Renommer le modèle"
           title="Modèle"
           value={carton.activeProductId ?? ""}
           valueLabel={selected?.name}
           onCreate={createModel}
+          onRename={renameModel}
           onSearch={(text) => {
             setSearch(text);
-            setCreatedModel(null);
+            setModelNotice(null);
           }}
           onSelect={(id) => {
             onPatch({ activeProductId: id });
             setSearch("");
             setDebounced("");
-            setCreatedModel(null);
+            setModelNotice(null);
           }}
         />
       </View>
@@ -495,6 +511,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
   const createArrival = useCreateArrival();
   const updateArrival = useUpdateArrival();
   const createParty = useCreateParty();
+  const updateParty = useUpdateParty();
   const arrival = useArrival(editId);
   const editing = Boolean(editId);
 
@@ -628,11 +645,21 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
         body: { name },
       });
       setValue("supplierId", supplier.id);
-      setSupplierNotice(name);
+      setSupplierNotice(`Fournisseur « ${supplier.name} » créé et sélectionné.`);
     } catch (error) {
       toast.error("Création refusée", apiMessage(error));
     } finally {
       setCreatingSupplier(false);
+    }
+  };
+
+  const renameSupplier = async (name: string) => {
+    if (!supplierId) return;
+    try {
+      await updateParty.mutateAsync({ kind: "suppliers", id: supplierId, body: { name } });
+      setSupplierNotice(`Fournisseur renommé « ${name} ».`);
+    } catch (error) {
+      toast.error("Renommage refusé", apiMessage(error));
     }
   };
 
@@ -732,16 +759,16 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                 supplierList.length === 0 ? "Aucun fournisseur actif." : "Aucun fournisseur trouvé."
               }
               error={errors.supplierId ? errors.supplierId.message : null}
-              hint={
-                supplierNotice ? `Fournisseur « ${supplierNotice} » créé et sélectionné.` : null
-              }
+              hint={supplierNotice}
               loading={suppliers.isPending}
               options={supplierList.map((supplier) => ({ id: supplier.id, label: supplier.name }))}
               placeholder="Rechercher ou créer un fournisseur…"
+              renameTitle="Renommer le fournisseur"
               title="Fournisseur"
               value={supplierId}
               valueLabel={supplierList.find((supplier) => supplier.id === supplierId)?.name}
               onCreate={createSupplier}
+              onRename={renameSupplier}
               onSelect={(id) => {
                 setValue("supplierId", id);
                 setSupplierNotice(null);

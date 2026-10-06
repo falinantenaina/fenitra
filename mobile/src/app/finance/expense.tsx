@@ -29,15 +29,17 @@ import {
   useCreateExpense,
   useExpenseCategories,
   usePaymentMethods,
+  useUpdateCategory,
 } from '@/lib/queries';
 
 export default function NewExpenseScreen() {
   const categories = useExpenseCategories();
   const createCategory = useCreateCategory();
+  const updateCategory = useUpdateCategory();
   const methods = usePaymentMethods();
   const createExpense = useCreateExpense();
   const [method, setMethod] = useState<string | undefined>(undefined);
-  const [createdTitle, setCreatedTitle] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const {
     control,
@@ -69,9 +71,19 @@ export default function NewExpenseScreen() {
     try {
       const category = await createCategory.mutateAsync({ name: term });
       setValue('categoryId', category.id, { shouldValidate: true });
-      setCreatedTitle(term);
+      setNotice(`Titre « ${category.name} » créé et sélectionné.`);
     } catch (error) {
       toast.error('Titre refusé', apiMessage(error));
+    }
+  };
+
+  const renameTitle = async (name: string) => {
+    if (!categoryId) return;
+    try {
+      await updateCategory.mutateAsync({ id: categoryId, body: { name } });
+      setNotice(`Titre renommé « ${name} ».`);
+    } catch (error) {
+      toast.error('Renommage refusé', apiMessage(error));
     }
   };
 
@@ -95,17 +107,19 @@ export default function NewExpenseScreen() {
             createPending={createCategory.isPending}
             emptyText="Aucun titre trouvé."
             error={errors.categoryId?.message ?? null}
-            hint={createdTitle ? `Titre « ${createdTitle} » créé et sélectionné.` : null}
+            hint={notice}
             loading={categories.isPending}
             options={knownTitles.map((category) => ({ id: category.id, label: category.name }))}
             placeholder="Rechercher ou créer un titre…"
+            renameTitle="Renommer le titre"
             title="Titre"
             value={categoryId}
             valueLabel={knownTitles.find((category) => category.id === categoryId)?.name}
             onCreate={createTitle}
+            onRename={renameTitle}
             onSelect={(id) => {
               setValue('categoryId', id, { shouldValidate: true });
-              setCreatedTitle(null);
+              setNotice(null);
             }}
           />
         </View>

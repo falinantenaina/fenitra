@@ -24,6 +24,8 @@ interface SelectFieldProps {
   createPending?: boolean;
   createDisabled?: boolean;
   minCreateLength?: number;
+  onRename?: (next: string, current: string) => Promise<void>;
+  renameTitle?: string;
   onSelect: (id: string) => void;
 }
 
@@ -44,10 +46,16 @@ export function SelectField({
   createPending = false,
   createDisabled = false,
   minCreateLength = 2,
+  onRename,
+  renameTitle = 'Renommer',
   onSelect,
 }: SelectFieldProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameText, setRenameText] = useState('');
+  const [renameCurrent, setRenameCurrent] = useState('');
+  const [renaming, setRenaming] = useState(false);
 
   const term = query.trim();
   const lower = term.toLowerCase();
@@ -60,6 +68,7 @@ export function SelectField({
     !createPending &&
     !createDisabled;
   const selectedLabel = options.find((option) => option.id === value)?.label ?? valueLabel ?? '';
+  const canRename = onRename !== undefined && selectedLabel !== '';
 
   const search = (text: string) => {
     setQuery(text);
@@ -83,26 +92,73 @@ export function SelectField({
     close();
   };
 
+  const openRename = () => {
+    setRenameCurrent(selectedLabel);
+    setRenameText(selectedLabel);
+    setRenameOpen(true);
+  };
+
+  const closeRename = () => {
+    setRenameOpen(false);
+    setRenameText('');
+    setRenameCurrent('');
+  };
+
+  const rename = async () => {
+    const next = renameText.trim();
+    if (!onRename || !next || next === renameCurrent) return;
+    setRenaming(true);
+    try {
+      await onRename(next, renameCurrent);
+      closeRename();
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const renameDisabled = !renameText.trim() || renameText.trim() === renameCurrent;
+
   return (
     <View className="gap-1.5">
-      <Pressable
-        accessibilityLabel={selectedLabel || placeholder}
-        accessibilityRole="button"
-        className={`flex-row items-center justify-between gap-2 border border-slate-300 bg-white ${
+      <View
+        className={`flex-row items-center gap-1 border border-slate-300 bg-white ${
           compact ? 'h-10 px-3' : 'h-11 px-3'
-        } ${open ? 'border-brand' : ''}`}
-        onPress={() => setOpen(true)}>
-        <Text
-          className={`flex-1 ${compact ? 'text-sm' : 'text-base'} ${
-            selectedLabel ? 'text-slate-900' : 'text-slate-400'
-          }`}
-          numberOfLines={1}>
-          {selectedLabel || placeholder}
-        </Text>
-        <Ionicons color="#64748B" name="chevron-down" size={16} />
-      </Pressable>
+        } ${open ? 'border-brand' : ''}`}>
+        <Pressable
+          accessibilityLabel={selectedLabel || placeholder}
+          accessibilityRole="button"
+          className="flex-1 flex-row items-center justify-between gap-2"
+          onPress={() => setOpen(true)}>
+          <Text
+            className={`flex-1 ${compact ? 'text-sm' : 'text-base'} ${
+              selectedLabel ? 'text-slate-900' : 'text-slate-400'
+            }`}
+            numberOfLines={1}>
+            {selectedLabel || placeholder}
+          </Text>
+          <Ionicons color="#64748B" name="chevron-down" size={16} />
+        </Pressable>
+        {canRename ? (
+          <Pressable
+            accessibilityLabel={`Renommer ${selectedLabel}`}
+            accessibilityRole="button"
+            className="h-8 w-7 items-center justify-center"
+            onPress={openRename}>
+            <Ionicons color="#64748B" name="pencil-outline" size={16} />
+          </Pressable>
+        ) : null}
+      </View>
 
-      {hint ? <Text className="text-xs font-semibold text-emerald-600">{hint}</Text> : null}
+      {hint ? (
+        <View className="flex-row items-center gap-3">
+          <Text className="flex-1 text-xs font-semibold text-emerald-600">{hint}</Text>
+          {canRename ? (
+            <Pressable accessibilityRole="button" onPress={openRename}>
+              <Text className="text-xs font-semibold text-brand">Renommer</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {error ? <Text className="text-xs text-red-600">{error}</Text> : null}
 
       <Modal animationType="fade" onRequestClose={close} transparent visible={open}>
@@ -186,6 +242,45 @@ export function SelectField({
               onPress={close}>
               <Text className="text-sm font-medium text-slate-700">Fermer</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal animationType="fade" onRequestClose={closeRename} transparent visible={renameOpen}>
+        <View className="flex-1 items-center justify-center bg-slate-900/50 px-6">
+          <View className="w-full gap-3 rounded-2xl bg-white p-5">
+            <Text className="text-base font-bold text-slate-900">{renameTitle}</Text>
+            <TextInput
+              autoCorrect={false}
+              className="h-11 rounded-xl border border-slate-300 px-4 text-base text-slate-900"
+              onChangeText={setRenameText}
+              placeholder="Nouveau nom"
+              placeholderTextColor="#94A3B8"
+              selectionColor="#208AEF"
+              value={renameText}
+            />
+            <View className="mt-1 flex-row justify-end gap-2">
+              <Pressable
+                accessibilityRole="button"
+                className="h-10 items-center justify-center rounded-xl px-4"
+                disabled={renaming}
+                onPress={closeRename}>
+                <Text className="text-sm font-semibold text-slate-600">Annuler</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                className={`h-10 min-w-[96px] items-center justify-center rounded-xl px-4 ${
+                  renameDisabled || renaming ? 'bg-slate-300' : 'bg-brand'
+                }`}
+                disabled={renameDisabled || renaming}
+                onPress={() => void rename()}>
+                {renaming ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text className="text-sm font-semibold text-white">Renommer</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
