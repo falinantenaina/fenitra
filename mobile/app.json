@@ -48,6 +48,12 @@
         "projectId": "1c855a61-036c-411f-ba40-2e0c85a628c4"
       }
     },
-    "owner": "falinantenaina"
+    "owner": "falinantenaina",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1c855a61-036c-411f-ba40-2e0c85a628c4"
+    }
   }
 }
