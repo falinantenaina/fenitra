@@ -1,3 +1,3 @@
-const app = require("./dist/server").default;
+const app = require("./dist/app").default;
 
 module.exports = app;
