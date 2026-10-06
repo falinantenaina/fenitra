@@ -10,6 +10,7 @@ import {
   createArrivalSchema,
   idParamSchema,
   arrivalListQuery,
+  updateArrivalSchema,
   ventilateSchema,
 } from './arrivals.schemas';
 import {
@@ -18,6 +19,7 @@ import {
   listArrivals,
   loadArrival,
   previewArrivalReference,
+  updateArrival,
   ventilateArrival,
 } from './arrivals.service';
 
@@ -78,6 +80,17 @@ arrivalsRouter.get(
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadArrival(prisma, id));
+  }),
+);
+
+/** PATCH /api/arrivals/:id — modification complète, stock intact requis */
+arrivalsRouter.patch(
+  '/:id',
+  managerOrAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParamSchema);
+    const body = parseBody(req, updateArrivalSchema);
+    res.json(await updateArrival(id, body, req.user!.id));
   }),
 );
 

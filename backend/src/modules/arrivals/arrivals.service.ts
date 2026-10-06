@@ -1,11 +1,16 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { businessRule, notFound } from '../../lib/errors';
+import { businessRule, conflict, notFound } from '../../lib/errors';
 import { money } from '../../lib/money';
 import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { nextReference, peekReference } from '../../services/sequences';
 import { reverseEntries } from '../../services/ledger';
-import type { ArrivalListQuery, CreateArrivalInput, VentilateInput } from './arrivals.schemas';
+import type {
+  ArrivalListQuery,
+  CreateArrivalInput,
+  UpdateArrivalInput,
+  VentilateInput,
+} from './arrivals.schemas';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -237,11 +242,97 @@ async function planArrival(tx: Db, input: CreateArrivalInput): Promise<ArrivalPl
   };
 }
 
+/** Variante `productId_sizeId` : créée ou réactivée, prix par défaut non écrasé. */
+async function ensureVariant(
+  tx: Db,
+  productId: string,
+  sizeId: string,
+  sellingPrice: number | null,
+): Promise<string> {
+  const variant = await tx.productVariant.upsert({
+    where: { productId_sizeId: { productId, sizeId } },
+    create: {
+      productId,
+      sizeId,
+      sellingPrice: sellingPrice ?? 0,
+      active: true,
+    },
+    update: { active: true },
+  });
+
+  if (sellingPrice && variant.sellingPrice === 0) {
+    await tx.productVariant.update({
+      where: { id: variant.id },
+      data: { sellingPrice },
+    });
+  }
+  return variant.id;
+}
+
+/**
+ * Une ligne de carton → `ArrivalItem` → `StockLot` (`unitCost` figé) →
+ * mouvement `IN`. Zéro écriture comptable — la caisse et la dette datent de
+ * l'enregistrement (ou de la modification) de l'arrivage.
+ */
+async function createCartonLine(
+  tx: Db,
+  ctx: {
+    arrival: { id: string; supplierId: string };
+    carton: { id: string; date: Date };
+    unitCost: number;
+    userId: string | null;
+  },
+  line: { variantId: string; sizeId: string; quantity: number },
+) {
+  const lineTotal = line.quantity * ctx.unitCost;
+
+  const arrivalItem = await tx.arrivalItem.create({
+    data: {
+      cartonId: ctx.carton.id,
+      variantId: line.variantId,
+      quantity: line.quantity,
+      unitCost: ctx.unitCost,
+      lineTotal,
+    },
+  });
+
+  const lot = await tx.stockLot.create({
+    data: {
+      code: await nextReference(tx, 'lot'),
+      arrivalId: ctx.arrival.id,
+      cartonId: ctx.carton.id,
+      arrivalItemId: arrivalItem.id,
+      supplierId: ctx.arrival.supplierId,
+      variantId: line.variantId,
+      sizeId: line.sizeId,
+      initialQty: line.quantity,
+      remainingQty: line.quantity,
+      unitCost: ctx.unitCost,
+      totalCost: lineTotal,
+      entryDate: ctx.carton.date,
+      status: 'OPEN',
+    },
+  });
+
+  await tx.stockMovement.create({
+    data: {
+      lotId: lot.id,
+      variantId: line.variantId,
+      type: 'IN',
+      delta: line.quantity,
+      unitCost: ctx.unitCost,
+      refType: 'ARRIVAL',
+      refId: ctx.arrival.id,
+      date: ctx.carton.date,
+      userId: ctx.userId,
+    },
+  });
+}
+
 /**
  * Pointures d'un carton → variante (`productId_sizeId`, créée ou réactivée)
  * → `ArrivalItem` → `StockLot` → mouvement `IN`. Prix unitaire **imposé** :
- * celui du carton, dérivé de `montant / quantité`. Zéro écriture comptable —
- * la caisse et la dette datent de l'enregistrement de l'arrivage.
+ * celui du carton, dérivé de `montant / quantité`.
  */
 async function writeCartonLines(
   tx: Db,
@@ -255,110 +346,25 @@ async function writeCartonLines(
   lines: { sizeId: string; quantity: number }[],
 ) {
   for (const line of lines) {
-    const variant = await tx.productVariant.upsert({
-      where: { productId_sizeId: { productId: ctx.carton.productId, sizeId: line.sizeId } },
-      create: {
-        productId: ctx.carton.productId,
-        sizeId: line.sizeId,
-        sellingPrice: ctx.sellingPrice ?? 0,
-        active: true,
-      },
-      update: { active: true },
-    });
-
-    if (ctx.sellingPrice && variant.sellingPrice === 0) {
-      await tx.productVariant.update({
-        where: { id: variant.id },
-        data: { sellingPrice: ctx.sellingPrice },
-      });
-    }
-    const lineTotal = line.quantity * ctx.unitCost;
-
-    const arrivalItem = await tx.arrivalItem.create({
-      data: {
-        cartonId: ctx.carton.id,
-        variantId: variant.id,
-        quantity: line.quantity,
-        unitCost: ctx.unitCost,
-        lineTotal,
-      },
-    });
-
-    const lot = await tx.stockLot.create({
-      data: {
-        code: await nextReference(tx, 'lot'),
-        arrivalId: ctx.arrival.id,
-        cartonId: ctx.carton.id,
-        arrivalItemId: arrivalItem.id,
-        supplierId: ctx.arrival.supplierId,
-        variantId: variant.id,
-        sizeId: line.sizeId,
-        initialQty: line.quantity,
-        remainingQty: line.quantity,
-        unitCost: ctx.unitCost,
-        totalCost: lineTotal,
-        entryDate: ctx.carton.date,
-        status: 'OPEN',
-      },
-    });
-
-    await tx.stockMovement.create({
-      data: {
-        lotId: lot.id,
-        variantId: variant.id,
-        type: 'IN',
-        delta: line.quantity,
-        unitCost: ctx.unitCost,
-        refType: 'ARRIVAL',
-        refId: ctx.arrival.id,
-        date: ctx.carton.date,
-        userId: ctx.userId,
-      },
-    });
+    const variantId = await ensureVariant(tx, ctx.carton.productId, line.sizeId, ctx.sellingPrice);
+    await createCartonLine(tx, ctx, { variantId, sizeId: line.sizeId, quantity: line.quantity });
   }
 }
 
-/** Cartons → lignes → lots → mouvements → dette → paiement → journal → financement. */
-async function fillArrival(
+/**
+ * Dette fournisseur → paiement → écriture de journal, **posés à blanc** :
+ * l'appelant efface au préalable le paiement et la dette de l'arrivage
+ * (création : rien n'existe encore ; modification : le paiement a été
+ * contre-passé puis supprimé). Aucun financement ici — il est propre à la
+ * création.
+ */
+async function writeSettlement(
   tx: Db,
-  arrival: { id: string; reference: string; supplierId: string },
+  arrival: { id: string; reference: string },
   plan: ArrivalPlan,
-  input: CreateArrivalInput,
+  input: { payment?: CreateArrivalInput['payment'] },
   userId: string | null,
 ) {
-  for (const [index, carton] of input.cartons.entries()) {
-    const planCarton = plan.cartons[index]!;
-
-    const created = await tx.arrivalCarton.create({
-      data: {
-        reference: plan.references[index]!,
-        arrivalId: arrival.id,
-        productId: planCarton.productId,
-        date: carton.date ?? plan.date,
-        notes: carton.notes ?? null,
-        totalCost: planCarton.totalCost,
-        totalQty: planCarton.totalQty,
-        sellingPrice: planCarton.sellingPrice,
-        // Pointures listées à la saisie → ventilé d'office ; sinon « à ventiler ».
-        ventilatedAt: planCarton.sizes.length > 0 ? new Date() : null,
-      },
-    });
-
-    if (planCarton.sizes.length > 0) {
-      await writeCartonLines(
-        tx,
-        {
-          arrival,
-          carton: { id: created.id, productId: planCarton.productId, date: created.date },
-          unitCost: planCarton.unitCost,
-          sellingPrice: planCarton.sellingPrice,
-          userId,
-        },
-        planCarton.sizes,
-      );
-    }
-  }
-
   let debtId: string | null = null;
   if (plan.paid < plan.totalCost) {
     const debt = await tx.debt.create({
@@ -418,6 +424,50 @@ async function fillArrival(
       },
     });
   }
+}
+
+/** Cartons → lignes → lots → mouvements → dette → paiement → journal → financement. */
+async function fillArrival(
+  tx: Db,
+  arrival: { id: string; reference: string; supplierId: string },
+  plan: ArrivalPlan,
+  input: CreateArrivalInput,
+  userId: string | null,
+) {
+  for (const [index, carton] of input.cartons.entries()) {
+    const planCarton = plan.cartons[index]!;
+
+    const created = await tx.arrivalCarton.create({
+      data: {
+        reference: plan.references[index]!,
+        arrivalId: arrival.id,
+        productId: planCarton.productId,
+        date: carton.date ?? plan.date,
+        notes: carton.notes ?? null,
+        totalCost: planCarton.totalCost,
+        totalQty: planCarton.totalQty,
+        sellingPrice: planCarton.sellingPrice,
+        // Pointures listées à la saisie → ventilé d'office ; sinon « à ventiler ».
+        ventilatedAt: planCarton.sizes.length > 0 ? new Date() : null,
+      },
+    });
+
+    if (planCarton.sizes.length > 0) {
+      await writeCartonLines(
+        tx,
+        {
+          arrival,
+          carton: { id: created.id, productId: planCarton.productId, date: created.date },
+          unitCost: planCarton.unitCost,
+          sellingPrice: planCarton.sellingPrice,
+          userId,
+        },
+        planCarton.sizes,
+      );
+    }
+  }
+
+  await writeSettlement(tx, arrival, plan, input, userId);
 
   if (input.funding) {
     await tx.fundingAllocation.create({
@@ -458,6 +508,284 @@ export async function createArrival(input: CreateArrivalInput, userId: string | 
 
     await fillArrival(tx, arrival, plan, input, userId);
     return loadArrival(tx, arrival.id);
+  });
+}
+
+/** Suppression d'un carton : mouvements `IN` → lots → lignes → carton. */
+async function deleteCarton(tx: Db, cartonId: string) {
+  const lots = await tx.stockLot.findMany({ where: { cartonId }, select: { id: true } });
+  const items = await tx.arrivalItem.findMany({ where: { cartonId }, select: { id: true } });
+
+  if (lots.length > 0) {
+    const lotIds = lots.map((lot) => lot.id);
+    await tx.stockMovement.deleteMany({ where: { lotId: { in: lotIds } } });
+    await tx.stockLot.deleteMany({ where: { id: { in: lotIds } } });
+  }
+  if (items.length > 0) {
+    await tx.arrivalItem.deleteMany({ where: { id: { in: items.map((item) => item.id) } } });
+  }
+  await tx.arrivalCarton.delete({ where: { id: cartonId } });
+}
+
+/**
+ * Réconciliation des pointures d'un carton : les lignes conservées sont mises
+ * à jour (`unitCost` compris — l'arrivage n'a pas encore bougé), les pointures
+ * retirées suppriment leur lot et leur mouvement `IN`, les nouvelles sont
+ * créées comme à la création.
+ */
+async function syncCartonLines(
+  tx: Db,
+  ctx: {
+    arrival: { id: string; supplierId: string };
+    carton: { id: string; productId: string; date: Date };
+    unitCost: number;
+    sellingPrice: number | null;
+    userId: string | null;
+  },
+  lines: { sizeId: string; quantity: number }[],
+) {
+  const resolved: { variantId: string; sizeId: string; quantity: number }[] = [];
+  for (const line of lines) {
+    const variantId = await ensureVariant(tx, ctx.carton.productId, line.sizeId, ctx.sellingPrice);
+    resolved.push({ variantId, sizeId: line.sizeId, quantity: line.quantity });
+  }
+
+  const items = await tx.arrivalItem.findMany({
+    where: { cartonId: ctx.carton.id },
+    include: { stockLots: true },
+  });
+  const kept = new Set(resolved.map((line) => line.variantId));
+  const byVariant = new Map(items.map((item) => [item.variantId, item]));
+
+  for (const item of items) {
+    if (kept.has(item.variantId)) continue;
+    const lot = item.stockLots[0];
+    if (lot) {
+      await tx.stockMovement.deleteMany({ where: { lotId: lot.id } });
+      await tx.stockLot.delete({ where: { id: lot.id } });
+    }
+    await tx.arrivalItem.delete({ where: { id: item.id } });
+  }
+
+  for (const line of resolved) {
+    const existing = byVariant.get(line.variantId);
+    const lot = existing?.stockLots[0];
+    if (!existing || !lot) {
+      if (existing) await tx.arrivalItem.delete({ where: { id: existing.id } });
+      await createCartonLine(tx, ctx, line);
+      continue;
+    }
+
+    const lineTotal = line.quantity * ctx.unitCost;
+    await tx.arrivalItem.update({
+      where: { id: existing.id },
+      data: { quantity: line.quantity, unitCost: ctx.unitCost, lineTotal },
+    });
+    await tx.stockLot.update({
+      where: { id: lot.id },
+      data: {
+        initialQty: line.quantity,
+        remainingQty: line.quantity,
+        unitCost: ctx.unitCost,
+        totalCost: lineTotal,
+        sizeId: line.sizeId,
+        entryDate: ctx.carton.date,
+        supplierId: ctx.arrival.supplierId,
+      },
+    });
+
+    const movement = await tx.stockMovement.findFirst({
+      where: { lotId: lot.id, type: 'IN', refType: 'ARRIVAL', refId: ctx.arrival.id },
+    });
+    if (movement) {
+      await tx.stockMovement.update({
+        where: { id: movement.id },
+        data: { delta: line.quantity, unitCost: ctx.unitCost, date: ctx.carton.date },
+      });
+    } else {
+      await tx.stockMovement.create({
+        data: {
+          lotId: lot.id,
+          variantId: line.variantId,
+          type: 'IN',
+          delta: line.quantity,
+          unitCost: ctx.unitCost,
+          refType: 'ARRIVAL',
+          refId: ctx.arrival.id,
+          date: ctx.carton.date,
+          userId: ctx.userId,
+        },
+      });
+    }
+  }
+}
+
+/**
+ * `PATCH /arrivals/:id` — correction complète d'un arrivage **avant qu'il ne
+ * bouge** : fournisseur, date, notes, cartons (ajout / modification /
+ * suppression), pointures et paiement.
+ *
+ * Refus (409) : arrivage annulé, stock déjà mouvementé (vente, ajustement ou
+ * retour), versement ou règlement tardif sur la dette, financement posé avec
+ * un changement de montant. Les cartons sont remplacés **en entier** : un
+ * carton envoyé avec `id` est modifié, sans `id` il est ajouté, et un carton
+ * existant absent de la liste est supprimé (lignes, lots et mouvements `IN`
+ * compris).
+ *
+ * Le journal de caisse est contre-passé (`reverseEntries`) puis réécrit à
+ * partir du nouveau paiement — la dette est supprimée et recréée, jamais
+ * corrigée sur place.
+ */
+export async function updateArrival(id: string, input: UpdateArrivalInput, userId: string | null) {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.arrival.findUnique({
+      where: { id },
+      include: {
+        cartons: true,
+        lots: { select: { id: true } },
+        debt: {
+          include: { versements: { select: { id: true, date: true, personName: true, motif: true } } },
+        },
+        payments: { select: { id: true } },
+        fundings: true,
+      },
+    });
+    if (!current) throw notFound('Arrivage introuvable');
+    if (current.status === 'CANCELLED') {
+      throw conflict("Cet arrivage est annulé — impossible de le modifier");
+    }
+
+    // 1. Aucun mouvement de stock ne doit être venu toucher ses lots.
+    const moved = await tx.stockMovement.count({
+      where: {
+        lotId: { in: current.lots.map((lot) => lot.id) },
+        type: { in: ['OUT', 'ADJUSTMENT', 'RETURN'] },
+      },
+    });
+    if (moved > 0) {
+      throw conflict(
+        "Impossible de modifier : le stock de cet arrivage a déjà bougé (vente, ajustement ou retour)",
+      );
+    }
+
+    // 2. La dette est intacte : ni versement, ni règlement après la création.
+    if (current.debt && current.debt.versements.length > 0) {
+      const versement = current.debt.versements[0]!;
+      throw conflict(
+        `Un versement du ${versement.date.toISOString().slice(0, 10)} règle la dette de cet arrivage — annulez d'abord le versement`,
+      );
+    }
+    if (current.payments.length > (current.paidAmount > 0 ? 1 : 0)) {
+      throw conflict(
+        'Un règlement a été enregistré après la création de cet arrivage — annulez-le avant de le modifier',
+      );
+    }
+
+    // 3. Cartons : identifiants reconnus, jamais listés deux fois.
+    const existingById = new Map(current.cartons.map((carton) => [carton.id, carton]));
+    const sentIds = input.cartons
+      .map((carton) => carton.id)
+      .filter((cartonId): cartonId is string => Boolean(cartonId));
+    if (new Set(sentIds).size !== sentIds.length) {
+      throw businessRule('Un carton est listé deux fois dans cet arrivage');
+    }
+    for (const cartonId of sentIds) {
+      if (!existingById.has(cartonId)) throw notFound(`Carton introuvable : ${cartonId}`);
+    }
+
+    const newTotalCost = input.cartons.reduce((sum, carton) => sum + carton.totalCost, 0);
+    if (current.fundings.length > 0 && newTotalCost !== current.totalCost) {
+      throw conflict("Cet arrivage est financé : son montant ne peut plus changer");
+    }
+
+    const plan = await planArrival(tx, input);
+
+    await tx.arrival.update({
+      where: { id },
+      data: {
+        supplierId: plan.supplierId,
+        date: plan.date,
+        notes: input.notes ?? null,
+        totalQty: plan.totalQty,
+        totalCost: plan.totalCost,
+        paidAmount: plan.paid,
+        unpaidAmount: plan.totalCost - plan.paid,
+      },
+    });
+    await tx.stockLot.updateMany({ where: { arrivalId: id }, data: { supplierId: plan.supplierId } });
+
+    const keptIds = new Set(sentIds);
+    for (const carton of current.cartons) {
+      if (!keptIds.has(carton.id)) await deleteCarton(tx, carton.id);
+    }
+
+    // Les références sont uniques par arrivage : on libère d'abord celles des
+    // cartons conservés pour que deux cartons puissent s'échanger de référence.
+    for (const carton of current.cartons) {
+      if (!keptIds.has(carton.id)) continue;
+      await tx.arrivalCarton.update({
+        where: { id: carton.id },
+        data: { reference: `#${carton.id}` },
+      });
+    }
+
+    for (const [index, carton] of input.cartons.entries()) {
+      const planCarton = plan.cartons[index]!;
+      const date = carton.date ?? plan.date;
+      const existing = carton.id ? existingById.get(carton.id) : undefined;
+
+      const row = existing
+        ? await tx.arrivalCarton.update({
+            where: { id: existing.id },
+            data: {
+              reference: plan.references[index]!,
+              productId: planCarton.productId,
+              date,
+              notes: carton.notes ?? null,
+              totalCost: planCarton.totalCost,
+              totalQty: planCarton.totalQty,
+              sellingPrice: planCarton.sellingPrice,
+              ventilatedAt:
+                planCarton.sizes.length > 0 ? existing.ventilatedAt ?? new Date() : null,
+            },
+          })
+        : await tx.arrivalCarton.create({
+            data: {
+              reference: plan.references[index]!,
+              arrivalId: id,
+              productId: planCarton.productId,
+              date,
+              notes: carton.notes ?? null,
+              totalCost: planCarton.totalCost,
+              totalQty: planCarton.totalQty,
+              sellingPrice: planCarton.sellingPrice,
+              ventilatedAt: planCarton.sizes.length > 0 ? new Date() : null,
+            },
+          });
+
+      await syncCartonLines(
+        tx,
+        {
+          arrival: { id, supplierId: plan.supplierId },
+          carton: { id: row.id, productId: planCarton.productId, date: row.date },
+          unitCost: planCarton.unitCost,
+          sellingPrice: planCarton.sellingPrice,
+          userId,
+        },
+        planCarton.sizes,
+      );
+    }
+
+    // 4. Caisse et dette réécrites à blanc : journal contre-passé, paiement
+    //    et dette supprimés, puis posés comme à la création.
+    await reverseEntries(tx, 'ARRIVAL', id, `Modification arrivage ${current.reference}`, userId, {
+      reference: `MODIFICATION ${current.reference}`,
+    });
+    await tx.payment.deleteMany({ where: { arrivalId: id } });
+    if (current.debt) await tx.debt.delete({ where: { id: current.debt.id } });
+    await writeSettlement(tx, { id, reference: current.reference }, plan, input, userId);
+
+    return loadArrival(tx, id);
   });
 }
 

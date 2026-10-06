@@ -20,46 +20,48 @@ const cartonSizeLine = z.object({
  * `floor(montant total / quantité)` — la même règle à la création et à la
  * ventilation.
  */
-const cartonSchema = z
-  .object({
-    productId: z.string().min(1, 'Modèle requis'),
-    reference: z.string().trim().min(1).max(40).optional(),
-    date: z.coerce.date().optional(),
-    notes: z.string().trim().max(500).nullish(),
-    totalQty: z.number().int().min(1, 'Quantité invalide').max(10000),
-    totalCost: z.number().int().min(1, 'Montant invalide'),
-    sellingPrice: z.number().int().min(0, 'Prix de vente invalide').nullish(),
-    sizes: z.array(cartonSizeLine).max(60).optional(),
-  })
-  .superRefine((carton, ctx) => {
-    if (carton.totalCost < carton.totalQty) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['totalCost'],
-        message: 'Le montant doit couvrir au moins une paire (≥ quantité)',
-      });
-    }
+const cartonFields = z.object({
+  productId: z.string().min(1, 'Modèle requis'),
+  reference: z.string().trim().min(1).max(40).optional(),
+  date: z.coerce.date().optional(),
+  notes: z.string().trim().max(500).nullish(),
+  totalQty: z.number().int().min(1, 'Quantité invalide').max(10000),
+  totalCost: z.number().int().min(1, 'Montant invalide'),
+  sellingPrice: z.number().int().min(0, 'Prix de vente invalide').nullish(),
+  sizes: z.array(cartonSizeLine).max(60).optional(),
+});
 
-    const sizes = carton.sizes ?? [];
-    if (sizes.length === 0) return;
+const checkCarton = (carton: z.infer<typeof cartonFields>, ctx: z.RefinementCtx) => {
+  if (carton.totalCost < carton.totalQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['totalCost'],
+      message: 'Le montant doit couvrir au moins une paire (≥ quantité)',
+    });
+  }
 
-    const listed = sizes.reduce((sum, line) => sum + line.quantity, 0);
-    const ids = sizes.map((line) => line.sizeId);
-    if (new Set(ids).size !== ids.length) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['sizes'],
-        message: 'Une pointure est listée deux fois dans ce carton',
-      });
-    }
-    if (listed !== carton.totalQty) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['totalQty'],
-        message: `${listed} paires listées pour ${carton.totalQty} annoncées`,
-      });
-    }
-  });
+  const sizes = carton.sizes ?? [];
+  if (sizes.length === 0) return;
+
+  const listed = sizes.reduce((sum, line) => sum + line.quantity, 0);
+  const ids = sizes.map((line) => line.sizeId);
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['sizes'],
+      message: 'Une pointure est listée deux fois dans ce carton',
+    });
+  }
+  if (listed !== carton.totalQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['totalQty'],
+      message: `${listed} paires listées pour ${carton.totalQty} annoncées`,
+    });
+  }
+};
+
+const cartonSchema = cartonFields.superRefine(checkCarton);
 
 const paymentSchema = z.object({
   // 0 = rien de réglé : le montant entier devient une dette fournisseur.
@@ -85,6 +87,27 @@ export const createArrivalSchema = z.object({
 });
 
 export type CreateArrivalInput = z.infer<typeof createArrivalSchema>;
+
+/**
+ * `PATCH /arrivals/:id` — la liste des cartons est **remplacée en entier** :
+ * un carton envoyé avec `id` est celui déjà enregistré (modifié), un carton
+ * sans `id` est ajouté, et un carton existant absent de la liste est supprimé
+ * (lignes, lots et mouvements `IN` compris).
+ *
+ * Le financement (`funding`) n'est pas réécrit : un financement reste celui
+ * posé à la création, et le service refuse la modification du montant tant
+ * qu'un financement existe.
+ */
+export const updateArrivalSchema = createArrivalSchema
+  .omit({ funding: true })
+  .extend({
+    cartons: z
+      .array(cartonFields.extend({ id: z.string().min(1).optional() }).superRefine(checkCarton))
+      .min(1, 'Au moins un carton est requis')
+      .max(50),
+  });
+
+export type UpdateArrivalInput = z.infer<typeof updateArrivalSchema>;
 
 const ventilateLine = z.object({
   sizeId: z.string().min(1, 'Pointure requise'),
