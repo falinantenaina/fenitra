@@ -6,6 +6,7 @@ import { useFieldArray, useForm, type FieldPath } from "react-hook-form";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,6 +23,7 @@ import {
   buildArrivalPayload,
   cartonTotals,
   cartonsToVentilate,
+  draftHasContent,
   formTotals,
   listedQuantity,
   listedSizes,
@@ -30,7 +32,7 @@ import {
   type ArrivalFormValues,
   type CartonDraft,
 } from "@/lib/arrival";
-import { formatMoney } from "@/lib/format";
+import { formatDateTime, formatMoney } from "@/lib/format";
 import {
   useCreateArrival,
   useCreateParty,
@@ -536,9 +538,18 @@ const emptyCarton = (productId = ""): CartonDraft => ({
   sizes: {},
 });
 
+const emptyForm = (): ArrivalFormValues => ({
+  supplierId: "",
+  date: todayISO(),
+  notes: "",
+  cartons: [emptyCarton()],
+  payment: { enabled: false, amount: 0, method: undefined },
+});
+
 export default function NewArrivalScreen() {
   const suppliers = useSuppliers();
   const products = useProducts();
+  const sizes = useSizeList();
   const methods = usePaymentMethods();
   const createArrival = useCreateArrival();
   const createParty = useCreateParty();
@@ -547,6 +558,12 @@ export default function NewArrivalScreen() {
   const [supplierSearch, setSupplierSearch] = useState("");
   const [supplierNotice, setSupplierNotice] = useState<string | null>(null);
   const [creatingSupplier, setCreatingSupplier] = useState(false);
+  /** Récapitulatif à confirmer avant l'envoi, voir `onReview`. */
+  const [review, setReview] = useState<ArrivalFormValues | null>(null);
+  const [draftPrompt, setDraftPrompt] = useState<{
+    values: ArrivalFormValues;
+    savedAt: number | null;
+  } | null>(null);
 
   const {
     control,
@@ -558,13 +575,7 @@ export default function NewArrivalScreen() {
     formState: { errors, isSubmitting },
   } = useForm<ArrivalFormValues>({
     resolver: zodResolver(arrivalFormSchema),
-    defaultValues: {
-      supplierId: "",
-      date: todayISO(),
-      notes: "",
-      cartons: [emptyCarton()],
-      payment: { enabled: false, amount: 0, method: undefined },
-    },
+    defaultValues: emptyForm(),
     mode: "onSubmit",
   });
 
@@ -573,15 +584,30 @@ export default function NewArrivalScreen() {
     name: "cartons",
   });
 
-  // Brouillon de saisie : reposé à l'ouverture, sauvegardé à chaque frappe.
+  // Brouillon : proposé (jamais imposé) une fois le stockage hydraté.
   useEffect(() => {
-    const saved = useArrivalDraft.getState().values;
-    if (saved) reset(saved);
-  }, [reset]);
+    const propose = () => {
+      const saved = useArrivalDraft.getState().values;
+      if (saved && draftHasContent(saved)) {
+        setDraftPrompt({ values: saved, savedAt: useArrivalDraft.getState().savedAt });
+      }
+    };
+    if (useArrivalDraft.persist.hasHydrated()) {
+      propose();
+      return;
+    }
+    return useArrivalDraft.persist.onFinishHydration(() => propose());
+  }, []);
 
   useEffect(() => {
-    const subscription = watch((values) => {
-      if (values) useArrivalDraft.getState().save(values as ArrivalFormValues);
+    const subscription = watch((formValues) => {
+      if (!formValues) return;
+      // Saisie vide : rien à reprendre au prochain lancement.
+      if (draftHasContent(formValues as ArrivalFormValues)) {
+        useArrivalDraft.getState().save(formValues as ArrivalFormValues);
+      } else {
+        useArrivalDraft.getState().clear();
+      }
     });
     return () => subscription.unsubscribe();
   }, [watch]);
@@ -612,6 +638,13 @@ export default function NewArrivalScreen() {
   const totals = formTotals(values);
   const formError = firstErrorMessage(errors) ?? submitError;
   const pending = isSubmitting || createArrival.isPending;
+
+  // Libellés lisibles du récapitulatif (modèle, pointure, fournisseur).
+  const productNames = new Map((products.data ?? []).map((p) => [p.id, p.name]));
+  const sizeLabels = new Map(
+    (sizes.data?.items ?? []).map((s) => [s.id, s.label || String(s.value)]),
+  );
+  const supplierNames = new Map((suppliers.data ?? []).map((s) => [s.id, s.name]));
 
   const patchCarton = (index: number, patch: Partial<CartonDraft>) => {
     (Object.keys(patch) as (keyof CartonDraft)[]).forEach((key) => {
@@ -661,26 +694,31 @@ export default function NewArrivalScreen() {
     }
   };
 
-  const onSubmit = handleSubmit(async (formValues) => {
+  /** Valide puis ouvre le récapitulatif — rien n'est envoyé avant confirmation. */
+  const onReview = handleSubmit((formValues) => {
+    setSubmitError(null);
+    setReview(formValues);
+  });
+
+  const confirmArrival = async (formValues: ArrivalFormValues) => {
+    if (createArrival.isPending) return;
     setSubmitError(null);
     try {
-      const created = await createArrival.mutateAsync(
-        buildArrivalPayload(formValues),
-      );
+      const created = await createArrival.mutateAsync(buildArrivalPayload(formValues));
       useArrivalDraft.getState().clear();
       const toVentilate = cartonsToVentilate(formValues);
+      setReview(null);
       toast.success(
         "Arrivage enregistré",
         `${created.reference} — ${created.totalQty} pièce(s), ${formatMoney(created.totalCost)}` +
-          (toVentilate > 0
-            ? ` · ${toVentilate} carton(s) à ventiler`
-            : ""),
+          (toVentilate > 0 ? ` · ${toVentilate} carton(s) à ventiler` : ""),
       );
       router.back();
     } catch (error) {
+      // On reste sur le récapitulatif : l'erreur s'affiche à côté du bouton.
       setSubmitError(apiMessage(error));
     }
-  });
+  };
 
   return (
     <KeyboardAvoidingView
@@ -977,7 +1015,7 @@ export default function NewArrivalScreen() {
             pending ? "bg-slate-400" : "bg-brand"
           }`}
           disabled={pending}
-          onPress={() => void onSubmit()}
+          onPress={() => void onReview()}
         >
           {pending ? (
             <ActivityIndicator color="#ffffff" />
@@ -988,6 +1026,147 @@ export default function NewArrivalScreen() {
           )}
         </Pressable>
       </View>
+
+      {/* Brouillon précédent : repris ou abandonné, jamais imposé. */}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setDraftPrompt(null)}
+        transparent
+        visible={draftPrompt !== null}
+      >
+        {draftPrompt ? (
+          <View className="flex-1 justify-center bg-black/50 px-6">
+            <View className="gap-3 rounded-2xl bg-white p-5">
+              <Text className="text-base font-semibold text-slate-900">
+                Reprendre le brouillon ?
+              </Text>
+              <View className="gap-1">
+                <Text className="text-sm text-slate-500">
+                  {`${draftPrompt.values.cartons.length} carton(s) · ${formTotals(draftPrompt.values).quantity} pièce(s) · ${formatMoney(formTotals(draftPrompt.values).cost)}`}
+                </Text>
+                {draftPrompt.savedAt ? (
+                  <Text className="text-xs text-slate-400">
+                    {`Dernière frappe : ${formatDateTime(new Date(draftPrompt.savedAt).toISOString())}`}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                className="h-11 items-center justify-center rounded-xl bg-brand"
+                onPress={() => {
+                  reset(draftPrompt.values);
+                  setDraftPrompt(null);
+                }}
+              >
+                <Text className="text-sm font-semibold text-white">Reprendre</Text>
+              </Pressable>
+              <Pressable
+                className="h-11 items-center justify-center rounded-xl bg-slate-100"
+                onPress={() => {
+                  useArrivalDraft.getState().clear();
+                  reset(emptyForm());
+                  setDraftPrompt(null);
+                }}
+              >
+                <Text className="text-sm font-semibold text-slate-700">Repartir de zéro</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
+
+      {/* Récapitulatif : le serveur n'est touché qu'après « Confirmer ». */}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setReview(null)}
+        transparent
+        visible={review !== null}
+      >
+        {review ? (
+          <View className="flex-1 justify-center bg-black/50 px-5">
+            <View className="gap-3 rounded-2xl bg-white p-5">
+              <Text className="text-base font-semibold text-slate-900">
+                Vérifier avant d&apos;enregistrer
+              </Text>
+              <ScrollView className="max-h-72 gap-2" nestedScrollEnabled>
+                {review.cartons.map((carton, index) => {
+                  const lines = listedSizes(carton);
+                  return (
+                    <View
+                      key={index}
+                      className="gap-1 rounded-xl border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <Text className="text-sm font-semibold text-slate-900">
+                        {productNames.get(carton.activeProductId) ?? carton.activeProductId}
+                      </Text>
+                      <Text className="text-xs text-slate-500">
+                        {`${carton.quantity} paire(s) · ${formatMoney(carton.amount)} · prix unitaire ${formatMoney(unitCostOf(carton))}`}
+                      </Text>
+                      <Text className="text-xs text-slate-500">
+                        {lines.length === 0
+                          ? "Pointures : à ventiler après réception"
+                          : `Pointures : ${lines
+                              .map((line) => `${sizeLabels.get(line.sizeId) ?? "?"} ×${line.quantity}`)
+                              .join(", ")}`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              <View className="gap-1 rounded-xl bg-slate-50 p-3">
+                <View className="flex-row justify-between">
+                  <Text className="text-sm text-slate-500">Total</Text>
+                  <Text className="text-sm font-semibold text-slate-900">
+                    {formatMoney(formTotals(review).cost)}
+                  </Text>
+                </View>
+                <View className="flex-row justify-between">
+                  <Text className="text-sm text-slate-500">Réglé</Text>
+                  <Text className="text-sm font-semibold text-slate-900">
+                    {formatMoney(review.payment.enabled ? review.payment.amount : 0)}
+                  </Text>
+                </View>
+                <View className="flex-row justify-between">
+                  <Text className="text-sm text-slate-500">Reste dû au fournisseur</Text>
+                  <Text className="text-sm font-semibold text-slate-900">
+                    {formatMoney(
+                      formTotals(review).cost -
+                        (review.payment.enabled ? review.payment.amount : 0),
+                    )}
+                  </Text>
+                </View>
+                <Text className="text-xs text-slate-400">
+                  {`${review.date} · ${supplierNames.get(review.supplierId) ?? ""}`}
+                </Text>
+              </View>
+              {formError ? (
+                <Text className="text-xs leading-5 text-red-600">{formError}</Text>
+              ) : null}
+              <View className="flex-row gap-2">
+                <Pressable
+                  className="h-11 flex-1 items-center justify-center rounded-xl bg-slate-100"
+                  disabled={pending}
+                  onPress={() => setReview(null)}
+                >
+                  <Text className="text-sm font-semibold text-slate-700">Retour</Text>
+                </Pressable>
+                <Pressable
+                  className={`h-11 flex-1 items-center justify-center rounded-xl ${
+                    pending ? "bg-slate-400" : "bg-brand"
+                  }`}
+                  disabled={pending}
+                  onPress={() => void confirmArrival(review)}
+                >
+                  {pending ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text className="text-sm font-semibold text-white">Confirmer</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

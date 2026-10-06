@@ -142,6 +142,18 @@ export function cartonsToVentilate(form: ArrivalFormValues): number {
 }
 
 /**
+ * Un brouillon n'est proposé à la reprise que s'il contient du travail réel :
+ * fournisseur et modèle pré-remplis seuls ne justifient pas une relance.
+ */
+export function draftHasContent(form: ArrivalFormValues): boolean {
+  if (form.notes?.trim()) return true;
+  if (form.cartons.length > 1) return true;
+  return form.cartons.some(
+    (carton) => carton.quantity > 0 || carton.amount > 0 || listedQuantity(carton) > 0,
+  );
+}
+
+/**
  * Transforme les brouillons en corps `POST /arrivals` : modèle, quantité et
  * montant pour chaque carton, pointures quand elles sont listées — le serveur
  * déduit le prix unitaire et crée les lots correspondants.
