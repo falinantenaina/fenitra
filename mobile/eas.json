@@ -15,9 +15,16 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://vente.nragency.tech/api"
       }
     },
-    "production": {}
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://vente.nragency.tech/api"
+      }
+    }
   },
   "submit": {
     "production": {}
