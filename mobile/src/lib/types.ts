@@ -343,6 +343,15 @@ export interface CreateArrivalBody {
   funding?: { source: FundingSource; amount: number; notes?: string };
 }
 
+/**
+ * Corps de `PATCH /arrivals/:id` — la création moins `funding`, avec un `id`
+ * sur les cartons déjà enregistrés : un carton envoyé avec `id` est modifié,
+ * sans `id` il est ajouté, absent de la liste il est supprimé.
+ */
+export interface UpdateArrivalBody extends Omit<CreateArrivalBody, 'cartons' | 'funding'> {
+  cartons: (CreateArrivalBody['cartons'][number] & { id?: string })[];
+}
+
 /** Corps de `POST /arrivals/:id/ventilate` — répartition des pointures d'un carton. */
 export interface VentilateArrivalBody {
   cartons: { cartonId: string; lines: { sizeId: string; quantity: number }[] }[];

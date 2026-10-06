@@ -145,6 +145,19 @@ export default function ArrivalDetailScreen() {
         </View>
       ) : null}
 
+      {/* Modification */}
+      {canManage && data.status !== 'CANCELLED' ? (
+        <Pressable
+          accessibilityRole="button"
+          className="mt-4 h-11 flex-row items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white"
+          onPress={() =>
+            router.push({ pathname: '/arrival/edit', params: { id: data.id } })
+          }>
+          <Ionicons color="#208AEF" name="create-outline" size={16} />
+          <Text className="text-sm font-semibold text-brand">Modifier l&apos;arrivage</Text>
+        </Pressable>
+      ) : null}
+
       {/* Annulation */}
       {canManage && data.status !== 'CANCELLED' ? (
         <View className="mt-4">

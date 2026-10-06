@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { CreateArrivalBody } from '@/lib/types';
+import type { ArrivalDetail, CreateArrivalBody, UpdateArrivalBody } from '@/lib/types';
 
 const maxMoney = 10_000_000_000;
 const nonNegativeInt = z.number().int().min(0).max(maxMoney);
@@ -14,6 +14,8 @@ const nonNegativeInt = z.number().int().min(0).max(maxMoney);
  * le détail de l'arrivage.
  */
 export const cartonDraftSchema = z.object({
+  /** Carton déjà enregistré (mode édition) — absent = carton à créer. */
+  id: z.string().min(1).optional(),
   reference: z.string().trim().max(40).optional(),
   notes: z.string().trim().max(500).optional(),
   activeProductId: z.string(),
@@ -158,40 +160,94 @@ export function draftHasContent(form: ArrivalFormValues): boolean {
  * montant pour chaque carton, pointures quand elles sont listées — le serveur
  * déduit le prix unitaire et crée les lots correspondants.
  */
-export function buildArrivalPayload(form: ArrivalFormValues): CreateArrivalBody {
-  const cartons = form.cartons.map((carton, index) => {
-    const reference = carton.reference?.trim() || `Carton ${index + 1}`;
-    const notes = carton.notes?.trim() ? { notes: carton.notes.trim() } : {};
-    const sizes = listedSizes(carton);
+function payloadCarton(carton: CartonDraft, index: number) {
+  const reference = carton.reference?.trim() || `Carton ${index + 1}`;
+  const notes = carton.notes?.trim() ? { notes: carton.notes.trim() } : {};
+  const sizes = listedSizes(carton);
 
-    return {
-      reference,
-      productId: carton.activeProductId,
-      totalQty: carton.quantity,
-      totalCost: carton.amount,
-      ...(carton.sellingPrice ? { sellingPrice: carton.sellingPrice } : {}),
-      ...(sizes.length > 0 ? { sizes } : {}),
-      ...notes,
-    };
-  });
+  return {
+    reference,
+    productId: carton.activeProductId,
+    totalQty: carton.quantity,
+    totalCost: carton.amount,
+    ...(carton.sellingPrice ? { sellingPrice: carton.sellingPrice } : {}),
+    ...(sizes.length > 0 ? { sizes } : {}),
+    ...notes,
+  };
+}
 
-  // Rien de réglé (0 ou case décochée) : aucun paiement envoyé — la totalité
-  // devient une dette fournisseur côté serveur. Pas de bloc financement : ce qui
-  // est réglé sort de la caisse, le reste est dû au fournisseur.
+// Rien de réglé (0 ou case décochée) : aucun paiement envoyé — la totalité
+// devient une dette fournisseur côté serveur. Pas de bloc financement : ce qui
+// est réglé sort de la caisse, le reste est dû au fournisseur.
+function payloadSettlement(form: ArrivalFormValues) {
   const paid = form.payment.enabled ? form.payment.amount : 0;
 
+  return paid > 0
+    ? {
+        payment: {
+          amount: paid,
+          ...(form.payment.method?.trim() ? { method: form.payment.method.trim() } : {}),
+        },
+      }
+    : {};
+}
+
+export function buildArrivalPayload(form: ArrivalFormValues): CreateArrivalBody {
   return {
     supplierId: form.supplierId,
     date: form.date,
     ...(form.notes?.trim() ? { notes: form.notes.trim() } : {}),
-    cartons,
-    ...(paid > 0
-      ? {
-          payment: {
-            amount: paid,
-            ...(form.payment.method?.trim() ? { method: form.payment.method.trim() } : {}),
-          },
-        }
-      : {}),
+    cartons: form.cartons.map((carton, index) => payloadCarton(carton, index)),
+    ...payloadSettlement(form),
+  };
+}
+
+/**
+ * Corps `PATCH /arrivals/:id` — même saisie que la création, chaque carton
+ * portant son `id` quand il existe déjà (le serveur remplace la liste en
+ * entier : conservé, ajouté ou supprimé).
+ */
+export function buildUpdateArrivalPayload(form: ArrivalFormValues): UpdateArrivalBody {
+  return {
+    ...buildArrivalPayload(form),
+    cartons: form.cartons.map((carton, index) => ({
+      ...(carton.id ? { id: carton.id } : {}),
+      ...payloadCarton(carton, index),
+    })),
+  };
+}
+
+/**
+ * Détail d'un arrivage → valeurs du formulaire (mode édition) : fournisseur,
+ * date, notes, cartons avec leurs pointures déjà réparties et le réglé actuel.
+ */
+export function arrivalToForm(detail: ArrivalDetail): ArrivalFormValues {
+  const paid = Number(detail.paidAmount) || 0;
+
+  return {
+    supplierId: detail.supplier.id,
+    date: detail.date.slice(0, 10),
+    notes: detail.notes ?? '',
+    cartons: detail.cartons.map((carton) => ({
+      id: carton.id,
+      reference: carton.reference,
+      notes: carton.notes ?? undefined,
+      activeProductId: carton.productId,
+      quantity: carton.totalQty,
+      amount: Number(carton.totalCost) || 0,
+      ...(carton.sellingPrice && Number(carton.sellingPrice) > 0
+        ? { sellingPrice: Number(carton.sellingPrice) }
+        : {}),
+      sizes: Object.fromEntries(
+        carton.items
+          .filter((item) => item.quantity > 0)
+          .map((item) => [item.size.id, item.quantity]),
+      ),
+    })),
+    payment: {
+      enabled: paid > 0,
+      amount: paid,
+      method: detail.payments[0]?.method ?? undefined,
+    },
   };
 }

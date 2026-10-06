@@ -69,6 +69,7 @@ import type {
   SizeListItem,
   StockMovementFeedItem,
   StockSummary,
+  UpdateArrivalBody,
   UpdateCategoryBody,
   UpdateMethodBody,
   UpdatePartyBody,
@@ -819,6 +820,26 @@ export interface ArrivalCreated {
   reference: string;
   totalCost: string;
   totalQty: number;
+}
+
+/** `PATCH /arrivals/:id` — modification complète : la liste des cartons est remplacée. */
+export function useUpdateArrival() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateArrivalBody }) => {
+      const { data } = await api.patch<ArrivalDetail>(`/arrivals/${id}`, body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['arrivals'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['stock'] });
+      void client.invalidateQueries({ queryKey: ['stock-summary'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
 }
 
 /** `POST /arrivals/:id/ventilate` — répartit les pointures d'un carton déjà enregistré. */

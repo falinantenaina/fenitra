@@ -20,7 +20,9 @@ import { toast } from "@/components/toast";
 import { apiMessage } from "@/lib/api";
 import {
   arrivalFormSchema,
+  arrivalToForm,
   buildArrivalPayload,
+  buildUpdateArrivalPayload,
   cartonTotals,
   cartonsToVentilate,
   draftHasContent,
@@ -34,6 +36,7 @@ import {
 } from "@/lib/arrival";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import {
+  useArrival,
   useCreateArrival,
   useCreateParty,
   useCreateProduct,
@@ -43,6 +46,7 @@ import {
   useProducts,
   useSizeList,
   useSuppliers,
+  useUpdateArrival,
 } from "@/lib/queries";
 import type { ProductListItem, SizeListItem } from "@/lib/types";
 import { useArrivalDraft } from "@/store/arrival-draft";
@@ -547,12 +551,20 @@ const emptyForm = (): ArrivalFormValues => ({
 });
 
 export default function NewArrivalScreen() {
+  return <ArrivalFormScreen />;
+}
+
+/** Saisie d'un arrivage : création (`editId` nul) ou modification (`PATCH`). */
+export function ArrivalFormScreen({ editId = null }: { editId?: string | null }) {
   const suppliers = useSuppliers();
   const products = useProducts();
   const sizes = useSizeList();
   const methods = usePaymentMethods();
   const createArrival = useCreateArrival();
+  const updateArrival = useUpdateArrival();
   const createParty = useCreateParty();
+  const arrival = useArrival(editId);
+  const editing = Boolean(editId);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [supplierSearch, setSupplierSearch] = useState("");
@@ -564,6 +576,8 @@ export default function NewArrivalScreen() {
     values: ArrivalFormValues;
     savedAt: number | null;
   } | null>(null);
+  /** L'arrivage à modifier est-il déjà chargé dans le formulaire ? */
+  const [loaded, setLoaded] = useState(false);
 
   const {
     control,
@@ -585,7 +599,9 @@ export default function NewArrivalScreen() {
   });
 
   // Brouillon : proposé (jamais imposé) une fois le stockage hydraté.
+  // En modification, la saisie vient de l'arrivage — aucun brouillon.
   useEffect(() => {
+    if (editId) return;
     const propose = () => {
       const saved = useArrivalDraft.getState().values;
       if (saved && draftHasContent(saved)) {
@@ -597,9 +613,10 @@ export default function NewArrivalScreen() {
       return;
     }
     return useArrivalDraft.persist.onFinishHydration(() => propose());
-  }, []);
+  }, [editId]);
 
   useEffect(() => {
+    if (editId) return;
     const subscription = watch((formValues) => {
       if (!formValues) return;
       // Saisie vide : rien à reprendre au prochain lancement.
@@ -610,7 +627,14 @@ export default function NewArrivalScreen() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [watch]);
+  }, [watch, editId]);
+
+  // Édition : le formulaire est prérempli depuis l'arrivage enregistré.
+  useEffect(() => {
+    if (!editId || !arrival.data || loaded) return;
+    reset(arrivalToForm(arrival.data));
+    setLoaded(true);
+  }, [editId, arrival.data, loaded, reset]);
 
   const values = watch();
   const supplierId = values.supplierId;
@@ -637,7 +661,7 @@ export default function NewArrivalScreen() {
 
   const totals = formTotals(values);
   const formError = firstErrorMessage(errors) ?? submitError;
-  const pending = isSubmitting || createArrival.isPending;
+  const pending = isSubmitting || createArrival.isPending || updateArrival.isPending;
 
   // Libellés lisibles du récapitulatif (modèle, pointure, fournisseur).
   const productNames = new Map((products.data ?? []).map((p) => [p.id, p.name]));
@@ -701,9 +725,23 @@ export default function NewArrivalScreen() {
   });
 
   const confirmArrival = async (formValues: ArrivalFormValues) => {
-    if (createArrival.isPending) return;
+    if (createArrival.isPending || updateArrival.isPending) return;
     setSubmitError(null);
     try {
+      if (editId) {
+        const updated = await updateArrival.mutateAsync({
+          id: editId,
+          body: buildUpdateArrivalPayload(formValues),
+        });
+        setReview(null);
+        toast.success(
+          "Arrivage modifié",
+          `${updated.reference} — ${updated.totalQty} pièce(s), ${formatMoney(updated.totalCost)}`,
+        );
+        router.back();
+        return;
+      }
+
       const created = await createArrival.mutateAsync(buildArrivalPayload(formValues));
       useArrivalDraft.getState().clear();
       const toVentilate = cartonsToVentilate(formValues);
@@ -720,6 +758,27 @@ export default function NewArrivalScreen() {
     }
   };
 
+  // Modification : l'arrivage doit d'abord être lisible (ou rechargé).
+  if (editing && (arrival.isPending || !loaded)) {
+    return <ActivityIndicator className="mt-10 self-center" color="#208AEF" />;
+  }
+
+  if (editing && (arrival.isError || !arrival.data)) {
+    return (
+      <View className="flex-1 items-center justify-center gap-3 bg-slate-50 px-6">
+        <Ionicons color="#CBD5E1" name="alert-circle-outline" size={32} />
+        <Text className="text-sm text-slate-500">Impossible de charger cet arrivage.</Text>
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-lg bg-slate-100 px-4 py-2"
+          disabled={arrival.isRefetching}
+          onPress={() => void arrival.refetch()}>
+          <Text className="text-sm font-medium text-slate-700">Réessayer</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-slate-50"
@@ -732,6 +791,14 @@ export default function NewArrivalScreen() {
         {formError ? (
           <View className="rounded-xl bg-red-50 px-3 py-2.5">
             <Text className="text-sm text-red-600">{formError}</Text>
+          </View>
+        ) : null}
+
+        {editing ? (
+          <View className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+            <Text className="text-xs leading-5 text-slate-500">
+              {`Modification de l'arrivage — refusée si le stock a déjà bougé (vente, ajustement, retour), si la dette a reçu un versement ou si l'arrivage est financé.`}
+            </Text>
           </View>
         ) : null}
 
@@ -1021,7 +1088,9 @@ export default function NewArrivalScreen() {
             <ActivityIndicator color="#ffffff" />
           ) : (
             <Text className="text-base font-semibold text-white">
-              Enregistrer l&apos;arrivage
+              {editing
+                ? "Enregistrer les modifications"
+                : "Enregistrer l'arrivage"}
             </Text>
           )}
         </Pressable>
@@ -1085,7 +1154,9 @@ export default function NewArrivalScreen() {
           <View className="flex-1 justify-center bg-black/50 px-5">
             <View className="gap-3 rounded-2xl bg-white p-5">
               <Text className="text-base font-semibold text-slate-900">
-                Vérifier avant d&apos;enregistrer
+                {editing
+                  ? "Vérifier avant de modifier"
+                  : "Vérifier avant d'enregistrer"}
               </Text>
               <ScrollView className="max-h-72 gap-2" nestedScrollEnabled>
                 {review.cartons.map((carton, index) => {

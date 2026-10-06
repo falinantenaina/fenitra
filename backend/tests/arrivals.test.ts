@@ -706,4 +706,154 @@ describe('Arrivages & stock', () => {
     });
     expect(forbidden.status).toBe(403);
   });
+
+  it('modifie un arrivage : cartons remplacés, lots et caisse réécrits (PATCH)', async () => {
+    const created = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [
+        {
+          reference: 'MOD-1',
+          productId,
+          totalQty: 12,
+          totalCost: 240000,
+          sizes: [
+            { sizeId: size40Id, quantity: 8 },
+            { sizeId: size41Id, quantity: 4 },
+          ],
+        },
+      ],
+      payment: { amount: 100000, method: 'Espèces' },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const id = created.body.id;
+    const cartonId = created.body.cartons[0].id;
+
+    const res = await admin.patch(`/arrivals/${id}`).send({
+      supplierId,
+      cartons: [
+        {
+          id: cartonId,
+          reference: 'MOD-1',
+          productId,
+          totalQty: 14,
+          totalCost: 280000,
+          sizes: [
+            { sizeId: size40Id, quantity: 10 },
+            { sizeId: size41Id, quantity: 4 },
+          ],
+        },
+        { reference: 'MOD-2', productId, totalQty: 6, totalCost: 180000 },
+      ],
+      payment: { amount: 150000 },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+
+    const body = res.body;
+    expect(body.totalQty).toBe(20);
+    expect(body.totalCost).toBe('460000.00');
+    expect(body.paidAmount).toBe('150000.00');
+    expect(body.unpaidAmount).toBe('310000.00');
+
+    // le carton envoyé avec son id est conservé, l'autre est ajouté
+    expect(body.cartons).toHaveLength(2);
+    expect(body.cartons[0].id).toBe(cartonId);
+    expect(body.cartons[0].totalCost).toBe('280000.00');
+    expect(body.cartons[0].ventilated).toBe(true);
+    expect(body.cartons[0].items).toHaveLength(2);
+    expect(body.cartons[1].ventilated).toBe(false);
+    expect(body.cartons[1].transitQty).toBe(6);
+    expect(body.cartons[1].transitValue).toBe('180000.00');
+
+    // lots du carton conservé : quantités et coût unitaire recalculés
+    expect(body.lots).toHaveLength(2);
+    const lot40 = body.lots.find(
+      (lot: { size: { value: number }; remainingQty: number; unitCost: string }) => lot.size.value === 40,
+    );
+    expect(lot40.remainingQty).toBe(10);
+    expect(lot40.unitCost).toBe('20000.00');
+
+    // dette recréée à partir du nouveau montant
+    expect(body.debt).not.toBeNull();
+    expect(body.debt.status).toBe('PARTIAL');
+    expect(body.debt.initialAmount).toBe('460000.00');
+    expect(body.debt.paidAmount).toBe('150000.00');
+    expect(body.debt.remainingAmount).toBe('310000.00');
+
+    // journal : l'ancienne écriture est contre-passée, la nouvelle pose −150000
+    const ledger = await prisma.ledgerEntry.findMany({ where: { arrivalId: id } });
+    expect(ledger.some((entry) => entry.cashDelta > 0 && entry.reference?.includes('MODIFICATION'))).toBe(true);
+    expect(ledger.reduce((sum, entry) => sum + entry.cashDelta, 0)).toBe(-150000);
+
+    // identité comptable toujours équilibrée après réécriture
+    expect(identityBalance(await accountingIdentity()).delta).toBe(0);
+  });
+
+  it('interdit la modification au caissier et la refuse une fois le stock ou la dette touchés (PATCH)', async () => {
+    // Un modèle dédié : son stock est uniquement celui de cet arrivage, donc
+    // l'ajustement FIFO tombe forcément sur ses lots.
+    const product = await admin.post('/products').send({ name: `Modèle PATCH ${stamp}` });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+    const patchedProductId = product.body.id;
+
+    const created = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [
+        {
+          productId: patchedProductId,
+          totalQty: 4,
+          totalCost: 80000,
+          sizes: [{ sizeId: size40Id, quantity: 4 }],
+        },
+      ],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const id = created.body.id;
+    const cartonId = created.body.cartons[0].id;
+    const body = {
+      supplierId,
+      cartons: [{ id: cartonId, productId: patchedProductId, totalQty: 5, totalCost: 100000 }],
+    };
+
+    // garde : manager ou admin uniquement
+    const asCashier = await cashier.patch(`/arrivals/${id}`).send(body);
+    expect(asCashier.status).toBe(403);
+
+    // carton inconnu → 404, rien n'est écrit
+    const unknownCarton = await admin.patch(`/arrivals/${id}`).send({
+      supplierId,
+      cartons: [{ id: 'carton-inexistant', productId: patchedProductId, totalQty: 5, totalCost: 100000 }],
+    });
+    expect(unknownCarton.status).toBe(404);
+
+    // une perte de stock (ajustement FIFO) verrouille la modification
+    const variant = await prisma.productVariant.findFirst({
+      where: { productId: patchedProductId, sizeId: size40Id },
+      select: { id: true },
+    });
+    expect(variant).not.toBeNull();
+    const adjust = await admin.post('/stock/adjustments').send({
+      variantId: variant!.id,
+      qty: 1,
+      reason: 'Casse avant modification',
+    });
+    expect(adjust.status, JSON.stringify(adjust.body)).toBe(201);
+
+    const moved = await admin.patch(`/arrivals/${id}`).send(body);
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.message).toContain('a déjà bougé');
+
+    // un arrivage annulé ne se modifie plus non plus
+    const other = await admin.post('/arrivals').send({
+      supplierId,
+      cartons: [{ productId: patchedProductId, totalQty: 4, totalCost: 80000 }],
+    });
+    expect(other.status).toBe(201);
+    await admin.post(`/arrivals/${other.body.id}/cancel`).send({ reason: 'Erreur de saisie' });
+    const onCancelled = await admin.patch(`/arrivals/${other.body.id}`).send({
+      supplierId,
+      cartons: [{ productId: patchedProductId, totalQty: 4, totalCost: 80000 }],
+    });
+    expect(onCancelled.status).toBe(409);
+    expect(onCancelled.body.error.message).toContain('annulé');
+  });
 });
