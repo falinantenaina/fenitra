@@ -4,8 +4,9 @@
   "private": true,
   "description": "API REST — gestion commerciale, stock et finances (vente de chaussures)",
   "type": "commonjs",
-  "main": "dist/index.js",
+  "main": "server.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
