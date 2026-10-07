@@ -203,13 +203,21 @@ Vérifier `npx expo-doctor` avant toute build.
 
 | Ce que peut faire un **CASHIER** | Ce qui est refusé |
 |---|---|
-| Consulter le stock, les ventes, les dettes, les rapports | Régler une dette (`POST /debts/:id/payments`) |
+| Consulter le stock, les ventes et le dashboard | Régler une dette (`POST /debts/:id/payments`) |
 | Créer une vente et en encaisser le paiement | Annuler une vente / un arrivage / une dette |
 | Saisir un arrivage en lecture seule | Créer/modifier le catalogue et les tiers |
 | Changer son propre mot de passe | Gérer les utilisateurs, les settings, les dépenses |
+| | Journal financier et rapports détaillés (403) |
 
 `MANAGER` hérite de tout sauf de la gestion des utilisateurs et des globales `adminOnly`
 (`ADMIN` uniquement). Détail complet : `docs/API.md` §3.
+
+**Portée visuelle du CASHIER (ANALYSE A11)** : sur les écrans, il ne voit
+**aucun bénéfice ni coût** — le dashboard masque la section « Situation à la
+date », les cartes bénéfice brut/net/coût des marchandises et la valorisation
+du stock ; l'écran de vente n'affiche que les prix de vente (marge masquée) ;
+l'écran stock ne montre que la liste et les quantités (sans valorisation ni
+prix d'achat). Les endpoints REST restent inchangés (masquage côté écran).
 
 ---
 

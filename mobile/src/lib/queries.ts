@@ -593,10 +593,11 @@ export function useLotMovements(lotId: string | null): UseQueryResult<LotMovemen
 /** Historique des prix d'achat d'une variante (`GET /variants/:id/price-history`) — §18. */
 export function useVariantPriceHistory(
   variantId: string | null,
+  enabled = true,
 ): UseQueryResult<VariantPriceHistory> {
   return useQuery<VariantPriceHistory>({
     queryKey: ['variants', 'price-history', variantId],
-    enabled: Boolean(variantId),
+    enabled: Boolean(variantId) && enabled,
     queryFn: async () => {
       const { data } = await api.get<VariantPriceHistory>(
         `/variants/${variantId}/price-history`,

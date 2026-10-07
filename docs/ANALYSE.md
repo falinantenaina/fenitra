@@ -70,6 +70,7 @@ Argent (propre / trosa sinoa / caisse)
 | **A8** | **Dépenses non payées** (achats à crédit) ? | Dettes | Non prévues par le §36 → **hors périmètre v1** ; une dépense est toujours réglée (sortie de caisse). À confirmer |
 | **A9** ✅ | **Précision monétaire** : l'ariary admet-il des décimales ? | `Decimal(18,2)` vs `Decimal(18,0)` | **VALIDÉ : `Decimal(18,0)` — entiers uniquement.** Tous les montants sont des entiers ; validation Zod `int()` ; affichage formaté `2 000 Ar` |
 | **A10** ✅ | **Reconnaissance du bénéfice sur les ventes à crédit (§41)** : quand la marge est-elle gagnée ? | Bénéfice net, bénéfice disponible, carte « Marge à recevoir » | **VALIDÉ : à l'encaissement INTEGRAL de chaque vente (tout-ou-rien).** Un règlement partiel fait monter la caisse, pas le bénéfice. `MARGE_À_RECEVOIR(to) = Σ marge des ventes non réglées à to` (paiements reconstitués historiquement). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)`. Nouvelle carte dérillable « Marge à recevoir » |
+| **A11** ✅ | **Portée « commercial » (rôle `CASHIER`) : masquage des bénéfices, coûts et valorisations** | Dashboard, écran de vente, écran stock | **VALIDÉ :** pour `CASHIER`, le dashboard perd la section « Situation à la date », les cartes bénéfice brut/net/coût des marchandises et la valorisation du stock ; l'écran de vente n'affiche que les **prix de vente** (marge masquée, globale et par ligne) ; l'écran stock ne montre que la **liste et les quantités** (sans valorisation, sans prix d'achat, dont l'historique d'achat du lot et le prix des mouvements). Masquage **deny-by-default** côté écran (`canManage` = ADMIN‖MANAGER ; rôle manquant ⇒ masqué) — les endpoints REST restent inchangés (durcissement API éventuel en follow-up) |
 | **A10** | **Prix de vente vendeur en ligne** (80) ≠ prix public (30) : prix libre par ligne de vente, ou listes de prix par canal ? | UX saisie | v1 : `ProductVariant.sellingPrice` = prix par défaut + **prix libre modifiable sur chaque ligne de vente**. Listes de prix = évolution possible |
 | **A11** | **Retours, annulations, ajustements de stock** (casse/perte/vol) : non traités par le cahier des charges mais nécessaires pour ne jamais bloquer l'app. | Intégrité | Prévoir : `Sale.cancel()` (contre-passation), `StockMovement ADJUSTMENT/RETURN` — à valider |
 | **A12** | **Versement récurrent** (2/jour) : planificateur automatique ou saisie manuelle ? | UX | v1 : saisie manuelle + vue « historique par personne » (§38). Planificateur = évolution |
@@ -1114,6 +1115,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 | **A5** | **Deux opérations distinctes** : `PERSONAL_CAPITAL_OUT` (récupération de capital, `K` diminue) et `PROFIT_DRAWING` (retrait de bénéfice, `K` inchangé) |
 | **A9** | **`Decimal(18, 0)` — montants entiers uniquement** (ariary sans décimale) |
 | **A10** | **Reconnaissance à l'encaissement intégral (§41)** : la marge d'une vente n'est reconnue que quand la vente est **entièrement réglée** (tout-ou-rien par vente). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)` ; carte dérillable « Marge à recevoir ». Les paiements sont reconstitués historiquement (`Payment.saleId` + versements via `Debt.saleId`) |
+| **A11** | **Portée commerciale (`CASHIER`)** : aucun bénéfice ni coût à l'écran. Dashboard sans « Situation à la date » ni cartes de bénéfice ni valorisation ; vente sans marge (prix de vente seulement) ; stock sans valorisation ni prix d'achat (liste + quantités, prix de vente conservés). Masquage deny-by-default (`canManage`), endpoints REST inchangés |
 
 ### 14.2 Défauts retenus sur les ambiguïtés non bloquantes
 
@@ -1278,6 +1280,11 @@ puis trois groupes de cartes :
 | Activité de la période | CA, bénéfice brut, bénéfice net (reconnu à l'encaissement), coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
 | Situation à la date | caisse, variation de caisse, vola miodina, créances (à recevoir), dettes à payer, bénéfice total, marge à recevoir, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
 | Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, fournisseurs | ✔ tous, sauf « vendus » (compteur d'unités) |
+
+**Portée `CASHIER` (A11)** : la section « Situation à la date » entière, les
+cartes bénéfice brut / bénéfice net / coût des marchandises et la carte «
+Stock (valeur) » sont masquées (deny-by-default sur `canManage`) ; la carte «
+Disponibles » perd son dérillage (qui afficherait les valeurs par lot).
 
 Les cartes de dettes affichent leur sens : « à recevoir » (clients, vendeurs
 en ligne regroupés avec les clients) ou « à payer » (fournisseurs, avec la

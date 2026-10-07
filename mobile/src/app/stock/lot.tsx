@@ -7,6 +7,7 @@ import { formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { pick } from '@/lib/params';
 import { useLotMovements, useVariantPriceHistory } from '@/lib/queries';
 import type { LotMovementItem } from '@/lib/types';
+import { useAuth } from '@/store/auth';
 
 const TYPE_LABELS: Record<string, string> = {
   IN: 'Entrée',
@@ -27,6 +28,9 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function MovementRow({ movement }: { movement: LotMovementItem }) {
   const positive = movement.delta > 0;
+  // §A11 — le prix d'achat du mouvement est réservé aux gestionnaires.
+  const user = useAuth((state) => state.user);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
   return (
     <View className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
@@ -45,9 +49,11 @@ function MovementRow({ movement }: { movement: LotMovementItem }) {
         </Text>
         {movement.notes ? <Text className="text-xs text-slate-400">{movement.notes}</Text> : null}
       </View>
-      <Text className="text-xs font-semibold text-slate-600">
-        {formatMoney(movement.unitCost)}
-      </Text>
+      {canManage ? (
+        <Text className="text-xs font-semibold text-slate-600">
+          {formatMoney(movement.unitCost)}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -62,9 +68,12 @@ export default function LotScreen() {
     entryDate?: string;
   }>();
   const id = pick(params.id) || null;
+  // §A11 — prix d'achat, valorisation et historique d'achat : gestionnaires.
+  const user = useAuth((state) => state.user);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const { data, isPending, isRefetching, error, refetch } = useLotMovements(id);
   const variantId = data?.lot.variantId ?? null;
-  const price = useVariantPriceHistory(variantId);
+  const price = useVariantPriceHistory(variantId, canManage);
 
   const code = data?.lot.code ?? pick(params.code);
   const product = pick(params.product);
@@ -101,19 +110,23 @@ export default function LotScreen() {
             <View className="-mx-1 mt-2 flex-row flex-wrap">
               <Info label="Quantité initiale" value={formatQuantity(data.lot.initialQty)} />
               <Info label="Restant" value={formatQuantity(data.lot.remainingQty)} />
-              <Info label="Prix d'achat" value={formatMoney(data.lot.unitCost)} />
-              <Info
-                label="Valeur restante"
-                value={formatMoney(data.lot.remainingQty * Number(data.lot.unitCost))}
-              />
+              {canManage ? (
+                <Info label="Prix d'achat" value={formatMoney(data.lot.unitCost)} />
+              ) : null}
+              {canManage ? (
+                <Info
+                  label="Valeur restante"
+                  value={formatMoney(data.lot.remainingQty * Number(data.lot.unitCost))}
+                />
+              ) : null}
               <Info label="Entrée" value={formatDateTime(pick(params.entryDate))} />
               <Info label="Fournisseur" value={pick(params.supplier) || '—'} />
               <Info label="Arrivage" value={pick(params.arrival) || '—'} />
             </View>
           </View>
 
-          {/* §18 — prix d'achat de la variante, entrée par entrée. */}
-          {variantId ? (
+          {/* §18 — prix d'achat de la variante, entrée par entrée (gestionnaires). */}
+          {variantId && canManage ? (
             <View>
               <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Prix d&apos;achat · historique · {price.data?.total ?? 0}

@@ -142,12 +142,16 @@ export default function SaleDetailScreen() {
               {formatMoney(data.remainingAmount)}
             </Text>
           </View>
-          <View>
-            <Text className="text-xs text-slate-400">Marge</Text>
-            <Text className="text-sm font-semibold text-slate-800">
-              {formatMoney(data.margin)}
-            </Text>
-          </View>
+          {/* §A11 — la marge est réservée aux gestionnaires : le caissier ne
+              voit que les prix de vente. */}
+          {canManage ? (
+            <View>
+              <Text className="text-xs text-slate-400">Marge</Text>
+              <Text className="text-sm font-semibold text-slate-800">
+                {formatMoney(data.margin)}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View className="mt-2 gap-0.5 border-t border-slate-100 pt-2">
@@ -299,9 +303,11 @@ export default function SaleDetailScreen() {
                     {item.quantity} × {formatMoney(item.unitPrice)}
                     {item.sku ? ` · ${item.sku}` : ''}
                   </Text>
-                  <Text className="text-xs text-slate-400">
-                    Marge {formatMoney(item.margin)}
-                  </Text>
+                  {canManage ? (
+                    <Text className="text-xs text-slate-400">
+                      Marge {formatMoney(item.margin)}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text className="text-sm font-bold text-slate-900">
                   {formatMoney(item.lineTotal)}

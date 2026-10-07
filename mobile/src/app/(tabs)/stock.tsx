@@ -61,7 +61,16 @@ function openLot(lot: LotItem) {
   });
 }
 
-function LotRow({ lot, onPress }: { lot: LotItem; onPress: () => void }) {
+function LotRow({
+  lot,
+  onPress,
+  canManage,
+}: {
+  lot: LotItem;
+  onPress: () => void;
+  /** §A11 — prix d'achat et valeur réservés aux gestionnaires. */
+  canManage: boolean;
+}) {
   const size = lot.variant.size.label || `${lot.variant.size.value}`;
   const open = lot.status === 'OPEN';
 
@@ -79,11 +88,14 @@ function LotRow({ lot, onPress }: { lot: LotItem; onPress: () => void }) {
           {lot.arrival ? ` · ${lot.arrival.reference}` : ''}
         </Text>
         <Text className="text-xs text-slate-400">
-          Achat {formatMoney(lot.unitCost)} · restant {lot.remainingQty}/{lot.initialQty}
+          {canManage ? `Achat ${formatMoney(lot.unitCost)} · ` : ''}
+          restant {lot.remainingQty}/{lot.initialQty}
         </Text>
       </View>
       <View className="items-end">
-        <Text className="text-sm font-semibold text-slate-800">{formatMoney(lot.value)}</Text>
+        {canManage ? (
+          <Text className="text-sm font-semibold text-slate-800">{formatMoney(lot.value)}</Text>
+        ) : null}
         <Text className={`text-xs ${open ? 'text-emerald-600' : 'text-slate-400'}`}>
           {open ? 'Ouvert' : 'Clôturé'}
         </Text>
@@ -165,7 +177,9 @@ function ModelLots({ productId, status }: { productId: string; status: StatusFil
         ) : lots.items.length === 0 ? (
           <Text className="px-3 py-4 text-sm text-slate-400">Aucun lot pour ce modèle.</Text>
         ) : (
-          lots.items.map((lot) => <LotRow key={lot.id} lot={lot} onPress={() => openLot(lot)} />)
+          lots.items.map((lot) => (
+            <LotRow key={lot.id} lot={lot} canManage={canManage} onPress={() => openLot(lot)} />
+          ))
         )}
       </View>
       <ListFooter
@@ -275,13 +289,18 @@ function ModelRow({
   status: StatusFilter;
   onPress: () => void;
 }) {
+  // §A11 — la valorisation du modèle est réservée aux gestionnaires.
+  const user = useAuth((state) => state.user);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+
   return (
     <View className="border-b border-slate-100 last:border-b-0">
       <Pressable className="flex-row items-center gap-3 px-3 py-3" onPress={onPress}>
         <View className="flex-1">
           <Text className="text-sm font-semibold text-slate-800">{model.name}</Text>
           <Text className="text-xs text-slate-400">
-            {formatQuantity(model.lots)} lot(s) · {formatMoney(model.value)}
+            {formatQuantity(model.lots)} lot(s)
+            {canManage ? ` · ${formatMoney(model.value)}` : ''}
           </Text>
         </View>
         <Text className="text-sm font-bold text-slate-900">
@@ -334,10 +353,12 @@ export default function StockScreen() {
         }>
         <Text className="text-xl font-bold text-slate-900">Stock</Text>
 
-        {/* Résumé global */}
+        {/* Résumé global — §A11 : la valorisation est réservée aux gestionnaires. */}
         <View className="flex-row gap-2">
           <SummaryCard label="Quantité" value={formatQuantity(summary.data?.quantity)} />
-          <SummaryCard label="Valorisation" value={formatMoney(summary.data?.value)} />
+          {canManage ? (
+            <SummaryCard label="Valorisation" value={formatMoney(summary.data?.value)} />
+          ) : null}
           <SummaryCard label="Lots" value={formatQuantity(summary.data?.lots)} />
         </View>
 
