@@ -2,7 +2,7 @@
 
 Gestion de boutique de chaussures : arrivages, stock par lots (FIFO), ventes, dettes
 (clients, fournisseurs), finances et pilotage
-(bénéfice mangeable, vola miodina, journal financier, rapports PDF).
+(bénéfice disponible, vola miodina, journal financier, rapports PDF).
 
 | | |
 |---|---|
@@ -49,7 +49,7 @@ Variables importantes (`backend/.env.example`) :
 | `DATABASE_URL` | base de développement |
 | `TEST_DATABASE_URL` | base des tests — **réinitialisée à chaque `npm test`** |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -hex 64` |
-| `OPENING_CASH_BALANCE`, `WORKING_RESERVE` | solde d'ouverture et réserve de rotation |
+| `OPENING_CASH_BALANCE` | solde d'ouverture de caisse |
 
 ### 2.3 Mobile
 

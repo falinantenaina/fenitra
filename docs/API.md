@@ -240,7 +240,7 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET | `/api/personal-capital/:id` | manager | Détail |
 | GET | `/api/personal-capital/:id/destinations` | manager | Où est allé l'argent (§33) |
 | PUT/DELETE | `/api/personal-capital/:id` | manager | Mise à jour, suppression |
-| GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice disponible (plafond A3) |
+| GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice net non sorti (plafond §9 révisé, indépendant de la caisse) |
 | GET | `/api/profit-drawings/:id` | manager | Détail |
 | DELETE | `/api/profit-drawings/:id` | manager | Contre-passation (`reason` obligatoire) : le retrait redevient disponible, l'écriture est annulée par une contre-écriture |
 | GET | `/api/trosa-sinoa` | manager | Dettes filtrées `type = TROSA_SINOA` |
@@ -291,8 +291,9 @@ Trois mesures du bénéfice cohabitent dans `money` (§45) :
 `netProfitAccumulated` = total **réalisé** depuis l'origine, `profitDrawings` =
 part **sortie** (cumul des retraits), `netProfitNotWithdrawn` = ce qui reste —
 et **total = sorti + non sorti** à tout instant : un retrait ne crée ni ne
-détruit de bénéfice, il le sort de la caisse. `disposableProfit` (A3) est le
-plafond d'un retrait (`POST /api/profit-drawings`).
+détruit de bénéfice, il le sort de la caisse. `disposableProfit` =
+`max(0, netProfitNotWithdrawn)` (§9 révisé : la caisse et les passifs ne
+bornent plus) est le plafond d'un retrait (`POST /api/profit-drawings`).
 
 Indicateurs acceptés par `/:indicator/transactions` (21, listés par
 `GET /dashboard/indicators`) :

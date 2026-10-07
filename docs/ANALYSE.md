@@ -62,9 +62,9 @@ Argent (propre / trosa sinoa / caisse)
 |---|---|---|---|
 | **A1** ✅ | **Sens de « trosa sinoa »** : argent que je **dois** (dette) ou argent qu'on **me doit** (créance) ? | Identité financière, dashboard | **VALIDÉ : argent que JE DOIS → `direction = PAYABLE` (imposé pour ce type).** C'est une dette **manuelle**, distincte des dettes fournisseurs générées automatiquement par un arrivage. Elle entre dans **ARGENT À PAYER** |
 | **A2** ✅ | **Traitement comptable du versement** (ex. « Mr Kely 2 Ar/jour ») : charge ou règlement de dette ? | Bénéfice net, identité comptable | **VALIDÉ : `DEBT_SETTLEMENT` par défaut.** Si la personne a une **dette payable ouverte** (type `TROSA_SINOA`), le versement la réduit et n'affecte pas le bénéfice. Sinon `CHARGE` (réduit le bénéfice net). Champ `Versement.treatment`, modifiable à la saisie |
-| **A3** ✅ | **Formule exacte du bénéfice mangeable** (§7) : cumulée ou sur période ? réserve de rotation ? | Question centrale du dashboard | **VALIDÉ (§9)** : `max(0, min(net cumulé, caisse − à payer − argent propre engagé − réserve))`, cumulé à date, réserve paramétrable défaut `0` |
+| **A3** ✅ | **Formule exacte du bénéfice mangeable** (§7) : cumulée ou sur période ? réserve de rotation ? | Question centrale du dashboard | **VALIDÉ (§9), révisé le 07/10/2026** : plafond du retrait = **bénéfice net cumulé non sorti** = `max(0, vola − argent propre engagé)`, cumulé à date. L'ancienne borne `min(net cumulé, caisse − à payer − argent propre − réserve)` et la réserve de rotation sont **supprimées** : la caisse et les passifs ne bornent plus la sortie |
 | **A4** ✅ | **Définition exacte du vola miodina** (§7 liste 4 éléments) : totaux ou sous-ensemble ? | Dashboard | **VALIDÉ (§10)** : `caisse + stock + créances − passifs` = `argent propre engagé + bénéfice net cumulé` |
-| **A5** ✅ | **Que devient l'argent propre quand je sors de la caisse ?** Récupération de capital ou prise de bénéfice ? | Argent propre, bénéfice mangeable | **VALIDÉ : deux opérations distinctes.** `PERSONAL_CAPITAL_OUT` (récupère mon capital, `K` diminue) et `PROFIT_DRAWING` (je sors du bénéfice, `K` inchangé) |
+| **A5** ✅ | **Que devient l'argent propre quand je sors de la caisse ?** Récupération de capital ou prise de bénéfice ? | Argent propre, bénéfice disponible | **VALIDÉ : deux opérations distinctes.** `PERSONAL_CAPITAL_OUT` (récupère mon capital, `K` diminue) et `PROFIT_DRAWING` (je sors du bénéfice, `K` inchangé) |
 | **A6** ✅ | **Recettes** (§42) : inclut-on les règlements de dettes antérieures ? | Indicateur « recettes » | **Retenu : oui** — `Recettes = tous les encaissements issus des ventes (du moment + règlements)`. Sous-indicateur `ventes encaissées du moment` affiché à côté |
 | **A7** | **Financement mixte** (§35) : comment relier « injection d'argent propre » → « arrivage » sans compter deux fois l'argent ? | Traçabilité §33 | Les **flux de caisse** restent la référence ; `FundingAllocation` est une **étiquette de reporting** sur l'arrivage. Si l'argent arrive directement de ma poche, on crée une `PersonalCapitalMovement` liée à l'arrivage **et** le paiement sort de la caisse (entrée + sortie, solde net nul, traçabilité complète) |
 | **A8** | **Dépenses non payées** (achats à crédit) ? | Dettes | Non prévues par le §36 → **hors périmètre v1** ; une dépense est toujours réglée (sortie de caisse). À confirmer |
@@ -864,32 +864,32 @@ Chaque terme est directement traçable → conforme à §62.
 
 ---
 
-## 9. Stratégie de calcul du BÉNÉFICE MANGEABLE
+## 9. Stratégie de calcul du BÉNÉFICE DISPONIBLE
 
-**Règle VALIDÉE (A3)** : le bénéfice mangeable est un **état cumulé à date**, pas un flux de période. Il répond à la question *« combien puis-je réellement sortir maintenant ? »*.
+**Règle (A3, révisée le 07/10/2026)** : le bénéfice disponible est un **état cumulé à date**, pas un flux de période. Il répond à la question *« combien puis-je retirer maintenant ? »* — et la réponse est **tout le bénéfice net qui n'a pas encore été sorti**.
 
 ```
-SURPLUS_CASH = CAISSE − PASSIFS (argent à payer) − ARGENT_PROPRE_ENGAGÉ − RÉSERVE
-
-BÉNÉFICE_MANGEABLE = max(0, min(BÉNÉFICE_NET_CUMULÉ, SURPLUS_CASH))
+BÉNÉFICE_DISPONIBLE = max(0, BÉNÉFICE_NET_CUMULÉ_NON_SORTI)
+                     = max(0, VOLA − ARGENT_PROPRE_ENGAGÉ)
 ```
 
-- `min(...)` : on ne mange jamais **plus** que le bénéfice réellement réalisé.
-- `max(0, ...)` : on ne mange jamais **moins que zéro** — si `SURPLUS_CASH < 0`, l'argent propre n'est pas encore récupéré et il ne reste rien à manger.
-- **`RÉSERVE`** = argent qui doit rester pour renouveler les marchandises (§7 « argent nécessaire pour renouveler les marchandises »). **Défaut `0`**, paramétrable dans *Paramètres financiers*. Si vous fixez une règle (ex. « garder 1 valeur de stock en caisse »), elle sera appliquée ici.
+- `max(0, ...)` : on ne retire jamais **moins que zéro** — tant que le bénéfice net non sorti est nul ou négatif, il n'y a rien à sortir.
+- **Seul l'argent propre (K) est soustrait** : il n'est pas du bénéfice mais du capital (§34). Les retraits déjà effectués diminuent aussi le disponible (ils sortent de la caisse) — d'où l'invariant §45 `total réalisé = sorti + non sorti`.
+- **Révision A3** : l'ancienne règle `min(net cumulé, caisse − passifs − argent propre − réserve)` plafonnait le retrait à l'excédent de caisse — une vente à crédit ou du stock non vendu affichait « 0 » alors que le bénéfice était bien gagné. La caisse, les passifs et la réserve ne bornent plus la sortie : un retrait peut descendre la caisse sous les passifs, l'identité comptable (§8.3) reste vérifiée. Le paramètre `WORKING_RESERVE` (réserve de rotation) est **supprimé**.
 
 **Vérifications :**
 
-| Situation | CAISSE | K | Net | Mangeable |
+| Situation | CAISSE | K | Net non sorti | Disponible |
 |---|---|---|---|---|
-| Vente intégralement payée (ex. §8.4) | 120 | 100 | 20 | `min(20, 120−0−100) = 20` ✓ |
-| Stock à moitié vendu, tout encaissé | 75 | 100 | 25 | `min(25, −25) → 0` ✓ (mon argent est encore dans le stock) |
-| Vente à crédit, jamais encaissée | 60 | 100 | 20 | `min(20, −40) → 0` ✓ (l'argent est chez le client) |
+| Vente intégralement payée (ex. §8.4) | 120 | 100 | 20 | 20 ✓ |
+| Stock à moitié vendu, tout encaissé | 75 | 100 | 25 | 25 ✓ (le stock ne bloque pas) |
+| Vente à crédit, jamais encaissée | 60 | 100 | 20 | 20 ✓ (le client ne bloque pas) |
 | Tout encaissé après règlement du client | 120 | 100 | 20 | 20 ✓ |
+| Retrait de 20 déjà effectué | 100 | 100 | 0 | 0 ✓ |
 
-**Ne jamais** déclarer la totalité de la caisse comme bénéfice (§7) — c'est précisément ce que soustrait `ARGENT_PROPRE_ENGAGÉ` et `PASSIFS`.
+**Ne jamais** déclarer la totalité de la caisse comme bénéfice (§7) — c'est précisément ce que soustrait `ARGENT_PROPRE_ENGAGÉ` : le disponible se calcule sur le vola, pas sur la caisse seule.
 
-**Bénéfice net sur période** reste affiché séparément (indicateur d'activité), il n'est pas égal au mangeable.
+**Bénéfice net sur période** reste affiché séparément (indicateur d'activité), il n'est pas égal au disponible (qui est cumulé).
 
 ---
 
@@ -1013,7 +1013,7 @@ GET|POST|PUT|DELETE /versements
 GET    /versements/summary?personName&period
 GET|POST|PUT|DELETE /personal-capital
 GET    /personal-capital/:id/destinations  ← où est allé l'argent (§33)
-GET|POST|GET|DELETE /profit-drawings       ← retrait de bénéfice, plafond A3
+GET|POST|GET|DELETE /profit-drawings       ← retrait de bénéfice, plafond = bénéfice net non sorti
 GET|POST|PUT|DELETE /trosa-sinoa            (débts filtrés type=TROSA_SINOA)
 ```
 
@@ -1103,7 +1103,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 |---|---|
 | **A1** | **TROSA SINOA = argent que JE DOIS.** `Debt.direction = PAYABLE` **imposé** pour `type = TROSA_SINOA`. C'est une dette **manuelle**, distincte des dettes fournisseurs générées automatiquement par un arrivage. Elle entre dans **ARGENT À PAYER** et dans la section séparée §32 |
 | **A2** | **Versement → `DEBT_SETTLEMENT` par défaut.** Si la personne a une dette **payable** ouverte (`TROSA_SINOA`), le versement la réduit et n'affecte pas le bénéfice. Sinon → `CHARGE` (réduit le bénéfice net). Le type est choisi/modifiable à la saisie |
-| **A3** | **Bénéfice mangeable = `max(0, min(bénéfice net cumulé, caisse − à payer − argent propre engagé − réserve))`**, cumulé à date, `réserve` paramétrable défaut `0` |
+| **A3** | **Bénéfice disponible = `max(0, bénéfice net cumulé non sorti)` = `max(0, vola − argent propre engagé)`**, cumulé à date — plafond d'un retrait, indépendant de la caisse et des passifs (révisé le 07/10/2026 ; l'ancienne règle à l'excédent de caisse et la `réserve` sont supprimées) |
 | **A4** | **Vola miodina = `caisse + stock + créances − passifs`** (= `argent propre engagé + bénéfice net cumulé`) |
 | **A5** | **Deux opérations distinctes** : `PERSONAL_CAPITAL_OUT` (récupération de capital, `K` diminue) et `PROFIT_DRAWING` (retrait de bénéfice, `K` inchangé) |
 | **A9** | **`Decimal(18, 0)` — montants entiers uniquement** (ariary sans décimale) |
@@ -1184,9 +1184,9 @@ sur la valeur affichée. Contrôlé par `backend/tests/reports.test.ts` :
   `disposableProfit` : cumulés jusqu'à la date de fin, ils captent aussi les
   écritures des autres fichiers de test — la lecture est donc encadrée de deux
   lectures du dashboard (le total doit retomber sur l'une des deux) ;
-- **bénéfice disponible** : test pur sur les trois branches de la décomposition
-  (excédent de caisse, bénéfice net cumulé, plancher à 0), qui ne sont pas
-  toutes atteignables avec des données d'exécution réelles.
+- **bénéfice disponible** : test pur sur les deux branches de la décomposition
+  (bénéfice net non sorti, plancher à 0), qui ne sont pas toutes
+  atteignables avec des données d'exécution réelles.
 
 
 ### Concurrence — quatre pièges détectés en exécution parallèle
@@ -1306,10 +1306,10 @@ le sous-titre de la modale :
 
 Les indicateurs composites (`vola`, `disposableProfit`) ne lisent pas le
 journal en clair mais **les composantes du dashboard** : écritures de caisse
-(+ solde initial), lots, créances, passifs en négatif, argent propre et réserve.
-Le bénéfice disponible choisit la décomposition de la contrainte qui produit
-réellement la valeur affichée — `max(0, min(bénéfice net cumulé, excédent de
-caisse))` — sinon son total ne retomberait jamais sur la carte (§9).
+(+ solde initial), lots, créances, passifs en négatif et argent propre. Le
+bénéfice disponible reprend exactement `vola − argent propre` (plancher à 0 :
+une ligne « règle » l'explique), sinon son total ne retomberait jamais sur la
+carte (§9).
 
 
 **Navigation et actions rapides (§51, étape 6)** : les sept destinations du

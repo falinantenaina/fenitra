@@ -46,7 +46,8 @@ export default function NewProfitDrawingScreen() {
   const available = dashboard.data ? Number(dashboard.data.money.disposableProfit) : null;
 
   const onSubmit = handleSubmit(async (values) => {
-    // Plafond A3 côté serveur : ce contrôle n'est qu'un raccourci d'écran.
+    // Plafond (bénéfice net non sorti) relu côté serveur : ce contrôle n'est
+    // qu'un raccourci d'écran.
     if (available !== null && values.amount > available) {
       toast.error('Bénéfice disponible insuffisant', `Disponible : ${formatMoney(available)}`);
       return;
@@ -69,13 +70,13 @@ export default function NewProfitDrawingScreen() {
         <View className="gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
           <Text className="text-xs text-emerald-800">
             Le retrait sort un bénéfice déjà réalisé de la caisse : il ne crée aucun revenu, ne
-            touche pas à l&apos;argent propre et ne se fait jamais au-delà du bénéfice disponible.
+            touche pas à l&apos;argent propre et ne se fait jamais au-delà du bénéfice net non sorti.
           </Text>
         </View>
 
         <View className="mt-3 flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5">
           <View>
-            <Text className="text-xs text-slate-500">Bénéfice disponible (plafond)</Text>
+            <Text className="text-xs text-slate-500">Bénéfice net non sorti (plafond)</Text>
             <Text className="text-base font-bold text-emerald-600">
               {dashboard.isPending ? '…' : available === null ? '—' : formatMoney(available)}
             </Text>

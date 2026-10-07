@@ -54,9 +54,9 @@ async function writeEntry(
 }
 
 /**
- * POST /profit-drawings — plafond A3 (`disposableProfit`) relu **dans la
- * transaction** : rien n'est écrit au-delà du bénéfice mangeable, la caisse ne
- * peut pas partir en dessous du stock, des créances et des passifs.
+ * POST /profit-drawings — plafond = bénéfice net non sorti (`disposableProfit`,
+ * §9 révisé) relu **dans la transaction** : rien n'est écrit au-delà du bénéfice
+ * net cumulé non sorti, l'identité comptable (§8.3) reste vérifiée.
  */
 export async function createProfitDrawing(input: CreateProfitDrawingInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {

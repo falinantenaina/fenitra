@@ -34,7 +34,7 @@ profitDrawingsRouter.get(
   }),
 );
 
-/** POST /api/profit-drawings — plafond A3, refus 409 au-delà du bénéfice disponible */
+/** POST /api/profit-drawings — plafond = bénéfice net non sorti, refus 409 au-delà */
 profitDrawingsRouter.post(
   '/',
   managerOrAdmin,

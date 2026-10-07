@@ -237,12 +237,12 @@ describe('Journal, dashboard et rapports', () => {
     }
   });
 
-  it('décompose le bénéfice disponible selon la contrainte qui le borne (§9)', () => {
-    // Borne par l'excédent de caisse (cas courant) ou par le bénéfice net
-    // cumulé : la branche ratée sortirait un total qui ne retombe pas sur la
-    // carte du dashboard (§62, contrôle §16).
+  it('décompose le bénéfice disponible en vola − argent propre (§9)', () => {
+    // Le disponible est le bénéfice net non sorti : caisse + stock + créances −
+    // passifs − argent propre. Les retraits restent comptés DANS la caisse
+    // (cashDelta négatif) — c'est ce qui le fait descendre. Sinon, une seule
+    // ligne « règle » explique le plancher à 0 (§62, contrôle §16).
     const date = new Date('2099-06-30T00:00:00.000Z');
-    const config = { openingCashBalance: 0, workingReserve: 0 };
     const row = (id: string, kind: string, amount: number, cashDelta = 0): DrillRow => ({
       id,
       seq: 0n,
@@ -265,27 +265,20 @@ describe('Journal, dashboard et rapports', () => {
       payableRows: [row('pay', 'SUPPLIER', 20)],
     };
     const money = (disposableProfit: number) => ({
-      cash: 100,
-      payables: 20,
       personalCapitalEngaged: 40,
       disposableProfit,
     });
 
-    // (a) excédent de caisse : 100 − 20 − 40 = 40 → ni stock ni créances dedans.
-    const surplus = disposableDrillRows(money(40), config, date, parts);
-    expect(sumBalance(surplus)).toBe(40);
-    expect(surplus.map((r) => r.kind)).not.toContain('LOT');
-    expect(surplus.some((r) => r.kind === 'CAPITAL')).toBe(true);
+    // (a) vola − K : 100 + 50 + 30 − 20 − 40 = 120. Le retrait (−10 en caisse)
+    // fait bien partie du total : c'est lui qui diminue le disponible.
+    const positive = disposableDrillRows(money(120), date, parts);
+    expect(sumBalance(positive)).toBe(120);
+    expect(positive.map((r) => r.kind)).toContain('LOT');
+    expect(positive.map((r) => r.kind)).toContain('PROFIT_DRAWING');
+    expect(positive.some((r) => r.kind === 'CAPITAL')).toBe(true);
 
-    // (b) bénéfice net cumulé : 100 + 50 + 30 − 20 − 40 + 10 = 130, et les
-    // retraits (déjà déduits par la caisse) sont retirés pour ne pas doubler.
-    const cumulative = disposableDrillRows(money(130), config, date, parts);
-    expect(sumBalance(cumulative)).toBe(130);
-    expect(cumulative.map((r) => r.kind)).toContain('LOT');
-    expect(cumulative.map((r) => r.kind)).not.toContain('PROFIT_DRAWING');
-
-    // (c) plancher à 0 : une seule ligne explicative, total nul.
-    const floored = disposableDrillRows(money(0), config, date, parts);
+    // (b) plancher à 0 : une seule ligne explicative, total nul.
+    const floored = disposableDrillRows(money(0), date, parts);
     expect(sumBalance(floored)).toBe(0);
     expect(floored.map((r) => r.kind)).toEqual(['RULE']);
   });

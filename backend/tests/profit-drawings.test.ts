@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { adminToken, as, carton, tokenFor, type AuthedRequest } from './helpers';
 import { prisma } from '../src/lib/prisma';
-import { env } from '../src/config/env';
 import { accountingIdentity, identityBalance } from './identity';
 
 const stamp = Date.now();
@@ -36,10 +35,11 @@ const netOf = async (refId: string) => {
 };
 
 /**
- * Créer l'excédent d'A3 : la base de test part avec des passifs supérieurs à la
- * caisse, `disposableProfit` y est donc nul. On achète un arrivage dédié puis
- * on revend ses paires bien au-dessus du coût — chaque vente ajoute exactement
- * `prix − coût` à l'excédent de caisse (et au bénéfice).
+ * Créer du bénéfice net non sorti (`disposableProfit` = vola − argent propre) :
+ * la base de test démarre avec du stock et des passifs, le disponible y part
+ * de (quasi) rien. On achète un arrivage dédié puis on revend ses paires bien
+ * au-dessus du coût — chaque vente encaissée ajoute exactement `prix − coût`
+ * au vola, donc au plafond de retrait.
  */
 async function ensureDisposable(target: number): Promise<void> {
   if (!arrivalId) {
@@ -57,9 +57,8 @@ async function ensureDisposable(target: number): Promise<void> {
     if (num(m.disposableProfit) >= target) return;
     if (pairsLeft === 0) break;
 
-    const surplus =
-      num(m.cash) - num(m.payable) - num(m.personalCapitalEngaged) - env.WORKING_RESERVE;
-    const price = Math.max(PAIR_COST * 2, target + MARGIN - surplus + PAIR_COST);
+    const deficit = Math.max(0, target - num(m.disposableProfit));
+    const price = Math.max(PAIR_COST * 2, PAIR_COST + deficit + MARGIN);
 
     const sale = await admin.post('/sales').send({
       items: [{ variantId, quantity: 1, unitPrice: price }],
@@ -99,13 +98,15 @@ describe('Retrait de bénéfice', () => {
     variantId = variant.body.id;
   });
 
-  /* ══════════════ GARDE-FOU A3 ══════════════ */
+  /* ══════════════ PLAFOND : BÉNÉFICE NET NON SORTI ══════════════ */
 
   it('refuse un retrait supérieur au bénéfice disponible (409, rien n\'est écrit)', async () => {
     const drawingsBefore = await prisma.profitDrawing.count();
     const ledgerBefore = await prisma.ledgerEntry.count({ where: { refType: 'PROFIT_DRAWING' } });
 
-    const res = await admin.post('/profit-drawings').send({ amount: 999_999_999 });
+    const current = await dashMoney();
+    const amount = Math.ceil(num(current.disposableProfit)) + 1_000_000;
+    const res = await admin.post('/profit-drawings').send({ amount });
 
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('CONFLICT');
@@ -141,8 +142,8 @@ describe('Retrait de bénéfice', () => {
     let body: Record<string, any> | null = null;
     let status = 0;
 
-    // Un autre fichier peut dépenser entre la mesure et l'écriture : on
-    // remonte l'excédent puis on réessaie, sans jamais dépasser le plafond.
+    // Un autre fichier peut dépenser ou retirer entre la mesure et l'écriture :
+    // on remonte le disponible puis on réessaie, sans jamais dépasser le plafond.
     for (let attempt = 0; attempt < 3 && status !== 201; attempt++) {
       await ensureDisposable(TARGET + 500_000);
       before = await dashMoney();

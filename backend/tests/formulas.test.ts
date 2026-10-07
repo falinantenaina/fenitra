@@ -3,7 +3,6 @@ import {
   computeActivity,
   computeBalance,
   computeDerived,
-  DEFAULT_FINANCE_CONFIG,
   verifyIdentity,
   type RawActivity,
   type RawBalance,
@@ -99,35 +98,36 @@ describe('§10 — vola miodina', () => {
   });
 });
 
-describe('§9 — bénéfice mangeable', () => {
-  it('vente intégralement payée → mangeable = 20', () => {
+describe('§9 — bénéfice disponible (plafond du retrait)', () => {
+  it('= bénéfice net non sorti : vente 120 payée après injection 100 → 20', () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 120, collectedAtSale: 120 }),
       balance({ cashAtEnd: 120, personalCapitalIn: 100 }),
     );
     expect(d.disposableProfit).toBe(20);
+    expect(d.disposableProfit).toBe(d.netProfitNotWithdrawn);
   });
 
-  it('stock à moitié vendu, tout encaissé → mangeable = 0 (mon argent est dans le stock)', () => {
+  it('stock à moitié vendu, tout encaissé → 25 (le stock ne bloque pas le retrait)', () => {
     // 100 injectés, 100 de stock, moitié vendue 75
     const d = computeDerived(
       activity({ ca: 75, cogs: 50, receipts: 75, collectedAtSale: 75 }),
       balance({ cashAtEnd: 75, stockValue: 50, personalCapitalIn: 100 }),
     );
     expect(d.netProfitAccumulated).toBe(25);
-    expect(d.disposableProfit).toBe(0);
+    expect(d.disposableProfit).toBe(25);
   });
 
-  it('vente à crédit non encaissée → mangeable = 0 (l\'argent est chez le client)', () => {
+  it('vente à crédit non encaissée → 20 (le client ne bloque pas le retrait)', () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 60, collectedAtSale: 60 }),
       balance({ cashAtEnd: 60, customerDebts: 60, personalCapitalIn: 100 }),
     );
     expect(d.netProfitAccumulated).toBe(20);
-    expect(d.disposableProfit).toBe(0);
+    expect(d.disposableProfit).toBe(20);
   });
 
-  it('après règlement du client → mangeable = 20', () => {
+  it('après règlement du client → toujours 20', () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 120, collectedAtSale: 60 }),
       balance({ cashAtEnd: 120, personalCapitalIn: 100 }),
@@ -135,7 +135,7 @@ describe('§9 — bénéfice mangeable', () => {
     expect(d.disposableProfit).toBe(20);
   });
 
-  it('est plafonné par le surplus de caisse (donc jamais supérieur au bénéfice net)', () => {
+  it("n'est borné ni par la caisse ni par les passifs (révision A3)", () => {
     // Injection 100 + emprunt trosa 50 → 150 de caisse
     // Achat de stock 150 (10 paires à 15) → caisse 0, stock 150
     // Vente de 4 paires à 24 = 96 payés, COGS = 4 × 15 = 60
@@ -151,20 +151,27 @@ describe('§9 — bénéfice mangeable', () => {
     );
     expect(d.identityDelta).toBe(0);
     expect(d.netProfitAccumulated).toBe(36);
-    // caisse 96 − à payer 50 − argent propre 100 = −54 → rien de mangeable
-    expect(d.disposableProfit).toBe(0);
+    // Sous l'ancienne règle A3 : caisse 96 − à payer 50 − K 100 = −54 → 0.
+    // La révision : le plafond est le bénéfice net non sorti, quel que soit
+    // l'état de la caisse.
+    expect(d.disposableProfit).toBe(36);
+    expect(d.disposableProfit).toBe(d.netProfitNotWithdrawn);
     expect(d.disposableProfit).toBeLessThanOrEqual(d.netProfitAccumulated);
   });
 
-  it('tient compte de la réserve de rotation', () => {
+  it("n'est plus réduit par une réserve de rotation (paramètre supprimé)", () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 120, collectedAtSale: 120 }),
       balance({ cashAtEnd: 120, personalCapitalIn: 100 }),
-      { ...DEFAULT_FINANCE_CONFIG, workingReserve: 30 },
     );
-    // surplus = 120 − 0 − 100 − 30 = −10 → 0
+    expect(d.disposableProfit).toBe(20);
+    expect(d.disposableProfit).toBe(d.netProfitAccumulated);
+  });
+
+  it('planche à 0 tant que le bénéfice net non sorti est nul', () => {
+    const d = computeDerived(activity(), balance());
     expect(d.disposableProfit).toBe(0);
-    expect(d.netProfitAccumulated).toBe(20);
+    expect(d.netProfitNotWithdrawn).toBe(0);
   });
 });
 

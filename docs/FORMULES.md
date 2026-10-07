@@ -125,35 +125,39 @@ Ce n'est **ni** la caisse, **ni** le bénéfice :
 
 ---
 
-## 5. BÉNÉFICE MANGEABLE (§9 — validé A3)
+## 5. BÉNÉFICE DISPONIBLE (§9 — révisé A3)
 
 ```
-SURPLUS_CASH = CAISSE − ARGENT À PAYER − ARGENT PROPRE ENGAGÉ − RÉSERVE
-
-BÉNÉFICE MANGEABLE = max(0, min(BÉNÉFICE NET CUMULÉ, SURPLUS_CASH))
+BÉNÉFICE DISPONIBLE = max(0, BÉNÉFICE NET CUMULÉ NON SORTI)
+                     = max(0, VOLA MIODINA − ARGENT PROPRE ENGAGÉ)
 ```
 
-- **`min`** → on ne mange jamais plus que le bénéfice réellement réalisé ;
-- **`max(0)`** → on ne mange jamais la caisse des autres ni l'argent pas encore encaissé ;
-- **`RÉSERVE`** (`WORKING_RESERVE`, défaut `0`) → argent à garder pour renouveler les marchandises ;
-- **`BÉNÉFICE NET CUMULÉ`** = `VOLA MIODINA − ARGENT PROPRE ENGAGÉ`.
+- C'est le **plafond d'un retrait** (`POST /api/profit-drawings`) : on peut
+  sortir **tout** le bénéfice net qui n'a pas encore été sorti ;
+- **`max(0)`** → plancher : jamais de retrait au-delà de zéro ;
+- **seul l'argent propre engagé (K) est soustrait** — ce n'est pas du
+  bénéfice, c'est le capital de l'activité (§34) ;
+- **les retraits déjà effectués diminuent** le disponible : ils sortent de la
+  caisse, donc de `VOLA` — d'où l'invariant §45 `total réalisé = sorti + non sorti`.
 
-Jamais toute la caisse n'est considérée comme du bénéfice (§7).
-
-> **Note d'implémentation.** Par l'identité du §3 on démontre que
-> `bénéfice net cumulé − surplus = stock + créances + retraits + réserve ≥ 0`,
-> donc `min(...)` est en pratique égal au surplus de caisse. Il est **conservé
-> comme garde-fou** : si une donnée est un jour importée sans passer par le
-> journal, le bénéfice affiché restera plafonné au disponible réel.
+> **Révision A3 (07/10/2026).** La règle initialement validée —
+> `max(0, min(net cumulé, caisse − à payer − argent propre − réserve))` —
+> plafonnait le retrait à l'excédent de caisse : un bénéfice réalisé en vente
+> à crédit ou immobilisé en stock affichait « 0 » alors qu'il était bien
+> gagné. Le plafond devient le bénéfice net non sorti : la caisse, les passifs
+> et la réserve ne bornent plus la sortie. Un retrait peut donc descendre la
+> caisse sous les passifs — l'identité comptable (§8.3) reste vérifiée, et le
+> paramètre `WORKING_RESERVE` (supprimé) n'avait plus aucun effet.
 
 ### Vérifications
 
-| Situation | caisse | K | net cumulé | mangeable |
+| Situation | caisse | K | net cumulé non sorti | disponible |
 |---|---|---|---|---|
-| Vente 120 payée après injection 100 | 120 | 100 | 20 | `min(20, 20) = 20` |
-| Stock à moitié vendu, tout encaissé | 75 | 100 | 25 | `min(25, −25) → 0` |
-| Vente à crédit, non encaissée | 60 | 100 | 20 | `min(20, −40) → 0` |
+| Vente 120 payée après injection 100 | 120 | 100 | 20 | `20` |
+| Stock à moitié vendu, tout encaissé | 75 | 100 | 25 | `25` |
+| Vente à crédit, non encaissée | 60 | 100 | 20 | `20` |
 | Client réglé ensuite | 120 | 100 | 20 | `20` |
+| Retrait de 20 déjà effectué | 100 | 100 | 0 | `0` |
 
 ---
 

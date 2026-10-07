@@ -4,7 +4,6 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import {
   computeDerived,
-  DEFAULT_FINANCE_CONFIG,
   type DerivedMetrics,
   type FinanceConfig,
 } from './core';
@@ -74,7 +73,6 @@ export interface DashboardResult {
 export function financeConfig(): FinanceConfig {
   return {
     openingCashBalance: env.OPENING_CASH_BALANCE,
-    workingReserve: env.WORKING_RESERVE,
   };
 }
 
@@ -84,9 +82,7 @@ export interface ProfitState {
   total: number;
   /** Retraits déjà effectués. */
   withdrawn: number;
-  /** Reste à sortir = total − sorti. */
-  remaining: number;
-  /** Bénéfice mangeable — plafond d'un retrait (§9). */
+  /** Bénéfice net non sorti, plancher 0 — plafond d'un retrait (§9). */
   disposable: number;
 }
 
@@ -102,11 +98,10 @@ export async function loadProfitState(
   const config = financeConfig();
   const activity = await loadActivity(EPOCH, now, db);
   const balance = await loadBalance(EPOCH, now, config.openingCashBalance, db);
-  const d = computeDerived(activity, balance, config, activity);
+  const d = computeDerived(activity, balance, activity);
   return {
     total: d.netProfitAccumulated,
     withdrawn: d.profitDrawingsCumulated,
-    remaining: d.netProfitNotWithdrawn,
     disposable: d.disposableProfit,
   };
 }
@@ -142,7 +137,7 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
   // L'intégrité compare des STOCKS (caisse, stock, dettes à `to`) à des
   // FLUX cumulés : on utilise donc l'activité depuis l'origine, quel que
   // soit le filtre d'affichage de la période.
-  const d: DerivedMetrics = computeDerived(activity, balance, config, allTime);
+  const d: DerivedMetrics = computeDerived(activity, balance, allTime);
 
   return {
     period: {
@@ -250,8 +245,7 @@ const ALL_DEBT_TYPES = [...RECEIVABLE_DEBT_TYPES, ...PAYABLE_DEBT_TYPES];
  * - `debts`      dettes encore ouvertes à `to`, avec le reste reconstitué ;
  * - `stock`      lots encore garnis à `to` ;
  * - `vola`       composite caisse + stock + créances − passifs (§10) ;
- * - `disposable` bénéfice mangeable, décomposé selon la contrainte qui le
- *                borne entre le bénéfice net cumulé et l'excédent de caisse (§9).
+ * - `disposable` bénéfice net non sorti = vola − argent propre, plancher à 0 (§9).
  */
 export type DrillSource = 'ledger' | 'ledgerTo' | 'debts' | 'stock' | 'vola' | 'disposable';
 
@@ -358,22 +352,16 @@ export function volaDrillRows(parts: CompositeParts): DrillRow[] {
 }
 
 /**
- * BÉNÉFICE DISPONIBLE (§9) = max(0, min(bénéfice net cumulé, excédent de caisse)).
+ * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice net cumulé **non sorti**
+ * = caisse + stock + créances − passifs − argent propre, plancher à 0.
  *
- * Les deux bornes ne sont pas interchangeables : on construit les lignes de la
- * contrainte qui produit réellement la valeur affichée, sinon le total du
- * dérillage ne retombe pas sur la carte (§62, contrôle §16).
- *
- * `cashSurplus ≤ netProfitAccumulated` dans la pratique (stock, créances,
- * retraits et réserve sont tous ≥ 0) : la première branche est la courante, la
- * seconde n'est atteinte que si des retraits de bénéfice ont été contre-passés.
+ * Les lignes somment exactement cette identité : même instantané, même total
+ * que la carte (§62, contrôle §16). Les retraits de bénéfice sont comptés
+ * **dans** la caisse — leur `cashDelta` négatif fait précisément descendre le
+ * disponible quand on sort du bénéfice.
  */
 export function disposableDrillRows(
-  money: Pick<
-    DashboardResult['money'],
-    'cash' | 'payables' | 'personalCapitalEngaged' | 'disposableProfit'
-  >,
-  config: FinanceConfig,
+  money: Pick<DashboardResult['money'], 'disposableProfit' | 'personalCapitalEngaged'>,
   date: Date,
   parts: CompositeParts,
 ): DrillRow[] {
@@ -384,7 +372,7 @@ export function disposableDrillRows(
         'RULE',
         'RULE',
         0,
-        'Plancher à 0 : un bénéfice mangeable ne peut pas être négatif',
+        'Plancher à 0 : le bénéfice net non sorti ne peut pas être négatif',
       ),
     ];
   }
@@ -401,28 +389,8 @@ export function disposableDrillRows(
             'Argent propre engagé',
           ),
         ];
-  const reserveRows =
-    config.workingReserve === 0
-      ? []
-      : [syntheticRow(date, 'RESERVE', 'RESERVE', -config.workingReserve, 'Réserve de rotation')];
 
-  const cashSurplus =
-    money.cash - money.payables - money.personalCapitalEngaged - config.workingReserve;
-
-  if (Math.abs(money.disposableProfit - cashSurplus) < 0.01) {
-    return [...parts.cashRows, ...negateRows(parts.payableRows), ...capitalRows, ...reserveRows];
-  }
-
-  // Bénéfice net cumulé = vola − argent propre + retraits. Les retraits de
-  // bénéfice sont déjà déduits DANS la caisse : on les retire de la ligne de
-  // caisse pour ne pas les compter une seconde fois.
-  return [
-    ...parts.cashRows.filter((e) => e.kind !== 'PROFIT_DRAWING'),
-    ...parts.stockRows,
-    ...parts.receivableRows,
-    ...negateRows(parts.payableRows),
-    ...capitalRows,
-  ];
+  return [...volaDrillRows(parts), ...capitalRows];
 }
 
 
@@ -562,7 +530,7 @@ async function assembleRows(
   };
 
   if (source === 'vola') return { rows: volaDrillRows(parts), scope: 'toDate' };
-  return { rows: disposableDrillRows(dash.money, config, range.to, parts), scope: 'toDate' };
+  return { rows: disposableDrillRows(dash.money, range.to, parts), scope: 'toDate' };
 }
 
 export async function getIndicatorDrilldown(
@@ -594,5 +562,3 @@ export async function getIndicatorDrilldown(
   };
 }
 
-
-export { DEFAULT_FINANCE_CONFIG };

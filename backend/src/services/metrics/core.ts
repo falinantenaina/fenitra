@@ -59,14 +59,7 @@ export interface RawBalance {
 export interface FinanceConfig {
   /** Solde de caisse initial de l'activité */
   openingCashBalance: number;
-  /** Réserve de rotation pour le bénéfice mangeable (§ A3) */
-  workingReserve: number;
 }
-
-export const DEFAULT_FINANCE_CONFIG: FinanceConfig = {
-  openingCashBalance: 0,
-  workingReserve: 0,
-};
 
 // ───────────────────────── dérivés ─────────────────────────
 
@@ -126,8 +119,10 @@ export interface DerivedMetrics extends ActivityMetrics, BalanceMetrics {
   /** Bénéfice net cumulé non sorti = réalisé − retraits de bénéfice */
   netProfitNotWithdrawn: number;
   /**
-   * BÉNÉFICE MANGEABLE (§9) =
-   *   max(0, min(bénéfice net cumulé, caisse − à payer − argent propre − réserve))
+   * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice net cumulé **non sorti**
+   * = max(0, vola − argent propre engagé). C'est le plafond d'un retrait :
+   * la caisse, les passifs et l'argent propre ne le bornent plus (seul l'argent
+   * propre — qui n'est pas du bénéfice — est soustrait).
    */
   disposableProfit: number;
   /** Marge brute (CA − COGS) — alias explicite */
@@ -213,7 +208,6 @@ export function verifyIdentity(
 export function computeDerived(
   activity: RawActivity,
   balance: RawBalance,
-  config: FinanceConfig = DEFAULT_FINANCE_CONFIG,
   cumulativeActivity?: RawActivity,
 ): DerivedMetrics {
   const a = computeActivity(activity);
@@ -228,10 +222,11 @@ export function computeDerived(
   const netProfitAccumulated = volaMiodina - b.personalCapitalEngaged + b.profitDrawingsCumulated;
   const netProfitNotWithdrawn = volaMiodina - b.personalCapitalEngaged;
 
-  const cashSurplus =
-    b.cash - b.payables - b.personalCapitalEngaged - config.workingReserve;
-
-  const disposableProfit = Math.max(0, Math.min(netProfitAccumulated, cashSurplus));
+  // Révision A3 : le plafond d'un retrait est le bénéfice net NON SORTI.
+  // La caisse, les passifs et la réserve de rotation ne le bornent plus — le
+  // retrait peut donc faire descendre la caisse sous les passifs (l'identité
+  // comptable reste vérifiée : un retrait ne modifie ni le CA ni le bénéfice).
+  const disposableProfit = Math.max(0, netProfitNotWithdrawn);
 
   return {
     ...a,
