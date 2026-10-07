@@ -78,6 +78,39 @@ export function financeConfig(): FinanceConfig {
   };
 }
 
+/** État du bénéfice à un instant — lecture unique consommée par les retraits. */
+export interface ProfitState {
+  /** Bénéfice net cumulé **réalisé** (retraits compris, §45). */
+  total: number;
+  /** Retraits déjà effectués. */
+  withdrawn: number;
+  /** Reste à sortir = total − sorti. */
+  remaining: number;
+  /** Bénéfice mangeable — plafond d'un retrait (§9). */
+  disposable: number;
+}
+
+/**
+ * Bénéfice disponible **à l'instant `now`**, calculé avec exactement
+ * l'arithmétique de `GET /dashboard` : le plafond qu'on applique à un retrait
+ * est celui que l'application affiche, relu dans la transaction qui écrit.
+ */
+export async function loadProfitState(
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+  now: Date = new Date(),
+): Promise<ProfitState> {
+  const config = financeConfig();
+  const activity = await loadActivity(EPOCH, now, db);
+  const balance = await loadBalance(EPOCH, now, config.openingCashBalance, db);
+  const d = computeDerived(activity, balance, config, activity);
+  return {
+    total: d.netProfitAccumulated,
+    withdrawn: d.profitDrawingsCumulated,
+    remaining: d.netProfitNotWithdrawn,
+    disposable: d.disposableProfit,
+  };
+}
+
 export async function getDashboard(
   key: PeriodKey,
   custom?: { from?: string; to?: string },

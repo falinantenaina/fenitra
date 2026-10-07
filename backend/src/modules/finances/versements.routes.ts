@@ -4,7 +4,7 @@ import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
 import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { idParamSchema } from '../../lib/zod';
-import { resolvePeriod } from '../../services/period.service';
+import { resolveRange } from '../../services/period.service';
 import {
   createVersementSchema,
   reasonSchema,
@@ -23,24 +23,7 @@ import {
 
 export const versementsRouter = Router();
 
-/**
- * §38 — une seule résolution de période pour la liste et le résumé :
- * un preset nommé est résolu côté serveur, `custom` repose sur `from`/`to`
- * (validés par le schéma) dont la borne de fin devient exclusive.
- */
-function resolveRange(query: {
-  period?: 'today' | 'yesterday' | 'last7d' | 'week' | 'month' | 'prevMonth' | 'year' | 'custom';
-  from?: Date;
-  to?: Date;
-}): { from?: Date; to?: Date } {
-  if (!query.period) return { from: query.from, to: query.to };
-  const range = resolvePeriod(
-    query.period,
-    new Date(),
-    query.period === 'custom' ? { from: query.from, to: query.to } : undefined,
-  );
-  return { from: range.from, to: range.to };
-}
+/** §38 — la résolution de période (`resolveRange`) est partagée avec les autres listes. */
 
 /** GET /api/versements — §38 : filtres `period`, `from`/`to`, `personName` */
 versementsRouter.get(

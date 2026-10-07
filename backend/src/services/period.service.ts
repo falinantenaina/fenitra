@@ -213,3 +213,22 @@ export function resolvePeriod(
 export function cumulativeUntil(range: PeriodRange): { from: Date; to: Date } {
   return { from: new Date(0), to: range.to };
 }
+
+/**
+ * Une seule résolution de période pour les listes HTTP (§38) : un preset
+ * nommé est résolu côté serveur, `custom` repose sur `from`/`to` (validés
+ * par le schéma) dont la borne de fin devient exclusive.
+ */
+export function resolveRange(query: {
+  period?: PeriodKey;
+  from?: Date;
+  to?: Date;
+}): { from?: Date; to?: Date } {
+  if (!query.period) return { from: query.from, to: query.to };
+  const range = resolvePeriod(
+    query.period,
+    new Date(),
+    query.period === 'custom' ? { from: query.from, to: query.to } : undefined,
+  );
+  return { from: range.from, to: range.to };
+}

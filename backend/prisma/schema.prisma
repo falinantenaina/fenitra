@@ -144,6 +144,7 @@ model User {
   payments       Payment[]
   expenses       Expense[]
   versements     Versement[]
+  profitDrawings ProfitDrawing[]
   capitalMoves   PersonalCapitalMovement[]
   stockMoves     StockMovement[]
   arrivals       Arrival[]
@@ -616,6 +617,22 @@ model Versement {
   createdAt  DateTime           @default(now())
 
   @@index([personName, date])
+  @@index([date])
+}
+
+/// § A5 / §14.3-3 — retrait de bénéfice : `LedgerKind.PROFIT_DRAWING`,
+/// `cashDelta = −montant`, `K` inchangé. Une ligne = un retrait journalisé,
+/// annulable par contre-passation (`reverseEntries`).
+model ProfitDrawing {
+  id        String   @id @default(cuid())
+  amount    Int
+  date      DateTime @default(now())
+  method    String?
+  notes     String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
   @@index([date])
 }
 
