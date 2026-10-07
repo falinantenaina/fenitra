@@ -188,6 +188,8 @@ export interface PresentedMoney {
   netProfitAccumulated: string;
   netProfitNotWithdrawn: string;
   disposableProfit: string;
+  /** Marge des ventes non encore entièrement réglées (§41) */
+  unrealizedMargin: string;
 }
 
 export function presentActivity(a: DashboardResult['activity']): PresentedActivity {
@@ -221,6 +223,7 @@ export function presentMoney(m: DashboardResult['money']): PresentedMoney {
     netProfitAccumulated: money(m.netProfitAccumulated),
     netProfitNotWithdrawn: money(m.netProfitNotWithdrawn),
     disposableProfit: money(m.disposableProfit),
+    unrealizedMargin: money(m.unrealizedMargin),
   };
 }
 

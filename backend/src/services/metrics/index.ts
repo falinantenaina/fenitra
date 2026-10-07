@@ -12,7 +12,9 @@ import {
   ledgerEntriesForKinds,
   loadActivity,
   loadBalance,
+  loadUnrealizedMargin,
   stockDrillEntries,
+  unrealizedMarginDrillEntries,
   type DrillRow,
 } from './queries';
 import { resolvePeriod, cumulativeUntil, type PeriodKey, type PeriodRange } from '../period.service';
@@ -52,11 +54,13 @@ export interface DashboardResult {
     personalCapitalIn: number;
     personalCapitalOut: number;
     profitDrawings: number;
-    /** Bénéfice net cumulé **réalisé** — total, retraits compris (§45) */
+    /** Bénéfice encaissé cumulé — total, retraits compris (§45) */
     netProfitAccumulated: number;
-    /** Bénéfice net cumulé **non sorti** = total − retraits */
+    /** Bénéfice encaissé non sorti = total − retraits */
     netProfitNotWithdrawn: number;
     disposableProfit: number;
+    /** Marge des ventes non encore entièrement réglées (§41) */
+    unrealizedMargin: number;
   };
   debts: {
     customer: number;
@@ -78,11 +82,11 @@ export function financeConfig(): FinanceConfig {
 
 /** État du bénéfice à un instant — lecture unique consommée par les retraits. */
 export interface ProfitState {
-  /** Bénéfice net cumulé **réalisé** (retraits compris, §45). */
+  /** Bénéfice encaissé cumulé (retraits compris, §41/§45). */
   total: number;
   /** Retraits déjà effectués. */
   withdrawn: number;
-  /** Bénéfice net non sorti, plancher 0 — plafond d'un retrait (§9). */
+  /** Bénéfice encaissé non sorti, plancher 0 — plafond d'un retrait (§9). */
   disposable: number;
 }
 
@@ -124,12 +128,13 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
    * parallèle. Sans `RepeatableRead`, une écriture concurrente entre deux
    * lectures se traduirait par un écart d'intégrité purement apparent.
    */
-  const [activity, balance, allTime] = await prisma.$transaction(
+  const [activity, balance, allTime, unrealizedAtStart] = await prisma.$transaction(
     async (tx) =>
       Promise.all([
         loadActivity(range.from, range.to, tx),
         loadBalance(range.from, range.to, config.openingCashBalance, tx),
         loadActivity(cumulative.from, cumulative.to, tx),
+        loadUnrealizedMargin(range.from, tx),
       ]),
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
@@ -155,7 +160,10 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
       grossProfit: d.grossProfit,
       expenses: d.expenses,
       versementCharges: d.versementCharges,
-      netProfit: d.netProfit,
+      // Bénéfice de la période (§41) = accrual − variation de la marge à
+      // recevoir : la marge d'une vente créditée n'est reconnue que dans la
+      // période où la vente est réglée.
+      netProfit: d.netProfit - (d.unrealizedMargin - unrealizedAtStart),
       cashOutflow: d.cashOutflow,
     },
     money: {
@@ -172,6 +180,7 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
       netProfitAccumulated: d.netProfitAccumulated,
       netProfitNotWithdrawn: d.netProfitNotWithdrawn,
       disposableProfit: d.disposableProfit,
+      unrealizedMargin: d.unrealizedMargin,
     },
     debts: {
       customer: d.customerDebts,
@@ -224,7 +233,9 @@ export type IndicatorKey =
   | 'debtsTotal'
   | 'stockValue'
   | 'vola'
-  | 'disposableProfit';
+  | 'disposableProfit'
+  | 'netProfitAccumulated'
+  | 'unrealizedMargin';
 
 /** Date basse des sources cumulées : `date < to` sans borne inférieure. */
 const EPOCH = new Date(0);
@@ -245,9 +256,27 @@ const ALL_DEBT_TYPES = [...RECEIVABLE_DEBT_TYPES, ...PAYABLE_DEBT_TYPES];
  * - `debts`      dettes encore ouvertes à `to`, avec le reste reconstitué ;
  * - `stock`      lots encore garnis à `to` ;
  * - `vola`       composite caisse + stock + créances − passifs (§10) ;
- * - `disposable` bénéfice net non sorti = vola − argent propre, plancher à 0 (§9).
+ * - `disposable` bénéfice encaissé non sorti = vola − argent propre − marge
+ *                à recevoir, plancher à 0 (§9, §41) ;
+ * - `accumulatedProfit` bénéfice encaissé cumulé = vola − argent propre +
+ *                retraits − marge à recevoir (§45) — les retraits sont retirés
+ *                de la caisse pour ne pas les compter deux fois ;
+ * - `netProfit`  bénéfice de la période = journal + écart de marge à recevoir
+ *                (§41) : `−(u(to) − u(from))` sous forme d'une ligne
+ *                `MARGIN_DELAY` ;
+ * - `unrealizedMargin` marge des ventes non réglées à `to` — une ligne par
+ *                vente ouverte (§41).
  */
-export type DrillSource = 'ledger' | 'ledgerTo' | 'debts' | 'stock' | 'vola' | 'disposable';
+export type DrillSource =
+  | 'ledger'
+  | 'ledgerTo'
+  | 'debts'
+  | 'stock'
+  | 'vola'
+  | 'disposable'
+  | 'accumulatedProfit'
+  | 'netProfit'
+  | 'unrealizedMargin';
 
 /** `period` = écritures de la période · `toDate` = état cumulé à la date de fin. */
 export type DrillScope = 'period' | 'toDate';
@@ -352,8 +381,9 @@ export function volaDrillRows(parts: CompositeParts): DrillRow[] {
 }
 
 /**
- * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice net cumulé **non sorti**
- * = caisse + stock + créances − passifs − argent propre, plancher à 0.
+ * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice encaissé **non sorti**
+ * = caisse + stock + créances − passifs − argent propre − marge à recevoir,
+ * plancher à 0 (§41).
  *
  * Les lignes somment exactement cette identité : même instantané, même total
  * que la carte (§62, contrôle §16). Les retraits de bénéfice sont comptés
@@ -364,6 +394,7 @@ export function disposableDrillRows(
   money: Pick<DashboardResult['money'], 'disposableProfit' | 'personalCapitalEngaged'>,
   date: Date,
   parts: CompositeParts,
+  unrealizedRows: DrillRow[],
 ): DrillRow[] {
   if (money.disposableProfit <= 0) {
     return [
@@ -372,7 +403,7 @@ export function disposableDrillRows(
         'RULE',
         'RULE',
         0,
-        'Plancher à 0 : le bénéfice net non sorti ne peut pas être négatif',
+        'Plancher à 0 : le bénéfice encaissé non sorti ne peut pas être négatif',
       ),
     ];
   }
@@ -390,7 +421,42 @@ export function disposableDrillRows(
           ),
         ];
 
-  return [...volaDrillRows(parts), ...capitalRows];
+  return [...volaDrillRows(parts), ...capitalRows, ...negateRows(unrealizedRows)];
+}
+
+/**
+ * BÉNÉFICE TOTAL (§45) = bénéfice encaissé cumulé = vola − argent propre
+ * + retraits − marge à recevoir (§41). Les retraits sont déjà déduits DANS la
+ * caisse : on retire leur ligne du journal pour ne pas les compter une seconde
+ * fois — reste l'invariant `total = sorti + non sorti`.
+ */
+export function accumulatedProfitDrillRows(
+  money: Pick<DashboardResult['money'], 'personalCapitalEngaged'>,
+  date: Date,
+  parts: CompositeParts,
+  unrealizedRows: DrillRow[],
+): DrillRow[] {
+  const capitalRows =
+    money.personalCapitalEngaged === 0
+      ? []
+      : [
+          syntheticRow(
+            date,
+            'CAPITAL',
+            'CAPITAL',
+            -money.personalCapitalEngaged,
+            'Argent propre engagé',
+          ),
+        ];
+
+  return [
+    ...parts.cashRows.filter((e) => e.kind !== 'PROFIT_DRAWING'),
+    ...parts.stockRows,
+    ...parts.receivableRows,
+    ...negateRows(parts.payableRows),
+    ...capitalRows,
+    ...negateRows(unrealizedRows),
+  ];
 }
 
 
@@ -404,12 +470,14 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   },
   netProfit: {
     label: 'Bénéfice net',
+    source: 'netProfit',
     kinds: ['SALE', 'COGS', 'EXPENSE', 'VERSEMENT'],
     total: (es) =>
       sumAmount(es, 'SALE') -
       sumAmount(es, 'COGS') -
       sumAmount(es, 'EXPENSE') -
-      sumAmount(es, 'VERSEMENT'),
+      sumAmount(es, 'VERSEMENT') +
+      sumAmount(es, 'MARGIN_DELAY'),
   },
   receipts: {
     label: 'Recettes encaissées',
@@ -472,6 +540,13 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   stockValue: { label: 'Valeur du stock', source: 'stock' },
   vola: { label: 'Vola miodina', source: 'vola', total: sumBalance },
   disposableProfit: { label: 'Bénéfice disponible', source: 'disposable', total: sumBalance },
+  netProfitAccumulated: {
+    label: 'Bénéfice total',
+    source: 'accumulatedProfit',
+    total: sumBalance,
+  },
+  // Total par défaut : Σ amount — les lignes sont déjà positives (§41).
+  unrealizedMargin: { label: 'Marge à recevoir', source: 'unrealizedMargin' },
 };
 
 export const INDICATOR_KEYS = Object.keys(INDICATORS) as IndicatorKey[];
@@ -512,15 +587,37 @@ async function assembleRows(
   if (source === 'stock') {
     return { rows: await stockDrillEntries(range.to), scope: 'toDate' };
   }
+  if (source === 'unrealizedMargin') {
+    return { rows: await unrealizedMarginDrillEntries(range.to), scope: 'toDate' };
+  }
+  if (source === 'netProfit') {
+    // Bénéfice de la période (§41) : journal + écart de marge à recevoir.
+    // La ligne MARGIN_DELAY vaut `u(from) − u(to)` : elle convertit l'accrual
+    // du journal en bénéfice encaissé, exactement comme l'affiche la carte.
+    const [ledgerRows, uFrom, uTo] = await Promise.all([
+      ledgerEntriesForKinds(def.kinds ?? [], range.from, range.to),
+      loadUnrealizedMargin(range.from),
+      loadUnrealizedMargin(range.to),
+    ]);
+    const delay = syntheticRow(
+      range.to,
+      'MARGIN_DELAY',
+      'MARGIN_DELAY',
+      uFrom - uTo,
+      'Marge à recevoir — écart sur la période (−variation)',
+    );
+    return { rows: [...ledgerRows, delay], scope: 'period' };
+  }
 
   // Sources composites : les valeurs affichées viennent du dashboard lui-même,
   // les lignes ci-dessous sont ses composantes — même instantané, même total.
   const dash = await buildDashboard(range);
-  const [cashRows, stockRows, receivableRows, payableRows] = await Promise.all([
+  const [cashRows, stockRows, receivableRows, payableRows, unrealizedRows] = await Promise.all([
     ledgerEntriesForKinds(ALL_CASH_KINDS, EPOCH, range.to, CUMUL_LIMIT),
     stockDrillEntries(range.to),
     debtDrillEntries(range.to, RECEIVABLE_DEBT_TYPES),
     debtDrillEntries(range.to, PAYABLE_DEBT_TYPES),
+    unrealizedMarginDrillEntries(range.to),
   ]);
   const parts: CompositeParts = {
     cashRows: [...openingRows(range.to, config.openingCashBalance), ...cashRows],
@@ -530,7 +627,16 @@ async function assembleRows(
   };
 
   if (source === 'vola') return { rows: volaDrillRows(parts), scope: 'toDate' };
-  return { rows: disposableDrillRows(dash.money, range.to, parts), scope: 'toDate' };
+  if (source === 'accumulatedProfit') {
+    return {
+      rows: accumulatedProfitDrillRows(dash.money, range.to, parts, unrealizedRows),
+      scope: 'toDate',
+    };
+  }
+  return {
+    rows: disposableDrillRows(dash.money, range.to, parts, unrealizedRows),
+    scope: 'toDate',
+  };
 }
 
 export async function getIndicatorDrilldown(

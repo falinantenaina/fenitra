@@ -190,6 +190,7 @@ export default function HomeScreen() {
               value={formatMoney(d.activity.grossProfit)}
             />
             <KpiCard
+              hint="reconnu à l'encaissement"
               onPress={() => open('netProfit')}
               title={LABEL_NET}
               tone={toneOf(d.activity.netProfit)}
@@ -255,7 +256,20 @@ export default function HomeScreen() {
               value={formatMoney(d.money.payable)}
             />
             <KpiCard
-              hint="bénéfice non sorti"
+              hint="encaissé depuis le début — sorti + non sorti"
+              onPress={() => open('netProfitAccumulated')}
+              title="Bénéfice total"
+              tone={toneOf(d.money.netProfitAccumulated)}
+              value={formatMoney(d.money.netProfitAccumulated)}
+            />
+            <KpiCard
+              hint="ventes non réglées — reconnue au règlement"
+              onPress={() => open('unrealizedMargin')}
+              title="Marge à recevoir"
+              value={formatMoney(d.money.unrealizedMargin)}
+            />
+            <KpiCard
+              hint="encaissé non sorti"
               onPress={() => open('disposableProfit')}
               title="Bénéfice disponible"
               tone={toneOf(d.money.disposableProfit)}

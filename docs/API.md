@@ -240,7 +240,7 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET | `/api/personal-capital/:id` | manager | Détail |
 | GET | `/api/personal-capital/:id/destinations` | manager | Où est allé l'argent (§33) |
 | PUT/DELETE | `/api/personal-capital/:id` | manager | Mise à jour, suppression |
-| GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice net non sorti (plafond §9 révisé, indépendant de la caisse) |
+| GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice encaissé non sorti (plafond §9 révisé, indépendant de la caisse, marge à recevoir déduite) |
 | GET | `/api/profit-drawings/:id` | manager | Détail |
 | DELETE | `/api/profit-drawings/:id` | manager | Contre-passation (`reason` obligatoire) : le retrait redevient disponible, l'écriture est annulée par une contre-écriture |
 | GET | `/api/trosa-sinoa` | manager | Dettes filtrées `type = TROSA_SINOA` |
@@ -279,7 +279,7 @@ bruts restent acceptés et la borne de fin y est **incluse**.
 {
   "period":    { "key", "from", "to", "label" },
   "activity":  { "salesCount", "ca", "receipts", "collectedAtSale", "cogs", "grossProfit", "expenses", "versementCharges", "netProfit", "cashOutflow" },
-  "money":     { "cash", "cashAtStart", "cashDelta", "receivables", "payable", "workingCapital", "volaMiodina", "personalCapitalEngaged", "personalCapitalIn", "personalCapitalOut", "profitDrawings", "netProfitAccumulated", "netProfitNotWithdrawn", "disposableProfit" },
+  "money":     { "cash", "cashAtStart", "cashDelta", "receivables", "payable", "workingCapital", "volaMiodina", "personalCapitalEngaged", "personalCapitalIn", "personalCapitalOut", "profitDrawings", "netProfitAccumulated", "netProfitNotWithdrawn", "disposableProfit", "unrealizedMargin" },
   "debts":     { "customer", "onlineSeller", "supplier", "trosaSinoa", "total" },
   "stock":     { "quantity", "value", "availableItems", "soldItems" },
   "integrity": { "identityDelta", "ok" },
@@ -288,14 +288,23 @@ bruts restent acceptés et la borne de fin y est **incluse**.
 ```
 
 Trois mesures du bénéfice cohabitent dans `money` (§45) :
-`netProfitAccumulated` = total **réalisé** depuis l'origine, `profitDrawings` =
+`netProfitAccumulated` = total **encaissé** depuis l'origine (carte dashboard
+« Bénéfice total »), `profitDrawings` =
 part **sortie** (cumul des retraits), `netProfitNotWithdrawn` = ce qui reste —
 et **total = sorti + non sorti** à tout instant : un retrait ne crée ni ne
 détruit de bénéfice, il le sort de la caisse. `disposableProfit` =
 `max(0, netProfitNotWithdrawn)` (§9 révisé : la caisse et les passifs ne
 bornent plus) est le plafond d'un retrait (`POST /api/profit-drawings`).
 
-Indicateurs acceptés par `/:indicator/transactions` (21, listés par
+**Reconnaissance à l'encaissement (§41)** : `unrealizedMargin` = marge des
+ventes **pas encore entièrement réglées** à la date de fin (tout-ou-rien par
+vente, paiements reconstitués historiquement) ; les trois mesures ci-dessus
+sont `vola − K + retraits − unrealizedMargin`. `activity.netProfit` (carte
+« Bénéfice net ») = accrual de la période **− variation de `unrealizedMargin`**
+sur la même période : la marge d'une vente créditée n'est reconnue que dans la
+période où elle est réglée.
+
+Indicateurs acceptés par `/:indicator/transactions` (23, listés par
 `GET /dashboard/indicators`) :
 
 | Source | Indicateurs |
@@ -304,7 +313,8 @@ Indicateurs acceptés par `/:indicator/transactions` (21, listés par
 | Journal **cumulé jusqu'à la date de fin** (`scope: "toDate"`) | `cashBalance`, `capital`, `profitDrawings` |
 | Dettes ouvertes à la date de fin (`scope: "toDate"`) | `receivables`, `payables`, `debtsCustomer`, `debtsOnlineSeller`, `debtsSupplier`, `debtsTrosa`, `debtsTotal` |
 | Lots encore garnis (`scope: "toDate"`) | `stockValue` |
-| Composites (`scope: "toDate"`) | `vola`, `disposableProfit` |
+| Ventes non réglées à la date de fin (`scope: "toDate"`) | `unrealizedMargin` |
+| Composites (`scope: "toDate"`) | `vola`, `disposableProfit`, `netProfitAccumulated` |
 
 La réponse porte `scope` : `period` = écritures de la fenêtre demandée,
 `toDate` = état cumulé (les stocks ne se décomposent pas en flux de période).

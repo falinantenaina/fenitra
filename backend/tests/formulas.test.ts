@@ -33,6 +33,7 @@ const balance = (over: Partial<RawBalance> = {}): RawBalance => ({
   personalCapitalIn: 0,
   personalCapitalOut: 0,
   profitDrawingsCumulated: 0,
+  unrealizedMargin: 0,
   ...over,
 });
 
@@ -99,7 +100,7 @@ describe('§10 — vola miodina', () => {
 });
 
 describe('§9 — bénéfice disponible (plafond du retrait)', () => {
-  it('= bénéfice net non sorti : vente 120 payée après injection 100 → 20', () => {
+  it('= bénéfice encaissé non sorti : vente 120 payée après injection 100 → 20', () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 120, collectedAtSale: 120 }),
       balance({ cashAtEnd: 120, personalCapitalIn: 100 }),
@@ -118,20 +119,23 @@ describe('§9 — bénéfice disponible (plafond du retrait)', () => {
     expect(d.disposableProfit).toBe(25);
   });
 
-  it('vente à crédit non encaissée → 20 (le client ne bloque pas le retrait)', () => {
+  it('vente à crédit non réglée → 0 : la marge n\'est reconnue qu\'à l\'encaissement (§41)', () => {
+    // Vente 120 créditée (60 encaissés / 60 dus) : marge 20 ENTIÈRE à recevoir.
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 60, collectedAtSale: 60 }),
-      balance({ cashAtEnd: 60, customerDebts: 60, personalCapitalIn: 100 }),
+      balance({ cashAtEnd: 60, customerDebts: 60, personalCapitalIn: 100, unrealizedMargin: 20 }),
     );
-    expect(d.netProfitAccumulated).toBe(20);
-    expect(d.disposableProfit).toBe(20);
+    expect(d.netProfitAccumulated).toBe(0);
+    expect(d.disposableProfit).toBe(0);
+    expect(d.identityDelta).toBe(0);
   });
 
-  it('après règlement du client → toujours 20', () => {
+  it('après règlement du client → 20 (la marge est encaissée)', () => {
     const d = computeDerived(
       activity({ ca: 120, cogs: 100, receipts: 120, collectedAtSale: 60 }),
-      balance({ cashAtEnd: 120, personalCapitalIn: 100 }),
+      balance({ cashAtEnd: 120, personalCapitalIn: 100, unrealizedMargin: 0 }),
     );
+    expect(d.netProfitAccumulated).toBe(20);
     expect(d.disposableProfit).toBe(20);
   });
 
@@ -152,8 +156,8 @@ describe('§9 — bénéfice disponible (plafond du retrait)', () => {
     expect(d.identityDelta).toBe(0);
     expect(d.netProfitAccumulated).toBe(36);
     // Sous l'ancienne règle A3 : caisse 96 − à payer 50 − K 100 = −54 → 0.
-    // La révision : le plafond est le bénéfice net non sorti, quel que soit
-    // l'état de la caisse.
+    // La révision : le plafond est le bénéfice encaissé non sorti, quel que
+    // soit l'état de la caisse.
     expect(d.disposableProfit).toBe(36);
     expect(d.disposableProfit).toBe(d.netProfitNotWithdrawn);
     expect(d.disposableProfit).toBeLessThanOrEqual(d.netProfitAccumulated);
@@ -168,7 +172,7 @@ describe('§9 — bénéfice disponible (plafond du retrait)', () => {
     expect(d.disposableProfit).toBe(d.netProfitAccumulated);
   });
 
-  it('planche à 0 tant que le bénéfice net non sorti est nul', () => {
+  it('planche à 0 tant que le bénéfice encaissé non sorti est nul', () => {
     const d = computeDerived(activity(), balance());
     expect(d.disposableProfit).toBe(0);
     expect(d.netProfitNotWithdrawn).toBe(0);
@@ -304,5 +308,69 @@ describe('bénéfice net cumulé vs non sorti', () => {
     expect(d.netProfitNotWithdrawn).toBe(0);
     expect(d.disposableProfit).toBe(0);
     expect(d.identityDelta).toBe(0);
+  });
+});
+
+describe('§41 — reconnaissance à l\'encaissement intégral', () => {
+  it('vente créditée entièrement : la caisse monte, le bénéfice reste à 0', () => {
+    // Injection 100 → vente 120 TOUTE à crédit : caisse 0, créance 120.
+    const d = computeDerived(
+      activity({ salesCount: 1, ca: 120, cogs: 100, receipts: 0, collectedAtSale: 0 }),
+      balance({ cashAtEnd: 0, customerDebts: 120, personalCapitalIn: 100, unrealizedMargin: 20 }),
+    );
+    expect(d.volaMiodina).toBe(120);
+    expect(d.netProfitAccumulated).toBe(0);
+    expect(d.netProfitNotWithdrawn).toBe(0);
+    expect(d.disposableProfit).toBe(0);
+    expect(d.identityDelta).toBe(0);
+  });
+
+  it('règlement partiel : la caisse monte, le bénéfice reste à 0 (tout-ou-rien)', () => {
+    // 40 encaissés sur 120 → créance 80, mais la marge 20 reste entière à recevoir.
+    const d = computeDerived(
+      activity({ salesCount: 1, ca: 120, cogs: 100, receipts: 40, collectedAtSale: 40 }),
+      balance({ cashAtEnd: 40, customerDebts: 80, personalCapitalIn: 100, unrealizedMargin: 20 }),
+    );
+    expect(d.netProfitAccumulated).toBe(0);
+    expect(d.disposableProfit).toBe(0);
+    expect(d.identityDelta).toBe(0);
+  });
+
+  it('règlement intégral : la marge est encaissée', () => {
+    const d = computeDerived(
+      activity({ salesCount: 1, ca: 120, cogs: 100, receipts: 120, collectedAtSale: 120 }),
+      balance({ cashAtEnd: 120, personalCapitalIn: 100, unrealizedMargin: 0 }),
+    );
+    expect(d.netProfitAccumulated).toBe(20);
+    expect(d.disposableProfit).toBe(20);
+  });
+
+  it('vente à perte non réglée : la perte n\'est pas reconnue non plus', () => {
+    // Vente 80 pour un coût de 100 → marge −20 non encore reconnue.
+    const d = computeDerived(
+      activity({ salesCount: 1, ca: 80, cogs: 100, receipts: 0, collectedAtSale: 0 }),
+      balance({ cashAtEnd: 0, customerDebts: 80, personalCapitalIn: 100, unrealizedMargin: -20 }),
+    );
+    expect(d.netProfitAccumulated).toBe(0);
+    expect(d.disposableProfit).toBe(0);
+    expect(d.identityDelta).toBe(0);
+  });
+
+  it('invariants : encaissé = sorti + non sorti ; non sorti + à recevoir = vola − K', () => {
+    const d = computeDerived(
+      activity({ salesCount: 1, ca: 120, cogs: 100, receipts: 60, collectedAtSale: 60, profitDrawings: 10 }),
+      balance({
+        cashAtEnd: 50,
+        customerDebts: 60,
+        personalCapitalIn: 100,
+        profitDrawingsCumulated: 10,
+        unrealizedMargin: 20,
+      }),
+    );
+    expect(d.netProfitAccumulated).toBe(d.profitDrawingsCumulated + d.netProfitNotWithdrawn);
+    expect(d.netProfitNotWithdrawn + d.unrealizedMargin).toBe(
+      d.volaMiodina - d.personalCapitalEngaged,
+    );
+    expect(d.disposableProfit).toBe(Math.max(0, d.netProfitNotWithdrawn));
   });
 });

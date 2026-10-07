@@ -144,6 +144,72 @@ export async function loadSeries(
   return rows.map((r) => ({ day: r.day, value: n(r.value) }));
 }
 
+/**
+ * Ventes **non encore entièrement réglées** à la date `to` — reconstitution
+ * historique à la manière des dettes (paiements `< to`, annulations `< to`).
+ *
+ * Règle TOUT-OU-RIEN par vente : tant que `Σ paiements < to < totalAmount`,
+ * la marge ENTIÈRE reste « à recevoir ». Un règlement partiel fait monter la
+ * caisse (et baisse la créance), pas le bénéfice (§41).
+ */
+function unrealizedSalesSql(to: Date) {
+  return Prisma.sql`
+    SELECT s.id, s.reference, s.date, s."totalAmount", s.cogs,
+           COALESCE(p.paid, 0) + COALESCE(v.paid, 0) AS paid
+    FROM "Sale" s
+    LEFT JOIN (
+      SELECT "saleId", SUM(amount)::bigint AS paid
+      FROM "Payment"
+      WHERE "saleId" IS NOT NULL AND "date" < ${utc(to)}::timestamp
+      GROUP BY "saleId"
+    ) p ON p."saleId" = s.id
+    LEFT JOIN (
+      SELECT d."saleId", SUM(v.amount)::bigint AS paid
+      FROM "Versement" v
+      JOIN "Debt" d ON d.id = v."debtId"
+      WHERE d."saleId" IS NOT NULL AND v."date" < ${utc(to)}::timestamp
+      GROUP BY d."saleId"
+    ) v ON v."saleId" = s.id
+    WHERE s."date" < ${utc(to)}::timestamp
+      AND (s."cancelledAt" IS NULL OR s."cancelledAt" >= ${utc(to)}::timestamp)
+      AND COALESCE(p.paid, 0) + COALESCE(v.paid, 0) < s."totalAmount"`;
+}
+
+/**
+ * MARGE À RECEVOIR à la date `to` : Σ (totalAmount − cogs) des ventes ci-dessus.
+ * Négative si une vente à perte est non réglée — c'est juste, son déficit
+ * n'est reconnu qu'à l'encaissement comme son bénéfice.
+ */
+export async function loadUnrealizedMargin(to: Date, db: Db = prisma): Promise<number> {
+  const rows = await db.$queryRaw<{ unrealized: Num }[]>`
+    SELECT COALESCE(SUM(x."totalAmount" - x.cogs), 0)::bigint AS unrealized
+    FROM (${unrealizedSalesSql(to)}) x`;
+  return n(rows[0]?.unrealized);
+}
+
+/**
+ * Lignes de dérillage de la marge à recevoir — une par vente ouverte, montant
+ * POSITIF (la carte est un « à recevoir »). `id`/`refType`/`refId` pointent la
+ * vente d'origine.
+ */
+export async function unrealizedMarginDrillEntries(to: Date, db: Db = prisma): Promise<DrillRow[]> {
+  const rows = await db.$queryRaw<
+    { id: string; reference: string; date: Date; totalAmount: Num; cogs: Num; paid: Num }[]
+  >`${unrealizedSalesSql(to)} ORDER BY s."date"`;
+  return rows.map((r) => ({
+    id: `unrealized:${r.id}`,
+    seq: 0n,
+    date: r.date,
+    kind: 'MARGIN_UNREALIZED',
+    amount: n(r.totalAmount) - n(r.cogs),
+    cashDelta: 0,
+    description: `Marge non encaissée — reste ${n(r.totalAmount) - n(r.paid)}`,
+    reference: r.reference,
+    refType: 'SALE',
+    refId: r.id,
+  }));
+}
+
 export async function loadBalance(
   from: Date,
   to: Date,
@@ -205,6 +271,8 @@ export async function loadBalance(
     FROM "LedgerEntry"
     WHERE kind = 'PROFIT_DRAWING' AND "date" < ${utc(to)}::timestamp`;
 
+  const unrealizedMargin = await loadUnrealizedMargin(to, db);
+
   return {
     cashAtStart: openingCashBalance + cashBefore,
     cashAtEnd: openingCashBalance + cashTo,
@@ -217,6 +285,7 @@ export async function loadBalance(
     personalCapitalIn: n(capitalRows[0]?.cin),
     personalCapitalOut: n(capitalRows[0]?.cout),
     profitDrawingsCumulated: n(drawingRows[0]?.drawings),
+    unrealizedMargin,
   };
 }
 

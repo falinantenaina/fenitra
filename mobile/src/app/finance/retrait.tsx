@@ -46,7 +46,7 @@ export default function NewProfitDrawingScreen() {
   const available = dashboard.data ? Number(dashboard.data.money.disposableProfit) : null;
 
   const onSubmit = handleSubmit(async (values) => {
-    // Plafond (bénéfice net non sorti) relu côté serveur : ce contrôle n'est
+    // Plafond (bénéfice encaissé non sorti) relu côté serveur : ce contrôle n'est
     // qu'un raccourci d'écran.
     if (available !== null && values.amount > available) {
       toast.error('Bénéfice disponible insuffisant', `Disponible : ${formatMoney(available)}`);
@@ -69,14 +69,15 @@ export default function NewProfitDrawingScreen() {
       <ScrollView className="flex-1 px-4 pb-32 pt-4" keyboardShouldPersistTaps="handled">
         <View className="gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
           <Text className="text-xs text-emerald-800">
-            Le retrait sort un bénéfice déjà réalisé de la caisse : il ne crée aucun revenu, ne
-            touche pas à l&apos;argent propre et ne se fait jamais au-delà du bénéfice net non sorti.
+            Le retrait sort un bénéfice déjà encaissé de la caisse : il ne crée aucun revenu, ne
+            touche pas à l&apos;argent propre et ne se fait jamais au-delà du bénéfice encaissé non
+            sorti — une vente à crédit non réglée reste bloquée.
           </Text>
         </View>
 
         <View className="mt-3 flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5">
           <View>
-            <Text className="text-xs text-slate-500">Bénéfice net non sorti (plafond)</Text>
+            <Text className="text-xs text-slate-500">Bénéfice encaissé non sorti (plafond)</Text>
             <Text className="text-base font-bold text-emerald-600">
               {dashboard.isPending ? '…' : available === null ? '—' : formatMoney(available)}
             </Text>

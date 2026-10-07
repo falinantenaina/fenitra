@@ -5,6 +5,7 @@ import { adminToken, app, as, API, carton, tokenFor, type AuthedRequest } from '
 import { accountingIdentity, identityBalance } from './identity';
 import { buildPdf, exportReportPdf } from '../src/modules/reports/reports.service';
 import {
+  accumulatedProfitDrillRows,
   disposableDrillRows,
   sumBalance,
   type CompositeParts,
@@ -238,10 +239,11 @@ describe('Journal, dashboard et rapports', () => {
   });
 
   it('décompose le bénéfice disponible en vola − argent propre (§9)', () => {
-    // Le disponible est le bénéfice net non sorti : caisse + stock + créances −
-    // passifs − argent propre. Les retraits restent comptés DANS la caisse
-    // (cashDelta négatif) — c'est ce qui le fait descendre. Sinon, une seule
-    // ligne « règle » explique le plancher à 0 (§62, contrôle §16).
+    // Le disponible est le bénéfice encaissé non sorti : caisse + stock +
+    // créances − passifs − argent propre − marge à recevoir. Les retraits
+    // restent comptés DANS la caisse (cashDelta négatif) — c'est ce qui le
+    // fait descendre. Sinon, une seule ligne « règle » explique le plancher
+    // à 0 (§62, contrôle §16).
     const date = new Date('2099-06-30T00:00:00.000Z');
     const row = (id: string, kind: string, amount: number, cashDelta = 0): DrillRow => ({
       id,
@@ -271,16 +273,63 @@ describe('Journal, dashboard et rapports', () => {
 
     // (a) vola − K : 100 + 50 + 30 − 20 − 40 = 120. Le retrait (−10 en caisse)
     // fait bien partie du total : c'est lui qui diminue le disponible.
-    const positive = disposableDrillRows(money(120), date, parts);
+    const positive = disposableDrillRows(money(120), date, parts, []);
     expect(sumBalance(positive)).toBe(120);
     expect(positive.map((r) => r.kind)).toContain('LOT');
     expect(positive.map((r) => r.kind)).toContain('PROFIT_DRAWING');
     expect(positive.some((r) => r.kind === 'CAPITAL')).toBe(true);
 
-    // (b) plancher à 0 : une seule ligne explicative, total nul.
-    const floored = disposableDrillRows(money(0), date, parts);
+    // (b) plancher à 0 : une seule ligne explicative, total nul — même avec
+    // une marge à recevoir (le plancher l'emporte sur la soustraction).
+    const floored = disposableDrillRows(money(0), date, parts, [
+      row('open', 'MARGIN_UNREALIZED', 20),
+    ]);
     expect(sumBalance(floored)).toBe(0);
     expect(floored.map((r) => r.kind)).toEqual(['RULE']);
+
+    // (c) marge à recevoir : elle SOUSTRAIT du disponible (§41).
+    const withCredit = disposableDrillRows(money(100), date, parts, [
+      row('open', 'MARGIN_UNREALIZED', 20),
+    ]);
+    expect(sumBalance(withCredit)).toBe(100);
+    expect(withCredit.some((r) => r.kind === 'MARGIN_UNREALIZED' && r.amount === -20)).toBe(true);
+  });
+
+  it('décompose le bénéfice total en vola − argent propre + retraits (§45)', () => {
+    // total encaissé = vola − K + retraits − marge à recevoir : les retraits
+    // sont déjà déduits DANS la caisse, leur ligne est retirée pour ne pas les
+    // compter deux fois.
+    const date = new Date('2099-06-30T00:00:00.000Z');
+    const row = (id: string, kind: string, amount: number, cashDelta = 0): DrillRow => ({
+      id,
+      seq: 0n,
+      date,
+      kind,
+      amount,
+      cashDelta,
+      description: id,
+      reference: null,
+      refType: null,
+      refId: null,
+    });
+    const parts: CompositeParts = {
+      cashRows: [row('sale', 'SALE', 999_999, 110), row('draw', 'PROFIT_DRAWING', 10, -10)],
+      stockRows: [row('lot', 'LOT', 50)],
+      receivableRows: [row('recv', 'CUSTOMER', 30)],
+      payableRows: [row('pay', 'SUPPLIER', 20)],
+    };
+
+    const rows = accumulatedProfitDrillRows({ personalCapitalEngaged: 40 }, date, parts, []);
+    expect(sumBalance(rows)).toBe(110 + 50 + 30 - 20 - 40);
+    expect(rows.map((r) => r.kind)).toContain('LOT');
+    expect(rows.map((r) => r.kind)).not.toContain('PROFIT_DRAWING');
+    expect(rows.some((r) => r.kind === 'CAPITAL')).toBe(true);
+
+    // La marge à recevoir est soustraite : le total n'est reconnu qu'encaissé.
+    const withCredit = accumulatedProfitDrillRows({ personalCapitalEngaged: 40 }, date, parts, [
+      row('open', 'MARGIN_UNREALIZED', 20),
+    ]);
+    expect(sumBalance(withCredit)).toBe(110 + 50 + 30 - 20 - 40 - 20);
   });
 
   it('dérille les indicateurs d\'état vers leurs composantes (§62)', async () => {
@@ -305,6 +354,8 @@ describe('Journal, dashboard et rapports', () => {
       stockValue: (b) => Number(b.stock.value),
       vola: (b) => Number(b.money.volaMiodina),
       disposableProfit: (b) => Number(b.money.disposableProfit),
+      netProfitAccumulated: (b) => Number(b.money.netProfitAccumulated),
+      unrealizedMargin: (b) => Number(b.money.unrealizedMargin),
       capital: (b) => Number(b.money.personalCapitalEngaged),
       profitDrawings: (b) => Number(b.money.profitDrawings),
     };
@@ -444,7 +495,10 @@ describe('Journal, dashboard et rapports', () => {
       expenses: '4000.00',
       versementCharges: '2000.00',
       grossProfit: '30000.00',
-      netProfit: '24000.00',
+      // §41 : la vente du jour n'est pas réglée (25 000 sur 60 000) — sa marge
+      // de 30 000 reste à recevoir. Bénéfice encaissé = 30 000 (brut) − 4 000
+      // (dépenses) − 2 000 (versements) − 30 000 (Δ marge à recevoir) = −6 000.
+      netProfit: '-6000.00',
     });
     // 8-9 : règlements de dettes du jour (l'encaissement initial appartient
     // aux « recettes », pas aux « paiements reçus »).

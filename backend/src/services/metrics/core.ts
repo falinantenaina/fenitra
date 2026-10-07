@@ -54,6 +54,8 @@ export interface RawBalance {
   personalCapitalOut: number;
   /** Σ PROFIT_DRAWING cumulés */
   profitDrawingsCumulated: number;
+  /** Marge des ventes non encore entièrement réglées à `to` (§41) */
+  unrealizedMargin: number;
 }
 
 export interface FinanceConfig {
@@ -106,23 +108,29 @@ export interface BalanceMetrics {
   personalCapitalIn: number;
   personalCapitalOut: number;
   profitDrawingsCumulated: number;
+  /** Marge des ventes non encore entièrement réglées (tout-ou-rien, §41) */
+  unrealizedMargin: number;
 }
 
 export interface DerivedMetrics extends ActivityMetrics, BalanceMetrics {
   /**
    * VOLA MIODINA = caisse + stock + créances − passifs (§10).
-   * Identité : vola = argent propre engagé + bénéfice net non sorti.
+   * Identité : vola = argent propre + bénéfice non sorti + marge à recevoir.
    */
   volaMiodina: number;
-  /** Bénéfice net cumulé réalisé = vola − argent propre engagé */
+  /**
+   * Bénéfice net cumulé **encaissé** = vola − argent propre + retraits
+   * − marge à recevoir : une vente à crédit ne le fait monter qu'à son
+   * règlement intégral (§41, §45).
+   */
   netProfitAccumulated: number;
-  /** Bénéfice net cumulé non sorti = réalisé − retraits de bénéfice */
+  /** Bénéfice encaissé non sorti = encaissé − retraits de bénéfice */
   netProfitNotWithdrawn: number;
   /**
-   * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice net cumulé **non sorti**
-   * = max(0, vola − argent propre engagé). C'est le plafond d'un retrait :
-   * la caisse, les passifs et l'argent propre ne le bornent plus (seul l'argent
-   * propre — qui n'est pas du bénéfice — est soustrait).
+   * BÉNÉFICE DISPONIBLE (§9, révision A3) = bénéfice encaissé **non sorti**
+   * = max(0, vola − argent propre − marge à recevoir). C'est le plafond d'un
+   * retrait : la caisse, les passifs et l'argent propre ne le bornent plus —
+   * mais une vente à crédit non réglée non plus.
    */
   disposableProfit: number;
   /** Marge brute (CA − COGS) — alias explicite */
@@ -172,6 +180,7 @@ export function computeBalance(raw: RawBalance): BalanceMetrics {
     personalCapitalIn: raw.personalCapitalIn,
     personalCapitalOut: raw.personalCapitalOut,
     profitDrawingsCumulated: raw.profitDrawingsCumulated,
+    unrealizedMargin: raw.unrealizedMargin,
   };
 }
 
@@ -217,15 +226,18 @@ export function computeDerived(
 
   const volaMiodina = b.cash + b.stockValue + b.receivables - b.payables;
 
-  // Identité : vola = K + (bénéfice net réalisé − retraits de bénéfice)
-  //   ⇒ bénéfice net réalisé = vola − K + retraits
-  const netProfitAccumulated = volaMiodina - b.personalCapitalEngaged + b.profitDrawingsCumulated;
-  const netProfitNotWithdrawn = volaMiodina - b.personalCapitalEngaged;
+  // Identité du §8.3 (base arrêtée) : vola = K + bénéfice accru − retraits.
+  // Le bénéfice AFFICHÉ n'est reconnu qu'à l'encaissement (§41) : on retire la
+  // marge des ventes non réglées — tout-ou-rien par vente, un règlement
+  // partiel fait monter la caisse, pas le bénéfice.
+  //   bénéfice encaissé = vola − K + retraits − marge à recevoir
+  const netProfitAccumulated =
+    volaMiodina - b.personalCapitalEngaged + b.profitDrawingsCumulated - b.unrealizedMargin;
+  const netProfitNotWithdrawn = volaMiodina - b.personalCapitalEngaged - b.unrealizedMargin;
 
-  // Révision A3 : le plafond d'un retrait est le bénéfice net NON SORTI.
-  // La caisse, les passifs et la réserve de rotation ne le bornent plus — le
-  // retrait peut donc faire descendre la caisse sous les passifs (l'identité
-  // comptable reste vérifiée : un retrait ne modifie ni le CA ni le bénéfice).
+  // Révision A3 : le plafond d'un retrait est le bénéfice encaissé NON SORTI —
+  // la caisse et les passifs ne le bornent plus, mais une vente à crédit non
+  // réglée non plus (identité §8.3 toujours vérifiée).
   const disposableProfit = Math.max(0, netProfitNotWithdrawn);
 
   return {

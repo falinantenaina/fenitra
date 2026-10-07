@@ -30,7 +30,9 @@ export type IndicatorKey =
   | 'debtsTotal'
   | 'stockValue'
   | 'vola'
-  | 'disposableProfit';
+  | 'disposableProfit'
+  | 'netProfitAccumulated'
+  | 'unrealizedMargin';
 
 /** `period` = écritures de la période · `toDate` = état cumulé à la date de fin. */
 export type DrillScope = 'period' | 'toDate';
@@ -73,11 +75,13 @@ export interface DashboardMoney {
   personalCapitalIn: string;
   personalCapitalOut: string;
   profitDrawings: string;
-  /** Bénéfice net cumulé réalisé — total, retraits compris (§45) */
+  /** Bénéfice encaissé cumulé — total, retraits compris (§45) */
   netProfitAccumulated: string;
-  /** Bénéfice net cumulé non sorti = total − retraits */
+  /** Bénéfice encaissé non sorti = total − retraits */
   netProfitNotWithdrawn: string;
   disposableProfit: string;
+  /** Marge des ventes non encore entièrement réglées (§41) */
+  unrealizedMargin: string;
 }
 
 export interface DashboardDebts {

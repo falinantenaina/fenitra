@@ -54,9 +54,10 @@ async function writeEntry(
 }
 
 /**
- * POST /profit-drawings — plafond = bénéfice net non sorti (`disposableProfit`,
- * §9 révisé) relu **dans la transaction** : rien n'est écrit au-delà du bénéfice
- * net cumulé non sorti, l'identité comptable (§8.3) reste vérifiée.
+ * POST /profit-drawings — plafond = bénéfice encaissé non sorti (`disposableProfit`,
+ * §9 révisé, marge à recevoir déduite §41) relu **dans la transaction** : rien
+ * n'est écrit au-delà du bénéfice encaissé non sorti, l'identité comptable
+ * (§8.3) reste vérifiée.
  */
 export async function createProfitDrawing(input: CreateProfitDrawingInput, userId: string | null) {
   return prisma.$transaction(async (tx) => {

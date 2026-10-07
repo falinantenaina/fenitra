@@ -109,7 +109,7 @@ pas un écart toléré.
 VOLA MIODINA = CAISSE + STOCK + CRÉANCES − PASSIFS
 ```
 
-Par l'identité : `VOLA MIODINA = ARGENT PROPRE ENGAGÉ + BÉNÉFICE NET NON SORTI`.
+Par l'identité : `VOLA MIODINA = ARGENT PROPRE ENGAGÉ + BÉNÉFICE ENCAISSÉ NON SORTI + MARGE À RECEVOIR`.
 
 Ce n'est **ni** la caisse, **ni** le bénéfice :
 
@@ -118,8 +118,10 @@ Ce n'est **ni** la caisse, **ni** le bénéfice :
 ├─ ARGENT À RECEVOIR ...... créances
 ├─ ARGENT À PAYER ......... passifs
 ├─ VALEUR DU STOCK ........ marchandise
-├─ VOLA MIODINA ........... fonds en circulation (= K + bénéfice non sorti)
+├─ VOLA MIODINA ........... fonds en circulation
+│                           (= K + bénéfice encaissé non sorti + marge à recevoir)
 ├─ ARGENT PROPRE ENGAGÉ ... ma part (ce n'est PAS un bénéfice)
+├─ MARGE À RECEVOIR ....... marge des ventes non réglées (§41)
 └─ BÉNÉFICE MANGEABLE ..... ce que je peux réellement sortir
 ```
 
@@ -128,36 +130,66 @@ Ce n'est **ni** la caisse, **ni** le bénéfice :
 ## 5. BÉNÉFICE DISPONIBLE (§9 — révisé A3)
 
 ```
-BÉNÉFICE DISPONIBLE = max(0, BÉNÉFICE NET CUMULÉ NON SORTI)
-                     = max(0, VOLA MIODINA − ARGENT PROPRE ENGAGÉ)
+BÉNÉFICE DISPONIBLE = max(0, BÉNÉFICE ENCAISSÉ NON SORTI)
+                     = max(0, VOLA MIODINA − ARGENT PROPRE ENGAGÉ − MARGE À RECEVOIR)
 ```
 
 - C'est le **plafond d'un retrait** (`POST /api/profit-drawings`) : on peut
-  sortir **tout** le bénéfice net qui n'a pas encore été sorti ;
+  sortir **tout** le bénéfice encaissé qui n'a pas encore été sorti ;
 - **`max(0)`** → plancher : jamais de retrait au-delà de zéro ;
 - **seul l'argent propre engagé (K) est soustrait** — ce n'est pas du
   bénéfice, c'est le capital de l'activité (§34) ;
+- **la marge des ventes non réglées est soustraite** : elle n'est reconnue
+  qu'à l'encaissement intégral (§5.1) ;
 - **les retraits déjà effectués diminuent** le disponible : ils sortent de la
-  caisse, donc de `VOLA` — d'où l'invariant §45 `total réalisé = sorti + non sorti`.
+  caisse, donc de `VOLA` — d'où l'invariant §45 `encaissé total = sorti + non sorti`.
 
 > **Révision A3 (07/10/2026).** La règle initialement validée —
 > `max(0, min(net cumulé, caisse − à payer − argent propre − réserve))` —
-> plafonnait le retrait à l'excédent de caisse : un bénéfice réalisé en vente
-> à crédit ou immobilisé en stock affichait « 0 » alors qu'il était bien
-> gagné. Le plafond devient le bénéfice net non sorti : la caisse, les passifs
-> et la réserve ne bornent plus la sortie. Un retrait peut donc descendre la
+> plafonnait le retrait à l'excédent de caisse : un bénéfice immobilisé en
+> stock affichait « 0 » alors qu'il était bien gagné. Le plafond devient le
+> bénéfice encaissé non sorti : la caisse, les passifs et la réserve ne
+> bornent plus la sortie. Un retrait peut donc descendre la
 > caisse sous les passifs — l'identité comptable (§8.3) reste vérifiée, et le
 > paramètre `WORKING_RESERVE` (supprimé) n'avait plus aucun effet.
 
+### 5.1 Reconnaissance à l'encaissement (§41)
+
+**Règle TOUT-OU-RIEN par vente** : la marge d'une vente n'est reconnue que
+quand elle est **entièrement réglée**. Un règlement partiel fait monter la
+caisse et baisser la créance — pas le bénéfice.
+
+```
+MARGE_À_RECEVOIR(to) = Σ (totalAmount − cogs) des ventes où
+                       date < to
+                       ET (annulée après to, ou jamais annulée)
+                       ET Σ paiements (date < to) < totalAmount
+
+BÉNÉFICE ENCAISSÉ CUMULÉ = VOLA − ARGENT PROPRE + RETRAITS − MARGE_À_RECEVOIR
+BÉNÉFICE NON SORTI       = VOLA − ARGENT PROPRE − MARGE_À_RECEVOIR
+BÉNÉFICE NET (période)   = (CA − COGS − DÉPENSES − VERSEMENTS)
+                            − (MARGE_À_RECEVOIR(to) − MARGE_À_RECEVOIR(from))
+```
+
+- Les paiements sont **reconstitués historiquement** (`Payment.saleId` +
+  versements via `Debt.saleId`, dates `< to`) : un règlement reçu dans la
+  période fait passer sa marge de « à recevoir » à « encaissée » dans la
+  période où il est reçu, même si la vente est antérieure ;
+- une **vente à perte** non réglée retire aussi sa marge négative : la perte
+  n'est reconnue qu'à l'encaissement, comme le bénéfice ;
+- invariants : `encaissé total = sorti + non sorti` et
+  `non sorti + marge à recevoir = VOLA − K`.
+
 ### Vérifications
 
-| Situation | caisse | K | net cumulé non sorti | disponible |
-|---|---|---|---|---|
-| Vente 120 payée après injection 100 | 120 | 100 | 20 | `20` |
-| Stock à moitié vendu, tout encaissé | 75 | 100 | 25 | `25` |
-| Vente à crédit, non encaissée | 60 | 100 | 20 | `20` |
-| Client réglé ensuite | 120 | 100 | 20 | `20` |
-| Retrait de 20 déjà effectué | 100 | 100 | 0 | `0` |
+| Situation | caisse | K | marge à recevoir | encaissé non sorti | disponible |
+|---|---|---|---|---|---|
+| Vente 120 payée après injection 100 | 120 | 100 | 0 | 20 | `20` |
+| Stock à moitié vendu, tout encaissé | 75 | 100 | 0 | 25 | `25` |
+| Vente à crédit, jamais réglée | 0 | 100 | 20 | 0 | `0` |
+| Règlement partiel (60/120) | 60 | 100 | 20 | 0 | `0` |
+| Client réglé ensuite | 120 | 100 | 0 | 20 | `20` |
+| Retrait de 20 déjà effectué | 100 | 100 | 0 | 0 | `0` |
 
 ---
 

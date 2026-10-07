@@ -35,11 +35,11 @@ const netOf = async (refId: string) => {
 };
 
 /**
- * Créer du bénéfice net non sorti (`disposableProfit` = vola − argent propre) :
- * la base de test démarre avec du stock et des passifs, le disponible y part
- * de (quasi) rien. On achète un arrivage dédié puis on revend ses paires bien
- * au-dessus du coût — chaque vente encaissée ajoute exactement `prix − coût`
- * au vola, donc au plafond de retrait.
+ * Créer du bénéfice encaissé non sorti (`disposableProfit` = vola − argent
+ * propre − marge à recevoir) : la base de test démarre avec du stock et des
+ * passifs, le disponible y part de (quasi) rien. On achète un arrivage dédié
+ * puis on revend ses paires bien au-dessus du coût — chaque vente ENCAISSÉE
+ * ajoute exactement `prix − coût` au vola, donc au plafond de retrait.
  */
 async function ensureDisposable(target: number): Promise<void> {
   if (!arrivalId) {
