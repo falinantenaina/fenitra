@@ -73,6 +73,10 @@ export interface DashboardMoney {
   personalCapitalIn: string;
   personalCapitalOut: string;
   profitDrawings: string;
+  /** Bénéfice net cumulé réalisé — total, retraits compris (§45) */
+  netProfitAccumulated: string;
+  /** Bénéfice net cumulé non sorti = total − retraits */
+  netProfitNotWithdrawn: string;
   disposableProfit: string;
 }
 

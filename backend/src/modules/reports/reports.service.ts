@@ -185,6 +185,8 @@ export interface PresentedMoney {
   personalCapitalIn: string;
   personalCapitalOut: string;
   profitDrawings: string;
+  netProfitAccumulated: string;
+  netProfitNotWithdrawn: string;
   disposableProfit: string;
 }
 
@@ -216,6 +218,8 @@ export function presentMoney(m: DashboardResult['money']): PresentedMoney {
     personalCapitalIn: money(m.personalCapitalIn),
     personalCapitalOut: money(m.personalCapitalOut),
     profitDrawings: money(m.profitDrawings),
+    netProfitAccumulated: money(m.netProfitAccumulated),
+    netProfitNotWithdrawn: money(m.netProfitNotWithdrawn),
     disposableProfit: money(m.disposableProfit),
   };
 }

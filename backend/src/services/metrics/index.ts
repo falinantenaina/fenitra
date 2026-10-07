@@ -53,6 +53,10 @@ export interface DashboardResult {
     personalCapitalIn: number;
     personalCapitalOut: number;
     profitDrawings: number;
+    /** Bénéfice net cumulé **réalisé** — total, retraits compris (§45) */
+    netProfitAccumulated: number;
+    /** Bénéfice net cumulé **non sorti** = total − retraits */
+    netProfitNotWithdrawn: number;
     disposableProfit: number;
   };
   debts: {
@@ -137,6 +141,8 @@ export async function buildDashboard(range: PeriodRange): Promise<DashboardResul
       personalCapitalIn: d.personalCapitalIn,
       personalCapitalOut: d.personalCapitalOut,
       profitDrawings: d.profitDrawingsCumulated,
+      netProfitAccumulated: d.netProfitAccumulated,
+      netProfitNotWithdrawn: d.netProfitNotWithdrawn,
       disposableProfit: d.disposableProfit,
     },
     debts: {

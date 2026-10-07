@@ -125,6 +125,13 @@ describe('Journal, dashboard et rapports', () => {
     expect(b.money.cash).toMatch(/^-?\d+\.\d{2}$/);
     expect(b.money).toHaveProperty('workingCapital');
     expect(b.money).toHaveProperty('payable');
+    // §45 : le retrait ne crée ni ne détruit du bénéfice — il ne fait que le
+    // sortir de la caisse. Total = sorti + non sorti, à tout instant.
+    expect(b.money.netProfitAccumulated).toMatch(/^-?\d+\.\d{2}$/);
+    expect(b.money.netProfitNotWithdrawn).toMatch(/^-?\d+\.\d{2}$/);
+    expect(Number(b.money.netProfitAccumulated)).toBe(
+      Number(b.money.profitDrawings) + Number(b.money.netProfitNotWithdrawn),
+    );
     expect(b.debts.customer).toMatch(/^\d+\.\d{2}$/);
     expect(b.stock).toHaveProperty('availableItems');
     expect(b.meta).toMatchObject({ currency: 'MGA' });
