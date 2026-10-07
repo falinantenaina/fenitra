@@ -94,7 +94,8 @@ et les lectures `/api/stock/*` sont ouverts à `auth`, tandis que
 restent en `manager`.
 
 Le caissier reçoit **403** sur les lectures financières de gestion : `/api/debts`,
-`/api/payments`, `/api/versements`, `/api/personal-capital`, `/api/trosa-sinoa`,
+`/api/payments`, `/api/versements`, `/api/personal-capital`, `/api/profit-drawings`,
+`/api/trosa-sinoa`,
 `/api/arrivals`, `/api/ledger`, `/api/reports/daily|monthly|export.pdf`.
 Restent accessibles : le dashboard (`/api/dashboard`, `/api/reports/series`),
 les tiers, le catalogue, les paramètres de référence et les catégories de dépense
@@ -239,6 +240,9 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET | `/api/personal-capital/:id` | manager | Détail |
 | GET | `/api/personal-capital/:id/destinations` | manager | Où est allé l'argent (§33) |
 | PUT/DELETE | `/api/personal-capital/:id` | manager | Mise à jour, suppression |
+| GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice disponible (plafond A3) |
+| GET | `/api/profit-drawings/:id` | manager | Détail |
+| DELETE | `/api/profit-drawings/:id` | manager | Contre-passation (`reason` obligatoire) : le retrait redevient disponible, l'écriture est annulée par une contre-écriture |
 | GET | `/api/trosa-sinoa` | manager | Dettes filtrées `type = TROSA_SINOA` |
 | POST | `/api/trosa-sinoa` | manager | Création |
 | GET/PUT | `/api/trosa-sinoa/:id` | manager | Détail, mise à jour |
@@ -275,13 +279,20 @@ bruts restent acceptés et la borne de fin y est **incluse**.
 {
   "period":    { "key", "from", "to", "label" },
   "activity":  { "salesCount", "ca", "receipts", "collectedAtSale", "cogs", "grossProfit", "expenses", "versementCharges", "netProfit", "cashOutflow" },
-  "money":     { "cash", "cashAtStart", "cashDelta", "receivables", "payable", "workingCapital", "volaMiodina", "personalCapitalEngaged", "personalCapitalIn", "personalCapitalOut", "profitDrawings", "disposableProfit" },
+  "money":     { "cash", "cashAtStart", "cashDelta", "receivables", "payable", "workingCapital", "volaMiodina", "personalCapitalEngaged", "personalCapitalIn", "personalCapitalOut", "profitDrawings", "netProfitAccumulated", "netProfitNotWithdrawn", "disposableProfit" },
   "debts":     { "customer", "onlineSeller", "supplier", "trosaSinoa", "total" },
   "stock":     { "quantity", "value", "availableItems", "soldItems" },
   "integrity": { "identityDelta", "ok" },
   "meta":      { "period", "currency" }
 }
 ```
+
+Trois mesures du bénéfice cohabitent dans `money` (§45) :
+`netProfitAccumulated` = total **réalisé** depuis l'origine, `profitDrawings` =
+part **sortie** (cumul des retraits), `netProfitNotWithdrawn` = ce qui reste —
+et **total = sorti + non sorti** à tout instant : un retrait ne crée ni ne
+détruit de bénéfice, il le sort de la caisse. `disposableProfit` (A3) est le
+plafond d'un retrait (`POST /api/profit-drawings`).
 
 Indicateurs acceptés par `/:indicator/transactions` (21, listés par
 `GET /dashboard/indicators`) :

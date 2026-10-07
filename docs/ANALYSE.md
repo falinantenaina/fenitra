@@ -1013,6 +1013,7 @@ GET|POST|PUT|DELETE /versements
 GET    /versements/summary?personName&period
 GET|POST|PUT|DELETE /personal-capital
 GET    /personal-capital/:id/destinations  ← où est allé l'argent (§33)
+GET|POST|GET|DELETE /profit-drawings       ← retrait de bénéfice, plafond A3
 GET|POST|PUT|DELETE /trosa-sinoa            (débts filtrés type=TROSA_SINOA)
 ```
 
