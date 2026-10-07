@@ -86,10 +86,19 @@ Trois rôles (table `Role`) : `ADMIN`, `MANAGER`, `CASHIER`.
 | `manager` | `ADMIN`, `MANAGER` |
 | `admin` | `ADMIN` |
 
-Règle délibérée (§57) : **un caissier vend mais ne règle pas une dette d'autrui et
-n'annule pas** — `POST /sales` et `POST /sales/:id/payments` sont ouverts à `auth`,
-tandis que `POST /sales/:id/cancel`, `POST /debts/:id/payments` et `POST /debts/:id/cancel`
-sont en `manager`.
+Règle délibérée (§57 / A14) : **le caissier vend, enregistre les dépenses et
+visualise le stock** — `POST /sales`, `POST /sales/:id/payments`, le CRUD de
+`/api/expenses`, la création / modification d'un client (`POST|PUT /api/customers`)
+et les lectures `/api/stock/*` sont ouverts à `auth`, tandis que
+`POST /sales/:id/cancel`, `POST /debts/:id/payments` et `POST /debts/:id/cancel`
+restent en `manager`.
+
+Le caissier reçoit **403** sur les lectures financières de gestion : `/api/debts`,
+`/api/payments`, `/api/versements`, `/api/personal-capital`, `/api/trosa-sinoa`,
+`/api/arrivals`, `/api/ledger`, `/api/reports/daily|monthly|export.pdf`.
+Restent accessibles : le dashboard (`/api/dashboard`, `/api/reports/series`),
+les tiers, le catalogue, les paramètres de référence et les catégories de dépense
+(strictement nécessaires aux formulaires de vente et de dépense).
 
 ---
 
@@ -144,7 +153,8 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 |---|---|---|
 | GET | `/api/suppliers`, `/api/customers`, `/api/online-sellers` | auth |
 | GET | `/api/{suppliers,customers,online-sellers}/:id` et `/:id/summary` | auth |
-| POST/PUT/DELETE | `/api/{suppliers,customers,online-sellers}[/:id]` | manager |
+| POST/PUT | `/api/customers[/:id]` | auth | Création / modification depuis le formulaire de vente (caissier compris) |
+| POST/PUT/DELETE | `/api/{suppliers,online-sellers}[/:id]` et DELETE `/api/customers/:id` | manager |
 
 ---
 
@@ -152,10 +162,10 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/arrivals` | auth | Liste (`from`, `to`, `supplierId`, `status` = `RECEIVED|CANCELLED`, `unventilated`, `q`, `page`) — chaque ligne porte `toVentilate` (cartons sans pointures) |
+| GET | `/api/arrivals` | manager | Liste (`from`, `to`, `supplierId`, `status` = `RECEIVED|CANCELLED`, `unventilated`, `q`, `page`) — chaque ligne porte `toVentilate` (cartons sans pointures) |
 | POST | `/api/arrivals` | manager | Transaction complète — cartons = **modèle + quantité + montant** (+ `sizes` pointures connues, + `sellingPrice` prix de vente par paire facultatif) → lots le cas échéant (sinon « à ventiler »), dette fournisseur, financements, ledger. Prix unitaire déduit : `floor(totalCost / totalQty)` |
-| GET | `/api/arrivals/reference-preview` | auth | Prochaine référence `ARR-xxxx` |
-| GET | `/api/arrivals/:id` | auth | Cartons (+ `ventilated`, `transitValue`, `transitQty`, `sellingPrice`) + lots + dette + paiements + financements |
+| GET | `/api/arrivals/reference-preview` | manager | Prochaine référence `ARR-xxxx` |
+| GET | `/api/arrivals/:id` | manager | Cartons (+ `ventilated`, `transitValue`, `transitQty`, `sellingPrice`) + lots + dette + paiements + financements |
 | PATCH | `/api/arrivals/:id` | manager | **Modification complète** : la liste des `cartons` est remplacée en entier (avec `id` = conservé, sans `id` = ajouté, absent = supprimé avec lignes, lots et mouvements `IN`) + fournisseur, `date`, `notes`, pointures, `payment` — **409** si stock déjà mouvementé (vente, ajustement, retour), versement ou règlement tardif sur la dette, arrivage financé dont le montant change, arrivage annulé ; **404** carton inconnu. Le journal est contre-passé puis réécrit (`MODIFICATION <réf>`), la dette supprimée et recréée. `funding` n'est pas réécrit (ignoré) |
 | POST | `/api/arrivals/:id/ventilate` | manager | **Ventilation** : `[{ cartonId, lines: [{ sizeId, quantity }] }]` — prix unitaire **imposé** `floor(totalCost / totalQty)`, somme des quantités exacte (sinon 422) → lignes + lots + mouvement `IN`, **zéro écriture comptable** (idempotent). Le `sellingPrice` du carton devient le prix de vente des pointures créées (jamais d'une variante déjà tarifée) |
 | POST | `/api/arrivals/:id/cancel` | manager | `{ reason }` → contre-passation (écritures `ARRIVAL` **et** `DEBT`) — cartons encore à ventiler : simple retrait, transit retiré de la valorisation |
@@ -200,14 +210,14 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/debts` | auth | Liste (`type`, `direction`, `status`, `partyId`, `partyName`, `from`, `to`, `q`, `page`) |
-| GET | `/api/debts/summary` | auth | Totaux par type (dashboard) |
-| GET | `/api/debts/by-party` | auth | **Dettes groupées par tiers** (`type`, `direction`, `status`, `page`) : une ligne par personne — `{ key, party: { id, name }, type, direction, count, statusCounts, initialAmount, remainingAmount }`, le détail restant `/debts?partyId=` (ou `partyName` pour une trosa sinoa) |
+| GET | `/api/debts` | manager | Liste (`type`, `direction`, `status`, `partyId`, `partyName`, `from`, `to`, `q`, `page`) |
+| GET | `/api/debts/summary` | manager | Totaux par type (dashboard) |
+| GET | `/api/debts/by-party` | manager | **Dettes groupées par tiers** (`type`, `direction`, `status`, `page`) : une ligne par personne — `{ key, party: { id, name }, type, direction, count, statusCounts, initialAmount, remainingAmount }`, le détail restant `/debts?partyId=` (ou `partyName` pour une trosa sinoa) |
 | POST | `/api/debts` | manager | Création manuelle (motif obligatoire) |
-| GET | `/api/debts/:id` | auth | Détail + historique des paiements (§50) |
+| GET | `/api/debts/:id` | manager | Détail + historique des paiements (§50) |
 | POST | `/api/debts/:id/payments` | manager | Paiement multiple partiel |
 | POST | `/api/debts/:id/cancel` | manager | `{ reason }` — uniquement pour les dettes d'`origin = MANUAL` |
-| GET | `/api/payments` | auth | Paiements (`direction`, `partyType`, `from`, `to`) |
+| GET | `/api/payments` | manager | Paiements (`direction`, `partyType`, `from`, `to`) |
 | POST | `/api/payments` | manager | Création de paiement |
 
 ---
@@ -216,22 +226,22 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET/POST | `/api/expenses` | auth / manager | Liste (`q` cherche dans la description **et** le titre = nom de catégorie) et création (toujours réglée → caisse −amount ; `description` facultative — le libellé du journal retombe sur le titre) |
+| GET/POST | `/api/expenses` | auth | Liste (`q` cherche dans la description **et** le titre = nom de catégorie) et création (toujours réglée → caisse −amount ; `description` facultative — le libellé du journal retombe sur le titre) |
 | GET | `/api/expenses/summary` | auth | Agrégats par catégorie |
-| GET/PUT/DELETE | `/api/expenses/:id` | auth / manager / manager | Détail, mise à jour, suppression |
-| GET/POST | `/api/expense-categories` | auth / manager | Catégories = **titres** des dépenses (création à la volée si le titre n'existe pas encore) |
-| PUT | `/api/expense-categories/:id` | manager | `{ active: false }` = désactivation |
-| GET/POST | `/api/versements` | auth / manager | Versements (charge ou remboursement, détection automatique A2) — `period`, `from`/`to`, `personName`, `treatment` |
-| GET | `/api/versements/summary` | auth | §38 historique par personne : `items[] { personName, count, amount, charge, debtSettlement, lastDate }`, `totalAmount`, `totalCount` |
-| GET/PUT/DELETE | `/api/versements/:id` | auth / manager / manager | CRUD |
-| GET | `/api/personal-capital` | auth | Argent propre (distinct du bénéfice, A5) |
+| GET/PUT/DELETE | `/api/expenses/:id` | auth | Détail, mise à jour, suppression |
+| GET/POST | `/api/expense-categories` | auth | Catégories = **titres** des dépenses (création à la volée si le titre n'existe pas encore) |
+| PUT | `/api/expense-categories/:id` | auth | `{ active: false }` = désactivation |
+| GET/POST | `/api/versements` | manager | Versements (charge ou remboursement, détection automatique A2) — `period`, `from`/`to`, `personName`, `treatment` |
+| GET | `/api/versements/summary` | manager | §38 historique par personne : `items[] { personName, count, amount, charge, debtSettlement, lastDate }`, `totalAmount`, `totalCount` |
+| GET/PUT/DELETE | `/api/versements/:id` | manager | CRUD |
+| GET | `/api/personal-capital` | manager | Argent propre (distinct du bénéfice, A5) |
 | POST | `/api/personal-capital` | manager | Dépôt |
-| GET | `/api/personal-capital/:id` | auth | Détail |
-| GET | `/api/personal-capital/:id/destinations` | auth | Où est allé l'argent (§33) |
+| GET | `/api/personal-capital/:id` | manager | Détail |
+| GET | `/api/personal-capital/:id/destinations` | manager | Où est allé l'argent (§33) |
 | PUT/DELETE | `/api/personal-capital/:id` | manager | Mise à jour, suppression |
-| GET | `/api/trosa-sinoa` | auth | Dettes filtrées `type = TROSA_SINOA` |
+| GET | `/api/trosa-sinoa` | manager | Dettes filtrées `type = TROSA_SINOA` |
 | POST | `/api/trosa-sinoa` | manager | Création |
-| GET/PUT | `/api/trosa-sinoa/:id` | auth / manager | Détail, mise à jour |
+| GET/PUT | `/api/trosa-sinoa/:id` | manager | Détail, mise à jour |
 | POST | `/api/trosa-sinoa/:id/payments` | manager | Remboursement |
 | DELETE | `/api/trosa-sinoa/:id` | manager | Suppression |
 | GET/POST | `/api/payment-methods` | auth / manager | Méthodes de paiement |
@@ -249,14 +259,14 @@ bruts restent acceptés et la borne de fin y est **incluse**.
 
 | Méthode | Chemin | Garde | Description |
 |---|---|---|---|
-| GET | `/api/ledger` | auth | Journal financier central (§39) : `from`, `to`, `kind`, `refType`, `cash`, `q`, `page` |
-| GET | `/api/ledger/summary` | auth | Agrégats du journal |
+| GET | `/api/ledger` | manager | Journal financier central (§39) : `from`, `to`, `kind`, `refType`, `cash`, `q`, `page` |
+| GET | `/api/ledger/summary` | manager | Agrégats du journal |
 | GET | `/api/dashboard` | auth | `period=today\|yesterday\|7d\|week\|month\|prevMonth\|year\|custom` |
 | GET | `/api/dashboard/indicators` | auth | Liste des indicateurs exposés |
 | GET | `/api/dashboard/:indicator/transactions` | auth | Dérillage (§62) : la liste de transactions derrière un indicateur |
-| GET | `/api/reports/daily` | auth | Rapport journalier (`date`) : §48 — `paymentsReceived`, `paymentsSupplier`, `newDebts` |
-| GET | `/api/reports/monthly` | auth | Rapport mensuel (`year`, `month`) : §48 — stock, dettes par type, `bestSellers`, `versementsByPerson` |
-| GET | `/api/reports/export.pdf` | auth | Export PDF (`type=daily\|monthly`), mêmes rubriques que les rapports |
+| GET | `/api/reports/daily` | manager | Rapport journalier (`date`) : §48 — `paymentsReceived`, `paymentsSupplier`, `newDebts` |
+| GET | `/api/reports/monthly` | manager | Rapport mensuel (`year`, `month`) : §48 — stock, dettes par type, `bestSellers`, `versementsByPerson` |
+| GET | `/api/reports/export.pdf` | manager | Export PDF (`type=daily\|monthly`), mêmes rubriques que les rapports |
 | GET | `/api/reports/series` | auth | Série journalière (§3, graphiques) : `period`/`from`/`to` + `metric=ca\|receipts\|outflow` |
 
 `/dashboard` renvoie :

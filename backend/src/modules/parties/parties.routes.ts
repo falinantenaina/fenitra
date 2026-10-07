@@ -201,10 +201,10 @@ customersRouter.get(
   }),
 );
 
-/** POST /api/customers */
+/** POST /api/customers — ouvert au caissier (création depuis le formulaire de vente) */
 customersRouter.post(
   '/',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const body = parseBody(req, createCustomerSchema);
     const customer = await prisma.customer.create({ data: body as PartyBody });
@@ -276,10 +276,10 @@ customersRouter.get(
   }),
 );
 
-/** PUT /api/customers/:id */
+/** PUT /api/customers/:id — ouvert au caissier (correction depuis la vente) */
 customersRouter.put(
   '/:id',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     const body = parseBody(req, updateCustomerSchema);

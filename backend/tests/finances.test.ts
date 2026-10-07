@@ -426,14 +426,30 @@ describe('Finances — dépenses, versements, argent propre, trosa', () => {
   /* ══════════════ RBAC ══════════════ */
 
   it('applique le RBAC', async () => {
-    expect((await cashier.get('/expenses')).status).toBe(200);
-    expect((await cashier.get('/versements')).status).toBe(200);
-    expect((await cashier.get('/personal-capital')).status).toBe(200);
-    expect((await cashier.get('/trosa-sinoa')).status).toBe(200);
+    // §57 / A14 : la dépense est ouverte au caissier, de bout en bout.
+    const created = await cashier
+      .post('/expenses')
+      .send({ categoryId, amount: 100, description: 'Saisie caissier' });
+    expect(created.status).toBe(201);
 
-    expect(
-      (await cashier.post('/expenses').send({ categoryId, amount: 100, description: 'Interdit' })).status,
-    ).toBe(403);
+    const corrected = await cashier.put(`/expenses/${created.body.id}`).send({
+      categoryId,
+      amount: 150,
+      description: 'Saisie caissier corrigée',
+    });
+    expect(corrected.status).toBe(200);
+
+    const removed = await cashier
+      .delete(`/expenses/${created.body.id}`)
+      .send({ reason: 'Saisie de test' });
+    expect(removed.status).toBe(200);
+
+    // Les autres lectures financières restent réservées aux gestionnaires.
+    expect((await cashier.get('/expenses')).status).toBe(200);
+    expect((await cashier.get('/versements')).status).toBe(403);
+    expect((await cashier.get('/personal-capital')).status).toBe(403);
+    expect((await cashier.get('/trosa-sinoa')).status).toBe(403);
+
     expect(
       (await cashier.post('/versements').send({ personName: 'X', amount: 100, motif: 'Interdit' })).status,
     ).toBe(403);
@@ -443,7 +459,6 @@ describe('Finances — dépenses, versements, argent propre, trosa', () => {
     expect(
       (await cashier.post('/trosa-sinoa').send({ type: 'TROSA_SINOA', partyName: 'X', amount: 100 })).status,
     ).toBe(403);
-    expect((await cashier.delete(`/expenses/${expenseId}`).send({ reason: 'x' })).status).toBe(403);
   });
 
   it('identité comptable après les finances', async () => {

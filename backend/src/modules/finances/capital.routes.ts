@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { idParamSchema } from '../../lib/zod';
 import {
@@ -24,7 +24,7 @@ export const capitalRouter = Router();
 /** GET /api/personal-capital */
 capitalRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await listCapital(parseQuery(req, capitalListQuery)));
   }),
@@ -42,7 +42,7 @@ capitalRouter.post(
 /** GET /api/personal-capital/:id/destinations — §33 traçabilité (A7) */
 capitalRouter.get(
   '/:id/destinations',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await capitalDestinations(id));
@@ -52,7 +52,7 @@ capitalRouter.get(
 /** GET /api/personal-capital/:id */
 capitalRouter.get(
   '/:id',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadCapital(prisma, id));

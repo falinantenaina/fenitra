@@ -86,10 +86,10 @@ settingsRouter.get(
   }),
 );
 
-/** POST /api/expense-categories */
+/** POST /api/expense-categories — ouvert au caissier (« titre » d'une dépense) */
 settingsRouter.post(
   '/expense-categories',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const body = parseBody(req, categorySchema);
     const exists = await prisma.expenseCategory.findUnique({ where: { name: body.name } });
@@ -105,7 +105,7 @@ settingsRouter.post(
 /** PUT /api/expense-categories/:id — `active:false` = désactivation (§36, jamais de suppression) */
 settingsRouter.put(
   '/expense-categories/:id',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     const body = parseBody(req, categoryUpdateSchema);

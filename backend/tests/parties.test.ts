@@ -117,12 +117,16 @@ describe('Tiers', () => {
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
 
-  it('interdit l\'écriture à un caissier (403)', async () => {
-    const create = await cashier.post('/customers').send({ name: `Refusé ${stamp}` });
-    expect(create.status).toBe(403);
+  it('ouvre la création et la modification d\'un client au caissier (formulaire de vente)', async () => {
+    const create = await cashier.post('/customers').send({ name: `Client caissier ${stamp}` });
+    expect(create.status).toBe(201);
 
-    const update = await cashier.put(`/customers/${customerId}`).send({ phone: '000' });
-    expect(update.status).toBe(403);
+    const update = await cashier.put(`/customers/${create.body.id}`).send({ phone: '0340000000' });
+    expect(update.status).toBe(200);
+    expect(update.body.phone).toBe('0340000000');
+
+    const supplier = await cashier.post('/suppliers').send({ name: `Refusé ${stamp}` });
+    expect(supplier.status).toBe(403);
   });
 
   it('autorise la lecture à un caissier', async () => {

@@ -50,6 +50,18 @@ describe('Référentiels et réglages', () => {
     expect(res.status).toBe(403);
   });
 
+  it('ouvre la création et le renommage des catégories de dépense au caissier', async () => {
+    const name = `Catégorie Caissier ${stamp}`;
+    const created = await cashier.post('/expense-categories').send({ name, icon: 'cash' });
+    expect(created.status).toBe(201);
+
+    const renamed = await cashier
+      .put(`/expense-categories/${created.body.id}`)
+      .send({ name: `${name} bis` });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.name).toBe(`${name} bis`);
+  });
+
   it('liste les catégories de dépenses de référence', async () => {
     const res = await admin.get('/expense-categories');
     expect(res.status).toBe(200);

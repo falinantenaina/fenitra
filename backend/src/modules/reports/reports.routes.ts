@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseParams, parseQuery } from '../../middleware/validate';
-import { requireAuth } from '../../middleware/auth';
+import { managerOrAdmin, requireAuth } from '../../middleware/auth';
 import { money } from '../../lib/money';
 import { prisma } from '../../lib/prisma';
 import {
@@ -41,7 +41,7 @@ export const reportsRouter = Router();
 /** GET /api/ledger — journal financier central */
 ledgerRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await listLedger(parseQuery(req, ledgerQuery)));
   }),
@@ -50,7 +50,7 @@ ledgerRouter.get(
 /** GET /api/ledger/summary — agrégats par type d'écriture */
 ledgerRouter.get(
   '/summary',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await ledgerSummary(parseQuery(req, ledgerQuery)));
   }),
@@ -184,7 +184,7 @@ dashboardRouter.get(
 /** GET /api/reports/daily?date=AAAA-MM-JJ */
 reportsRouter.get(
   '/daily',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await dailyReport(parseQuery(req, dailyReportQuery)));
   }),
@@ -193,7 +193,7 @@ reportsRouter.get(
 /** GET /api/reports/monthly?year&month */
 reportsRouter.get(
   '/monthly',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await monthlyReport(parseQuery(req, monthlyReportQuery)));
   }),
@@ -211,7 +211,7 @@ reportsRouter.get(
 /** GET /api/reports/export.pdf?type=daily|monthly — `?download=json` renvoie le rapport JSON */
 reportsRouter.get(
   '/export.pdf',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const q = parseQuery(req, exportQuery);
     const { filename, buffer, report } = await exportReportPdf(q);

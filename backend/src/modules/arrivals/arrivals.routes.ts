@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { conflict } from '../../lib/errors';
 import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
@@ -28,7 +28,7 @@ export const arrivalsRouter = Router();
 /** GET /api/arrivals/reference-preview — prochaine référence, sans la consommer */
 arrivalsRouter.get(
   '/reference-preview',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (_req, res) => {
     res.json({ reference: await previewArrivalReference() });
   }),
@@ -37,7 +37,7 @@ arrivalsRouter.get(
 /** GET /api/arrivals */
 arrivalsRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, arrivalListQuery);
     res.json(await listArrivals(query));
@@ -76,7 +76,7 @@ arrivalsRouter.post(
 /** GET /api/arrivals/:id — cartons + lignes + lots + dette + paiements + financements */
 arrivalsRouter.get(
   '/:id',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadArrival(prisma, id));

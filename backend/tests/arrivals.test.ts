@@ -73,6 +73,11 @@ describe('Arrivages & stock', () => {
     expect(res.status).toBe(403);
   });
 
+  it('interdit la lecture des arrivages à un caissier (403)', async () => {
+    expect((await cashier.get('/arrivals')).status).toBe(403);
+    expect((await cashier.get('/arrivals/reference-preview')).status).toBe(403);
+  });
+
   it('prévisualise la référence sans la consommer', async () => {
     const first = await admin.get('/arrivals/reference-preview');
     const second = await admin.get('/arrivals/reference-preview');

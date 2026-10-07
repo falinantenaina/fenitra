@@ -310,13 +310,13 @@ export default function StockScreen() {
   const models = useStockByProduct({ q: debounced, status });
   const movements = useRecentMovements();
   // Cartons dont les pointures ne sont pas encore réparties (stock « à ventiler »).
-  const unventilated = useArrivals({ unventilated: true });
+  const unventilated = useArrivals({ unventilated: true }, canManage);
   const { onRefresh, refreshing } = useRefresh(async () => {
     await Promise.all([
       summary.refetch(),
       models.refetch(),
       movements.refetch(),
-      unventilated.refetch(),
+      ...(canManage ? [unventilated.refetch()] : []),
     ]);
   });
 
@@ -381,15 +381,17 @@ export default function StockScreen() {
         )}
 
         {/* Historique des arrivages */}
-        <Pressable
-          className="h-11 flex-row items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3"
-          onPress={() => router.push('/arrivals/list')}>
-          <View className="flex-row items-center gap-2">
-            <Ionicons color="#334155" name="cube-outline" size={18} />
-            <Text className="font-semibold text-slate-700">Historique des arrivages</Text>
-          </View>
-          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
-        </Pressable>
+        {canManage ? (
+          <Pressable
+            className="h-11 flex-row items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3"
+            onPress={() => router.push('/arrivals/list')}>
+            <View className="flex-row items-center gap-2">
+              <Ionicons color="#334155" name="cube-outline" size={18} />
+              <Text className="font-semibold text-slate-700">Historique des arrivages</Text>
+            </View>
+            <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          </Pressable>
+        ) : null}
 
         {/* Recherche de lots */}
         <View className="flex-row items-center gap-2 rounded-xl border border-slate-300 bg-white px-3">

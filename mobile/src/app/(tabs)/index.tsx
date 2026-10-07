@@ -72,18 +72,19 @@ export default function HomeScreen() {
   const open = (indicator: IndicatorKey) => setDrill(indicator);
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
-  // §51 — actions rapides : la vente est ouverte à tous, les écritures qui
-  // débitent la caisse restent réservées aux gestionnaires (RBAC §57).
+  // §51 — actions rapides : vente et dépense ouvertes à tous les rôles (A14),
+  // les écritures de gestion (arrivages, paiements, argent propre) restent
+  // réservées aux gestionnaires (RBAC §57).
   const actions: { key: string; label: string; icon: ActionIcon; onPress: () => void }[] = [
       { key: 'sale', label: 'Vente', icon: ACTION_ICONS.sale, onPress: () => router.push('/sale/new') },
+      {
+        key: 'expense',
+        label: 'Dépense',
+        icon: ACTION_ICONS.expense,
+        onPress: () => router.push('/finance/expense'),
+      },
       ...(canManage
         ? [
-            {
-              key: 'expense',
-              label: 'Dépense',
-              icon: ACTION_ICONS.expense,
-              onPress: () => router.push('/finance/expense'),
-            },
             {
               key: 'arrival',
               label: 'Arrivage',

@@ -324,9 +324,10 @@ describe('Dettes & règlements', () => {
   });
 
   it('applique le RBAC', async () => {
-    expect((await cashier.get('/debts')).status).toBe(200);
-    expect((await cashier.get('/debts/summary')).status).toBe(200);
-    expect((await cashier.get('/payments')).status).toBe(200);
+    // §57 / A14 : le caissier ne lit pas les dettes (vente, dépenses, stock uniquement).
+    expect((await cashier.get('/debts')).status).toBe(403);
+    expect((await cashier.get('/debts/summary')).status).toBe(403);
+    expect((await cashier.get('/payments')).status).toBe(403);
 
     const create = await cashier.post('/debts').send({ type: 'CUSTOMER', customerId, amount: 1000 });
     expect(create.status).toBe(403);

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { idParamSchema } from '../../lib/zod';
 import { badRequest } from '../../lib/errors';
@@ -35,7 +35,7 @@ const trosaUpdateSchema = z.object({
 /** GET /api/trosa-sinoa */
 trosaRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, debtListQuery);
     res.json(await listDebts({ ...query, type: 'TROSA_SINOA' }));
@@ -58,7 +58,7 @@ trosaRouter.post(
 /** GET /api/trosa-sinoa/:id */
 trosaRouter.get(
   '/:id',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     const debt = await loadDebt(prisma, id);

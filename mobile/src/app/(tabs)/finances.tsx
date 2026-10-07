@@ -91,9 +91,12 @@ function ExpenseList() {
         />
       }>
       {expenses.items.map((expense: ExpenseItem) => (
-        <View
+        <Pressable
           className="flex-row items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
-          key={expense.id}>
+          key={expense.id}
+          onPress={() =>
+            router.push({ pathname: '/finance/expense', params: { id: expense.id } })
+          }>
           <View className="flex-1">
             <Text className="text-sm font-semibold text-slate-800" numberOfLines={1}>
               {expense.description || expense.category?.name || '—'}
@@ -103,8 +106,11 @@ function ExpenseList() {
               {formatDateTime(expense.date)}
             </Text>
           </View>
-          <Text className="text-sm font-bold text-red-600">−{formatMoney(expense.amount)}</Text>
-        </View>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-sm font-bold text-red-600">−{formatMoney(expense.amount)}</Text>
+            <Ionicons color="#94A3B8" name="chevron-forward" size={16} />
+          </View>
+        </Pressable>
       ))}
     </ListShell>
   );
@@ -221,6 +227,9 @@ export default function FinancesScreen() {
   const { onRefresh, refreshing } = useRefresh(() => queryClient.invalidateQueries());
 
   const active = SEGMENTS.find((s) => s.key === segment) ?? SEGMENTS[0];
+  // §57 / A14 : le caissier ne voit que les dépenses (création, correction,
+  // suppression) — argent propre et dettes à payer restent des écrans de gestion.
+  const segments = canManage ? SEGMENTS : SEGMENTS.filter((s) => s.key === 'expenses');
 
   return (
     <View className="flex-1 bg-white">
@@ -231,21 +240,19 @@ export default function FinancesScreen() {
         }>
         <View className="flex-row items-center justify-between">
           <Text className="text-xl font-bold text-slate-900">Finances</Text>
-          {canManage ? (
-            <Pressable
-              className="h-10 flex-row items-center justify-center gap-1.5 rounded-xl bg-brand px-4"
-              onPress={() => router.push(active.route)}>
-              <Ionicons color="#ffffff" name="add" size={18} />
-              <Text className="font-semibold text-white">Nouveau</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            className="h-10 flex-row items-center justify-center gap-1.5 rounded-xl bg-brand px-4"
+            onPress={() => router.push(active.route)}>
+            <Ionicons color="#ffffff" name="add" size={18} />
+            <Text className="font-semibold text-white">Nouveau</Text>
+          </Pressable>
         </View>
 
         <ScrollView
           contentContainerStyle={{ gap: 8 }}
           horizontal
           showsHorizontalScrollIndicator={false}>
-          {SEGMENTS.map((item) => (
+          {segments.map((item) => (
             <Chip
               key={item.key}
               label={item.label}
@@ -254,14 +261,6 @@ export default function FinancesScreen() {
             />
           ))}
         </ScrollView>
-
-        {!canManage ? (
-          <View className="rounded-xl bg-slate-50 px-3 py-2.5">
-            <Text className="text-xs text-slate-500">
-              La saisie des finances est réservée aux gestionnaires et administrateurs.
-            </Text>
-          </View>
-        ) : null}
 
         {segment === 'expenses' ? <ExpenseList /> : null}
         {segment === 'capital' ? <CapitalList /> : null}

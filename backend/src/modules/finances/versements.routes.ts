@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { idParamSchema } from '../../lib/zod';
 import { resolvePeriod } from '../../services/period.service';
@@ -45,7 +45,7 @@ function resolveRange(query: {
 /** GET /api/versements — §38 : filtres `period`, `from`/`to`, `personName` */
 versementsRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, versementListQuery);
     res.json(await listVersements({ ...query, ...resolveRange(query) }));
@@ -55,7 +55,7 @@ versementsRouter.get(
 /** GET /api/versements/summary?personName&period — §38 historique par personne */
 versementsRouter.get(
   '/summary',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, summaryQuery);
     res.json(await versementsSummary({ ...query, ...resolveRange(query) }));
@@ -74,7 +74,7 @@ versementsRouter.post(
 /** GET /api/versements/:id */
 versementsRouter.get(
   '/:id',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadVersement(prisma, id));

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { managerOrAdmin } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { conflict } from '../../lib/errors';
 import { idempotencyKey, beginIdempotent, finishIdempotent, releaseIdempotent } from '../../services/idempotency';
@@ -31,7 +31,7 @@ export const paymentsRouter = Router();
 /** GET /api/debts — liste filtrée (type, statut, tiers, période, motif) */
 debtsRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await listDebts(parseQuery(req, debtListQuery)));
   }),
@@ -40,7 +40,7 @@ debtsRouter.get(
 /** GET /api/debts/summary — synthèse par type (créances / passifs) */
 debtsRouter.get(
   '/summary',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (_req, res) => {
     res.json(await debtsSummary());
   }),
@@ -49,7 +49,7 @@ debtsRouter.get(
 /** GET /api/debts/by-party — dettes regroupées par tiers (une ligne par personne) */
 debtsRouter.get(
   '/by-party',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await debtsByParty(parseQuery(req, debtListQuery)));
   }),
@@ -87,7 +87,7 @@ debtsRouter.post(
 /** GET /api/debts/:id — détail + historique des règlements (§50) */
 debtsRouter.get(
   '/:id',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await loadDebt(prisma, id));
@@ -138,7 +138,7 @@ debtsRouter.post(
 /** GET /api/payments — journal des règlements */
 paymentsRouter.get(
   '/',
-  requireAuth,
+  managerOrAdmin,
   asyncHandler(async (req, res) => {
     res.json(await listPayments(parseQuery(req, paymentListQuery)));
   }),

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
@@ -13,7 +13,9 @@ import {
   View,
 } from 'react-native';
 
+import { CancelPanel } from '@/components/cancel-panel';
 import { Chip } from '@/components/chip';
+import { ErrorPanel } from '@/components/error-panel';
 import { SelectField } from '@/components/select-field';
 import { toast } from '@/components/toast';
 import { apiMessage } from '@/lib/api';
@@ -24,22 +26,48 @@ import {
   todayISO,
   type ExpenseFormValues,
 } from '@/lib/finance';
+import { pick } from '@/lib/params';
 import {
   useCreateCategory,
   useCreateExpense,
+  useDeleteExpense,
+  useExpense,
   useExpenseCategories,
   usePaymentMethods,
   useUpdateCategory,
+  useUpdateExpense,
 } from '@/lib/queries';
 
-export default function NewExpenseScreen() {
-  const categories = useExpenseCategories();
+export default function ExpenseScreen() {
+  const params = useLocalSearchParams<{ id?: string }>();
+  const editId = pick(params.id) || null;
+  const expense = useExpense(editId);
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
+  const categories = useExpenseCategories();
   const methods = usePaymentMethods();
   const createExpense = useCreateExpense();
-  const [method, setMethod] = useState<string | undefined>(undefined);
+  const updateExpense = useUpdateExpense();
+  const deleteExpense = useDeleteExpense();
   const [notice, setNotice] = useState<string | null>(null);
+
+  const loaded = expense.data;
+  // Mode correction : la dépense chargée pilote le formulaire (`values` de
+  // react-hook-form) — pas d'effet, l'identité ne change qu'à la charge.
+  const formValues = useMemo<ExpenseFormValues | undefined>(
+    () =>
+      loaded
+        ? {
+            categoryId: loaded.categoryId,
+            amount: Number(loaded.amount),
+            date: String(loaded.date).slice(0, 10),
+            description: loaded.description,
+            notes: loaded.notes ?? '',
+            method: loaded.method ?? undefined,
+          }
+        : undefined,
+    [loaded],
+  );
 
   const {
     control,
@@ -50,21 +78,38 @@ export default function NewExpenseScreen() {
     resolver: zodResolver(expenseFormSchema),
     mode: 'onSubmit',
     defaultValues: { categoryId: '', amount: 0, date: todayISO(), description: '', notes: '' },
+    values: formValues,
   });
 
   const onSubmit = handleSubmit(async (values) => {
+    const payload = buildExpensePayload(values);
     try {
-      const expense = await createExpense.mutateAsync(
-        buildExpensePayload({ ...values, method }),
-      );
-      toast.success('Dépense enregistrée', formatMoney(expense.amount));
+      if (editId) {
+        await updateExpense.mutateAsync({ id: editId, body: payload });
+        toast.success('Dépense corrigée', formatMoney(values.amount));
+      } else {
+        const created = await createExpense.mutateAsync(payload);
+        toast.success('Dépense enregistrée', formatMoney(created.amount));
+      }
       router.back();
     } catch (error) {
-      toast.error('Dépense refusée', apiMessage(error));
+      toast.error(editId ? 'Correction refusée' : 'Dépense refusée', apiMessage(error));
     }
   });
 
+  const onDelete = async (reason: string) => {
+    if (!editId) return;
+    try {
+      await deleteExpense.mutateAsync({ id: editId, reason });
+      toast.success('Dépense supprimée', 'Écriture contre-passée, caisse recréditée.');
+      router.back();
+    } catch (error) {
+      toast.error('Suppression refusée', apiMessage(error));
+    }
+  };
+
   const categoryId = useWatch({ control, name: 'categoryId' });
+  const method = useWatch({ control, name: 'method' });
   const knownTitles = categories.data ?? [];
 
   const createTitle = async (term: string) => {
@@ -87,14 +132,37 @@ export default function NewExpenseScreen() {
     }
   };
 
+  if (editId && expense.isPending) {
+    return (
+      <View className="flex-1 items-center justify-center bg-slate-50">
+        <ActivityIndicator color="#208AEF" />
+      </View>
+    );
+  }
+
+  if (editId && expense.isError) {
+    return (
+      <View className="flex-1 gap-4 bg-slate-50 px-4 pt-4">
+        <ErrorPanel
+          isRetrying={expense.isRefetching}
+          message="Impossible de charger cette dépense."
+          onRetry={() => void expense.refetch()}
+        />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-slate-50"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <Stack.Screen options={{ title: editId ? 'Modifier la dépense' : 'Nouvelle dépense' }} />
       <ScrollView className="flex-1 px-4 pb-32 pt-4" keyboardShouldPersistTaps="handled">
         <View className="gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
           <Text className="text-xs text-sky-800">
-            Une dépense est toujours réglée : la caisse diminue immédiatement du montant saisi.
+            {editId
+              ? 'Correction : la caisse est ajustée par contre-passation puis nouvelle écriture, le journal garde la trace.'
+              : 'Une dépense est toujours réglée : la caisse diminue immédiatement du montant saisi.'}
           </Text>
         </View>
 
@@ -218,29 +286,43 @@ export default function NewExpenseScreen() {
           contentContainerStyle={{ gap: 8 }}
           horizontal
           showsHorizontalScrollIndicator={false}>
-          <Chip label="Sans mode" selected={!method} onPress={() => setMethod(undefined)} />
+          <Chip label="Sans mode" selected={!method} onPress={() => setValue('method', undefined)} />
           {(methods.data ?? []).map((item) => (
             <Chip
               key={item.id}
               label={item.name}
               selected={method === item.name}
-              onPress={() => setMethod(item.name)}
+              onPress={() => setValue('method', item.name)}
             />
           ))}
         </ScrollView>
+
+        {/* Suppression (mode correction) */}
+        {editId ? (
+          <View className="mt-6">
+            <CancelPanel
+              hint="La suppression contre-passe l'écriture de cette dépense : la caisse est recréditée du montant saisi."
+              isPending={deleteExpense.isPending}
+              label="Supprimer la dépense"
+              onConfirm={(reason) => void onDelete(reason)}
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       <View className="border-t border-slate-200 bg-white px-4 pb-6 pt-3">
         <Pressable
           className={`h-11 items-center justify-center rounded-xl ${
-            createExpense.isPending ? 'bg-slate-300' : 'bg-brand'
+            createExpense.isPending || updateExpense.isPending ? 'bg-slate-300' : 'bg-brand'
           }`}
-          disabled={createExpense.isPending}
+          disabled={createExpense.isPending || updateExpense.isPending}
           onPress={() => void onSubmit()}>
-          {createExpense.isPending ? (
+          {createExpense.isPending || updateExpense.isPending ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text className="font-semibold text-white">Enregistrer</Text>
+            <Text className="font-semibold text-white">
+              {editId ? 'Enregistrer les modifications' : 'Enregistrer'}
+            </Text>
           )}
         </Pressable>
       </View>

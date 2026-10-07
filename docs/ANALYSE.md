@@ -73,7 +73,7 @@ Argent (propre / trosa sinoa / caisse)
 | **A11** | **Retours, annulations, ajustements de stock** (casse/perte/vol) : non traités par le cahier des charges mais nécessaires pour ne jamais bloquer l'app. | Intégrité | Prévoir : `Sale.cancel()` (contre-passation), `StockMovement ADJUSTMENT/RETURN` — à valider |
 | **A12** | **Versement récurrent** (2/jour) : planificateur automatique ou saisie manuelle ? | UX | v1 : saisie manuelle + vue « historique par personne » (§38). Planificateur = évolution |
 | **A13** | **Timezone / bornes de période** | Filtres dashboard | `Indian/Antananarivo` (UTC+3), calculées côté serveur. *NB : `Africa/Antananarivo` est l'alias historique, rejeté par l'ICU récent de Node — on utilise le nom canonique* |
-| **A14** | **Rôles / RBAC** exacts | Sécurité | `ADMIN`, `MANAGER`, `CASHIER` — à ajuster |
+| **A14** ✅ | **Rôles / RBAC** exacts | Sécurité | `ADMIN`, `MANAGER`, `CASHIER` — **VALIDÉ** : le caissier vend (avec création / modification du client), saisit les dépenses (création / correction / suppression) et visualise le stock ; `403` sur dettes, versements, argent propre, trosa, arrivages, journal et rapports (portée détaillée dans `docs/API.md` §3) |
 | **A15** | **Trosa sinoa** : doit-il apparaître dans « Dettes » du dashboard **et** dans une section séparée (§32) ? | Dashboard | Une seule table, deux vues (filtre par type) |
 
 ---
@@ -1118,7 +1118,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 | **A11** | **Prévus** : `POST /sales/:id/cancel` (contre-passation, restaure les mêmes lots) et `POST /stock/adjustments` (casse/perte/vol) |
 | **A12** | Versement à la **saisie manuelle** en v1 + vue historique par personne (§38) |
 | **A13** | Timezone **`Indian/Antananarivo` (UTC+3)**, bornes de période calculées **côté serveur** |
-| **A14** | Rôles `ADMIN` / `MANAGER` / `CASHIER` |
+| **A14** | Rôles `ADMIN` / `MANAGER` / `CASHIER` — portée du caissier : **vente (création / modification du client comprises), dépenses (création / correction / suppression) et stock en lecture** ; les lectures financières de gestion (dettes, versements, argent propre, trosa, arrivages, journal, rapports) passent en `manager`, le dashboard et les catégories de dépense restent ouverts |
 | **A15** | **Une seule table `Debt`** — vue dashboard (§6) + vue section séparée (§32) |
 
 ### 14.3 Règles dérivées imposées par ces décisions

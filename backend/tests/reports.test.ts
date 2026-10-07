@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Response } from 'supertest';
-import { adminToken, app, as, API, carton, type AuthedRequest } from './helpers';
+import { adminToken, app, as, API, carton, tokenFor, type AuthedRequest } from './helpers';
 import { accountingIdentity, identityBalance } from './identity';
 import { buildPdf, exportReportPdf } from '../src/modules/reports/reports.service';
 import {
@@ -659,6 +659,23 @@ describe('Journal, dashboard et rapports', () => {
       );
       expect(Number(res.body.total), `${metric} : total exposé`).toBeCloseTo(sum, 2);
     }
+  });
+
+  it('applique le RBAC caissier sur le journal et les rapports', async () => {
+    const cashier = as(
+      await tokenFor(`caissier-rapports-${stamp}@test.local`, 'Caissier Rapports', 'CASHIER'),
+    );
+
+    // Tableau de bord et série du graphique : visualisation ouverte au caissier.
+    expect((await cashier.get(`/dashboard?${WIDE}`)).status).toBe(200);
+    expect((await cashier.get(`/reports/series?${SEALED}&metric=ca`)).status).toBe(200);
+
+    // Journal et rapports détaillés : réservés aux gestionnaires.
+    expect((await cashier.get(`/ledger?${WIDE}`)).status).toBe(403);
+    expect((await cashier.get(`/ledger/summary?${WIDE}`)).status).toBe(403);
+    expect((await cashier.get(`/reports/daily?date=${SEALED_DAY}`)).status).toBe(403);
+    expect((await cashier.get(`/reports/monthly?year=2099&month=6`)).status).toBe(403);
+    expect((await cashier.get(`/reports/export.pdf?type=daily&date=${SEALED_DAY}`)).status).toBe(403);
   });
 
   it('identité comptable confirmée par le dashboard', async () => {

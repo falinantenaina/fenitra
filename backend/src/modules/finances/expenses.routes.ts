@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { parseBody, parseParams, parseQuery } from '../../middleware/validate';
-import { managerOrAdmin, requireAuth } from '../../middleware/auth';
+import { requireAuth } from '../../middleware/auth';
 import { prisma } from '../../lib/prisma';
 import { idParamSchema } from '../../lib/zod';
 import {
@@ -39,10 +39,10 @@ expensesRouter.get(
   }),
 );
 
-/** POST /api/expenses — dépense réglée immédiatement (A8) */
+/** POST /api/expenses — dépense réglée immédiatement (A8), ouverte au caissier */
 expensesRouter.post(
   '/',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     res.status(201).json(await createExpense(parseBody(req, createExpenseSchema), req.user!.id));
   }),
@@ -58,20 +58,20 @@ expensesRouter.get(
   }),
 );
 
-/** PUT /api/expenses/:id — correction par contre-passation */
+/** PUT /api/expenses/:id — correction par contre-passation (caissier inclus) */
 expensesRouter.put(
   '/:id',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await updateExpense(id, parseBody(req, updateExpenseSchema), req.user!.id));
   }),
 );
 
-/** DELETE /api/expenses/:id — suppression + contre-passation */
+/** DELETE /api/expenses/:id — suppression + contre-passation (caissier inclus) */
 expensesRouter.delete(
   '/:id',
-  managerOrAdmin,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
     res.json(await deleteExpense(id, parseBody(req, reasonSchema).reason, req.user!.id));

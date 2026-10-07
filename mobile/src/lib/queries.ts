@@ -477,12 +477,21 @@ export interface ArrivalFilter {
 }
 
 /** Arrivages paginés (`GET /arrivals`). */
-export function useArrivals(filter: ArrivalFilter = {}): PagedInfinite<ArrivalRow> {
-  return useInfiniteList<ArrivalRow>(['arrivals', 'list'], '/arrivals', {
-    status: filter.status || undefined,
-    unventilated: filter.unventilated ? 'true' : undefined,
-    q: filter.q?.trim(),
-  });
+export function useArrivals(
+  filter: ArrivalFilter = {},
+  enabled = true,
+): PagedInfinite<ArrivalRow> {
+  return useInfiniteList<ArrivalRow>(
+    ['arrivals', 'list'],
+    '/arrivals',
+    {
+      status: filter.status || undefined,
+      unventilated: filter.unventilated ? 'true' : undefined,
+      q: filter.q?.trim(),
+    },
+    50,
+    enabled,
+  );
 }
 
 /** Détail d'un arrivage : cartons, lots, dette, paiements et financements. */
@@ -672,6 +681,19 @@ export function useCancelDebt() {
 /** Dépenses paginées (`GET /expenses`). */
 export function useExpenses(): PagedInfinite<ExpenseItem> {
   return useInfiniteList<ExpenseItem>(['expenses', 'list'], '/expenses');
+}
+
+/** Détail d'une dépense (`GET /expenses/:id`). */
+export function useExpense(id: string | null): UseQueryResult<ExpenseItem> {
+  return useQuery<ExpenseItem>({
+    queryKey: ['expenses', 'detail', id],
+    enabled: Boolean(id),
+    queryFn: async () => {
+      const { data } = await api.get<ExpenseItem>(`/expenses/${id}`);
+      return data;
+    },
+    staleTime: 10_000,
+  });
 }
 
 /** Catégories de dépenses actives (`GET /expense-categories`). */
@@ -951,6 +973,40 @@ export function useCreateExpense() {
   return useMutation({
     mutationFn: async (body: CreateExpenseBody) => {
       const { data } = await api.post<ExpenseItem>('/expenses', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['expenses'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `PUT /expenses/:id` — correction par contre-passation. */
+export function useUpdateExpense() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: CreateExpenseBody }) => {
+      const { data } = await api.put<ExpenseItem>(`/expenses/${id}`, body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['expenses'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `DELETE /expenses/:id` — suppression + contre-passation (motif obligatoire). */
+export function useDeleteExpense() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { data } = await api.delete<{ id: string; deleted: boolean }>(`/expenses/${id}`, {
+        data: { reason },
+      });
       return data;
     },
     onSuccess: () => {
