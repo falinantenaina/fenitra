@@ -4,6 +4,7 @@ import { router, type Href } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -14,17 +15,26 @@ import {
 import { Chip } from '@/components/chip';
 import { ErrorPanel } from '@/components/error-panel';
 import { ListFooter } from '@/components/list-footer';
+import { toast } from '@/components/toast';
+import { apiMessage } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
-import { useCapitalMovements, useDebts, useExpenses } from '@/lib/queries';
-import type { CapitalItem, ExpenseItem } from '@/lib/types';
+import {
+  useCapitalMovements,
+  useDebts,
+  useDeleteProfitDrawing,
+  useExpenses,
+  useProfitDrawings,
+} from '@/lib/queries';
+import type { CapitalItem, ExpenseItem, ProfitDrawingItem } from '@/lib/types';
 import { useRefresh } from '@/lib/use-refresh';
 import { useAuth } from '@/store/auth';
 
-type Segment = 'expenses' | 'capital' | 'debts';
+type Segment = 'expenses' | 'capital' | 'profit' | 'debts';
 
 const SEGMENTS: { key: Segment; label: string; route: Href }[] = [
   { key: 'expenses', label: 'Dépenses', route: '/finance/expense' },
   { key: 'capital', label: 'Argent propre', route: '/finance/capital' },
+  { key: 'profit', label: 'Bénéfice', route: '/finance/retrait' },
   { key: 'debts', label: 'Dettes à payer', route: '/finance/dette-fournisseur' },
 ];
 
@@ -171,6 +181,77 @@ function CapitalList() {
   );
 }
 
+/** Retraits de bénéfice : annulation par contre-passation (motif obligatoire). */
+function ProfitDrawingList() {
+  const drawings = useProfitDrawings();
+  const remove = useDeleteProfitDrawing();
+
+  const confirmDelete = (drawing: ProfitDrawingItem) => {
+    Alert.alert(
+      'Annuler ce retrait',
+      `Remettre ${formatMoney(drawing.amount)} dans le bénéfice disponible ?`,
+      [
+        { text: 'Non', style: 'cancel' },
+        {
+          text: 'Annuler le retrait',
+          style: 'destructive',
+          onPress: () =>
+            remove.mutate(
+              { id: drawing.id, reason: "Annulation depuis l'écran Bénéfice" },
+              {
+                onSuccess: () => toast.success('Retrait annulé'),
+                onError: (error) => toast.error('Annulation refusée', apiMessage(error)),
+              },
+            ),
+        },
+      ],
+    );
+  };
+
+  return (
+    <ListShell
+      isLoading={drawings.isPending}
+      isEmpty={drawings.items.length === 0}
+      isError={drawings.isError}
+      isRetrying={drawings.isRefetching}
+      onRetry={() => void drawings.refetch()}
+      total={drawings.total}
+      footer={
+        <ListFooter
+          fetchNextPage={() => void drawings.fetchNextPage()}
+          hasMore={drawings.hasMore}
+          isFetchingNextPage={drawings.isFetchingNextPage}
+          shown={drawings.items.length}
+          total={drawings.total}
+        />
+      }>
+      {drawings.items.map((drawing: ProfitDrawingItem) => (
+        <View
+          className="flex-row items-center gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
+          key={drawing.id}>
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-slate-800" numberOfLines={1}>
+              {drawing.notes || 'Retrait de bénéfice'}
+            </Text>
+            <Text className="text-xs text-slate-400">
+              {formatDateTime(drawing.date)}
+              {drawing.method ? ` · ${drawing.method}` : ''}
+            </Text>
+          </View>
+          <Text className="text-sm font-bold text-red-600">−{formatMoney(drawing.amount)}</Text>
+          <Pressable
+            accessibilityLabel="Annuler ce retrait"
+            className="h-8 w-8 items-center justify-center rounded-lg bg-slate-100"
+            disabled={remove.isPending}
+            onPress={() => confirmDelete(drawing)}>
+            <Ionicons color="#DC2626" name="trash-outline" size={16} />
+          </Pressable>
+        </View>
+      ))}
+    </ListShell>
+  );
+}
+
 /** Dettes que je dois payer (fournisseurs + emprunts). */
 function PayableDebtList({ onPress }: { onPress: (id: string) => void }) {
   const debts = useDebts({ direction: 'PAYABLE' });
@@ -228,7 +309,8 @@ export default function FinancesScreen() {
 
   const active = SEGMENTS.find((s) => s.key === segment) ?? SEGMENTS[0];
   // §57 / A14 : le caissier ne voit que les dépenses (création, correction,
-  // suppression) — argent propre et dettes à payer restent des écrans de gestion.
+  // suppression) — argent propre, bénéfice et dettes à payer restent des
+  // écrans de gestion.
   const segments = canManage ? SEGMENTS : SEGMENTS.filter((s) => s.key === 'expenses');
 
   return (
@@ -264,6 +346,7 @@ export default function FinancesScreen() {
 
         {segment === 'expenses' ? <ExpenseList /> : null}
         {segment === 'capital' ? <CapitalList /> : null}
+        {segment === 'profit' ? <ProfitDrawingList /> : null}
         {segment === 'debts' ? (
           <PayableDebtList
             onPress={(id) => router.push({ pathname: '/dettes/[id]', params: { id } })}

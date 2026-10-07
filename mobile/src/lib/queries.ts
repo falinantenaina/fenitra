@@ -27,6 +27,7 @@ import type {
   CreateMethodBody,
   CreatePartyBody,
   CreateProductBody,
+  CreateProfitDrawingBody,
   CreateSaleBody,
   CreateSizeBody,
   CreateSupplierDebtBody,
@@ -58,6 +59,7 @@ import type {
   PeriodKey,
   ProductDetail,
   ProductListItem,
+  ProfitDrawingItem,
   ProductStockItem,
   ReportSeriesResponse,
   SaleCreated,
@@ -715,6 +717,11 @@ export function useCapitalMovements(): PagedInfinite<CapitalItem> {
   return useInfiniteList<CapitalItem>(['capital', 'list'], '/personal-capital');
 }
 
+/** Retraits de bénéfice paginés (`GET /profit-drawings`). */
+export function useProfitDrawings(): PagedInfinite<ProfitDrawingItem> {
+  return useInfiniteList<ProfitDrawingItem>(['profit-drawings', 'list'], '/profit-drawings');
+}
+
 /* ════════════ Rapports (6f) ════════════ */
 
 /** Rapport quotidien (`GET /reports/daily?date=`). */
@@ -1027,6 +1034,41 @@ export function useCreateCapital() {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['capital'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `POST /profit-drawings` — retrait plafonné au bénéfice disponible (A3, A5). */
+export function useCreateProfitDrawing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateProfitDrawingBody) => {
+      const { data } = await api.post<ProfitDrawingItem>('/profit-drawings', body);
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['profit-drawings'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `DELETE /profit-drawings/:id` — contre-passation du retrait (motif obligatoire). */
+export function useDeleteProfitDrawing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { data } = await api.delete<{ id: string; deleted: boolean }>(
+        `/profit-drawings/${id}`,
+        { data: { reason } },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['profit-drawings'] });
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
     },

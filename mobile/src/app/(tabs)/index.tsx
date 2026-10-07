@@ -261,6 +261,19 @@ export default function HomeScreen() {
               tone={toneOf(d.money.disposableProfit)}
               value={formatMoney(d.money.disposableProfit)}
             />
+            {/* §57 : le retrait est une écriture de gestion — carte ouverte aux
+                seuls gestionnaires, le dérillage de la carte ci-dessus reste à tous. */}
+            {canManage ? (
+              <Pressable
+                accessibilityRole="button"
+                className="w-full flex-row items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 active:bg-emerald-100"
+                onPress={() => router.push('/finance/retrait')}>
+                <Text className="flex-1 text-xs font-semibold text-emerald-800">
+                  Retirer du bénéfice — jusqu&apos;à {formatMoney(d.money.disposableProfit)}
+                </Text>
+                <Ionicons color="#059669" name="arrow-forward" size={16} />
+              </Pressable>
+            ) : null}
             <KpiCard
               hint="injecté − récupéré"
               onPress={() => open('capital')}

@@ -4,6 +4,7 @@ import type {
   AdjustStockBody,
   CreateCapitalBody,
   CreateExpenseBody,
+  CreateProfitDrawingBody,
   CreateSupplierDebtBody,
   DebtPaymentBody,
 } from '@/lib/types';
@@ -97,6 +98,29 @@ export function buildCapitalPayload(form: CapitalFormValues): CreateCapitalBody 
     motif: form.motif,
     ...(form.reference ? { reference: form.reference } : {}),
     ...(form.comment ? { comment: form.comment } : {}),
+  };
+}
+
+/* ════════════ Retrait de bénéfice (A5 / §45) ════════════ */
+
+export const profitDrawingFormSchema = z.object({
+  amount: z
+    .number({ invalid_type_error: 'Montant invalide' })
+    .int('Montant entier en ariary')
+    .min(1, 'Montant minimal : 1 Ar'),
+  date: dateField,
+  method: z.string().optional(),
+  notes: z.string().trim().max(1000, 'Notes trop longues').optional(),
+});
+
+export type ProfitDrawingFormValues = z.infer<typeof profitDrawingFormSchema>;
+
+export function buildProfitDrawingPayload(form: ProfitDrawingFormValues): CreateProfitDrawingBody {
+  return {
+    amount: form.amount,
+    date: form.date,
+    ...(form.method ? { method: form.method } : {}),
+    ...(form.notes ? { notes: form.notes } : {}),
   };
 }
 

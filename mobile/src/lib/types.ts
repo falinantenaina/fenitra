@@ -825,6 +825,24 @@ export interface CreateCapitalBody {
   comment?: string | null;
 }
 
+/** Ligne de `GET /profit-drawings`. */
+export interface ProfitDrawingItem {
+  id: string;
+  amount: string;
+  date: string;
+  method: string | null;
+  notes: string | null;
+  user: { id: string; name: string } | null;
+}
+
+/** Corps de `POST /profit-drawings` (A5 : plafonné au bénéfice disponible). */
+export interface CreateProfitDrawingBody {
+  amount: number;
+  date?: string;
+  method?: string | null;
+  notes?: string | null;
+}
+
 /* ════════════ Paramètres & administration (6f-b) ════════════ */
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
