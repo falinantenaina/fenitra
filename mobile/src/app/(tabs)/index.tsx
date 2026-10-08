@@ -31,6 +31,7 @@ const INTEGRITY_OK = 'Identité comptable vérifiée';
 const ACTION_ICONS = {
   sale: 'cart-outline',
   expense: 'remove-circle-outline',
+  gain: 'trending-up-outline',
   arrival: 'cube-outline',
   payCustomer: 'person-outline',
   paySupplier: 'business-outline',
@@ -72,9 +73,9 @@ export default function HomeScreen() {
   const open = (indicator: IndicatorKey) => setDrill(indicator);
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
-  // §51 — actions rapides : vente et dépense ouvertes à tous les rôles (A14),
-  // les écritures de gestion (arrivages, paiements, argent propre) restent
-  // réservées aux gestionnaires (RBAC §57).
+  // §51 — actions rapides : vente, dépense et bénéfice hors stock ouvertes à
+  // tous les rôles (A14, A16), les écritures de gestion (arrivages, paiements,
+  // argent propre) restent réservées aux gestionnaires (RBAC §57).
   const actions: { key: string; label: string; icon: ActionIcon; onPress: () => void }[] = [
       { key: 'sale', label: 'Vente', icon: ACTION_ICONS.sale, onPress: () => router.push('/sale/new') },
       {
@@ -82,6 +83,12 @@ export default function HomeScreen() {
         label: 'Dépense',
         icon: ACTION_ICONS.expense,
         onPress: () => router.push('/finance/expense'),
+      },
+      {
+        key: 'gain',
+        label: 'Bénéfice',
+        icon: ACTION_ICONS.gain,
+        onPress: () => router.push('/finance/gain'),
       },
       ...(canManage
         ? [

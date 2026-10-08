@@ -25,7 +25,7 @@ Ainsi `Σ amount WHERE kind='SALE'` reste exact sans condition supplémentaire.
 
 | `kind` | signification | cashDelta | indicateur |
 |---|---|---|---|
-| `SALE` | vente (total), la part payée sort en caisse | +payé | CA, recettes, caisse |
+| `SALE` | vente (total), la part payée sort en caisse — **A16** : aussi le bénéfice hors stock (`POST /profits`, montant = bénéfice, sans `Sale`) | +payé (= montant si A16) | CA, recettes, caisse |
 | `COGS` | coût des lots sortis | 0 | COGS |
 | `CUSTOMER_PAYMENT` | règlement d'une dette client | + | recettes, caisse |
 | `ONLINE_SELLER_PAYMENT` | règlement d'un vendeur en ligne | + | recettes, caisse |
@@ -177,6 +177,9 @@ BÉNÉFICE NET (période)   = (CA − COGS − DÉPENSES − VERSEMENTS)
   période où il est reçu, même si la vente est antérieure ;
 - une **vente à perte** non réglée retire aussi sa marge négative : la perte
   n'est reconnue qu'à l'encaissement, comme le bénéfice ;
+- un **bénéfice hors stock (A16)** n'a pas de `Sale` : sa marge n'entre pas
+  dans `MARGE_À_RECEVOIR`, il est donc reconnu **dès son enregistrement**
+  (écriture `SALE` au montant saisi, `cashDelta = montant`) ;
 - invariants : `encaissé total = sorti + non sorti` et
   `non sorti + marge à recevoir = VOLA − K`.
 

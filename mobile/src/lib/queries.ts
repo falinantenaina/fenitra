@@ -24,6 +24,7 @@ import type {
   CreateCapitalBody,
   CreateCategoryBody,
   CreateExpenseBody,
+  CreateGainBody,
   CreateMethodBody,
   CreatePartyBody,
   CreateProductBody,
@@ -45,6 +46,7 @@ import type {
   DrilldownResponse,
   ExpenseCategory,
   ExpenseItem,
+  GainItem,
   IndicatorKey,
   LedgerEntry,
   LedgerSummary,
@@ -1051,6 +1053,21 @@ export function useCreateProfitDrawing() {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['profit-drawings'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
+/** `POST /profits` — bénéfice hors stock, sans vente ni article (A16). */
+export function useCreateGain() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateGainBody) => {
+      const { data } = await api.post<GainItem>('/profits', body);
+      return data;
+    },
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['dashboard'] });
       void client.invalidateQueries({ queryKey: ['ledger'] });
     },

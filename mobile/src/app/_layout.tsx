@@ -101,6 +101,14 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="finance/gain"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Retour',
+              title: 'Nouveau bénéfice',
+            }}
+          />
+          <Stack.Screen
             name="reports/index"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Rapports' }}
           />

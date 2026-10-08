@@ -77,6 +77,7 @@ Argent (propre / trosa sinoa / caisse)
 | **A13** | **Timezone / bornes de période** | Filtres dashboard | `Indian/Antananarivo` (UTC+3), calculées côté serveur. *NB : `Africa/Antananarivo` est l'alias historique, rejeté par l'ICU récent de Node — on utilise le nom canonique* |
 | **A14** ✅ | **Rôles / RBAC** exacts | Sécurité | `ADMIN`, `MANAGER`, `CASHIER` — **VALIDÉ** : le caissier vend (avec création / modification du client), saisit les dépenses (création / correction / suppression) et visualise le stock ; `403` sur dettes, versements, argent propre, trosa, arrivages, journal et rapports (portée détaillée dans `docs/API.md` §3) |
 | **A15** | **Trosa sinoa** : doit-il apparaître dans « Dettes » du dashboard **et** dans une section séparée (§32) ? | Dashboard | Une seule table, deux vues (filtre par type) |
+| **A16** ✅ | **Bénéfice hors stock** : vendre des paires absentes du stock en n'enregistrant que le bénéfice ? Que saisir ? | Saisie, journal, dashboard, RBAC | **VALIDÉ :** saisie minimale **montant + description facultative** (`POST /api/profits`, ouvert à **tous les rôles — caissier inclus**) — une écriture `SALE` au journal **sans `Sale` ni article** ; `cashDelta = montant` (l'achat puis la vente font un mouvement net de caisse égal au bénéfice → identité §8.3 préservée). Comptabilisé en CA, argent reçu, brut et net au montant saisi ; ignoré de la marge à recevoir (aucune `Sale`) ; stock intact |
 
 ---
 
@@ -1116,6 +1117,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 | **A9** | **`Decimal(18, 0)` — montants entiers uniquement** (ariary sans décimale) |
 | **A10** | **Reconnaissance à l'encaissement intégral (§41)** : la marge d'une vente n'est reconnue que quand la vente est **entièrement réglée** (tout-ou-rien par vente). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)` ; carte dérillable « Bénéfice à recevoir ». Les paiements sont reconstitués historiquement (`Payment.saleId` + versements via `Debt.saleId`) |
 | **A11** | **Portée commerciale (`CASHIER`)** : aucun bénéfice ni coût à l'écran. Dashboard sans « Situation à la date », sans cartes de bénéfice, sans valorisation du stock, sans « Remboursements fournisseurs » ni « Dettes à payer » ; vente sans marge (prix de vente seulement) ; stock sans valorisation ni prix d'achat (liste + quantités, prix de vente conservés). Masquage deny-by-default (`canManage`), endpoints REST inchangés |
+| **A16** | **Bénéfice hors stock** : saisie minimale **montant + description facultative** (`POST /api/profits`, tous rôles — caissier inclus). Écriture `SALE` au journal **sans `Sale` ni article** (`refType`/`saleId` nuls), `cashDelta = montant` → CA, argent reçu, brut, net et caisse au montant saisi, **identité §8.3 exacte**, marge à recevoir et stock inchangés |
 
 ### 14.2 Défauts retenus sur les ambiguïtés non bloquantes
 
@@ -1362,13 +1364,14 @@ retirés.
 
 L'accueil affiche une grille **« Actions rapides »** juste sous la bannière
 d'intégrité, avec les actions du cahier dans son ordre : Vente,
-Dépense, Arrivage, Paiement client, Paiement fournisseur, Argent
+Dépense, Bénéfice, Arrivage, Paiement client, Paiement fournisseur, Argent
 propre. Elles mènent à `/sale/new`, `/finance/expense`,
-`/arrival/new` et `/finance/capital` ; les deux
+`/finance/gain`, `/arrival/new` et `/finance/capital` ; les deux
 paiements ouvrent l'onglet Dettes avec `?type=CUSTOMER|SUPPLIER&status=OPEN`
-(`GET /debts` filtre déjà sur ces deux paramètres). La vente est visible par
-tous les rôles (le caissier vend), les autres n'apparaissent que pour
-ADMIN/MANAGER — le backend refuse de toute façon (`managerOrAdmin`).
+(`GET /debts` filtre déjà sur ces deux paramètres). La vente, la dépense et
+le bénéfice hors stock (A16) sont visibles par tous les rôles (le
+caissier vend, dépense et saisit un bénéfice), les autres n'apparaissent que
+pour ADMIN/MANAGER — le backend refuse de toute façon (`managerOrAdmin`).
 L'action **Versement** a été retirée de l'interface : elle faisait double
 emploi avec le paiement fournisseur (règlement d'une dette) — les endpoints
 `/versements`, leur historique et les indicateurs de rapports restent en place.

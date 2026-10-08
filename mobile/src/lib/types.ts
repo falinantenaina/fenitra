@@ -847,6 +847,22 @@ export interface CreateProfitDrawingBody {
   notes?: string | null;
 }
 
+/** Ligne créée par `POST /profits` (A16 : bénéfice hors stock). */
+export interface GainItem {
+  id: string;
+  date: string;
+  kind: 'SALE';
+  amount: string;
+  cashDelta: string;
+  description: string;
+}
+
+/** Corps de `POST /profits` (A16 : montant + description facultative). */
+export interface CreateGainBody {
+  amount: number;
+  description?: string;
+}
+
 /* ════════════ Paramètres & administration (6f-b) ════════════ */
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';

@@ -4,6 +4,7 @@ import type {
   AdjustStockBody,
   CreateCapitalBody,
   CreateExpenseBody,
+  CreateGainBody,
   CreateProfitDrawingBody,
   CreateSupplierDebtBody,
   DebtPaymentBody,
@@ -121,6 +122,25 @@ export function buildProfitDrawingPayload(form: ProfitDrawingFormValues): Create
     date: form.date,
     ...(form.method ? { method: form.method } : {}),
     ...(form.notes ? { notes: form.notes } : {}),
+  };
+}
+
+/* ════════════ Bénéfice hors stock (A16) ════════════ */
+
+export const gainFormSchema = z.object({
+  amount: z
+    .number({ invalid_type_error: 'Montant invalide' })
+    .int('Montant entier en ariary')
+    .min(1, 'Montant minimal : 1 Ar'),
+  description: z.string().trim().min(3, 'Description trop courte').max(300, 'Description trop longue').optional(),
+});
+
+export type GainFormValues = z.infer<typeof gainFormSchema>;
+
+export function buildGainPayload(form: GainFormValues): CreateGainBody {
+  return {
+    amount: form.amount,
+    ...(form.description ? { description: form.description } : {}),
   };
 }
 

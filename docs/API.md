@@ -88,7 +88,8 @@ Trois rôles (table `Role`) : `ADMIN`, `MANAGER`, `CASHIER`.
 
 Règle délibérée (§57 / A14) : **le caissier vend, enregistre les dépenses et
 visualise le stock** — `POST /sales`, `POST /sales/:id/payments`, le CRUD de
-`/api/expenses`, la création / modification d'un client (`POST|PUT /api/customers`)
+`/api/expenses`, `POST /api/profits` (bénéfice hors stock, A16), la création /
+modification d'un client (`POST|PUT /api/customers`)
 et les lectures `/api/stock/*` sont ouverts à `auth`, tandis que
 `POST /sales/:id/cancel`, `POST /debts/:id/payments` et `POST /debts/:id/cancel`
 restent en `manager`.
@@ -243,6 +244,7 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET/POST | `/api/profit-drawings` | manager | Retrait de bénéfice (A5 : `PROFIT_DRAWING`, caisse −amount, **K intact**) — la liste partage les filtres de période §38 (`period`, `from`/`to`, `q`) ; `POST` répond **409** dès que le montant dépasse le bénéfice encaissé non sorti (plafond §9 révisé, indépendant de la caisse, marge à recevoir déduite) |
 | GET | `/api/profit-drawings/:id` | manager | Détail |
 | DELETE | `/api/profit-drawings/:id` | manager | Contre-passation (`reason` obligatoire) : le retrait redevient disponible, l'écriture est annulée par une contre-écriture |
+| POST | `/api/profits` | auth | **Bénéfice hors stock (A16)** : `amount` (> 0) + `description` facultative (défaut « Bénéfice hors stock ») — écriture `SALE` au journal **sans `Sale` ni article** (`refType`/`saleId` nuls), `cashDelta = amount` → CA, argent reçu, brut, net et caisse au montant saisi, identité §8.3 exacte, marge à recevoir et stock inchangés. **Aucun GET** : l'écriture se relit dans les dérillages (`/api/dashboard/ca|receipts|.../transactions`) |
 | GET | `/api/trosa-sinoa` | manager | Dettes filtrées `type = TROSA_SINOA` |
 | POST | `/api/trosa-sinoa` | manager | Création |
 | GET/PUT | `/api/trosa-sinoa/:id` | manager | Détail, mise à jour |

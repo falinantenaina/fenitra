@@ -12,6 +12,7 @@ import { expensesRouter } from '../modules/finances/expenses.routes';
 import { versementsRouter } from '../modules/finances/versements.routes';
 import { capitalRouter } from '../modules/finances/capital.routes';
 import { profitDrawingsRouter } from '../modules/finances/profit-drawings.routes';
+import { profitsRouter } from '../modules/finances/profits.routes';
 import { trosaRouter } from '../modules/finances/trosa.routes';
 import { dashboardRouter, ledgerRouter, reportsRouter } from '../modules/reports/reports.routes';
 
@@ -20,7 +21,7 @@ import { dashboardRouter, ledgerRouter, reportsRouter } from '../modules/reports
  * Phase 5 : auth ✓, users ✓, catalog ✓, parties ✓, settings ✓,
  *           arrivals ✓, stock ✓, sales ✓, debts ✓, payments ✓,
  *           expenses ✓, versements ✓, personal-capital ✓, profit-drawings ✓,
- *           trosa-sinoa ✓, ledger ✓, dashboard ✓, reports ✓.
+ *           profits ✓, trosa-sinoa ✓, ledger ✓, dashboard ✓, reports ✓.
  */
 export const apiRouter = Router();
 
@@ -54,6 +55,7 @@ apiRouter.get('/', (_req, res) => {
       '/api/versements',
       '/api/personal-capital',
       '/api/profit-drawings',
+      '/api/profits',
       '/api/trosa-sinoa',
       '/api/ledger',
       '/api/dashboard',
@@ -80,6 +82,7 @@ apiRouter.use('/expenses', expensesRouter);
 apiRouter.use('/versements', versementsRouter);
 apiRouter.use('/personal-capital', capitalRouter);
 apiRouter.use('/profit-drawings', profitDrawingsRouter);
+apiRouter.use('/profits', profitsRouter);
 apiRouter.use('/trosa-sinoa', trosaRouter);
 apiRouter.use('/ledger', ledgerRouter);
 apiRouter.use('/dashboard', dashboardRouter);
