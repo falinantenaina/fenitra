@@ -1267,6 +1267,19 @@ vérifié à la main : `GET /api/health` → `{status, uptime, timestamp}`,
 `POST /api/auth/login` → `{accessToken, refreshToken, user}`, `GET /api/auth/me`
 sans jeton → 401.
 
+**Mises à jour OTA — bandeau** (`components/update-banner.tsx`, monté dans
+`_layout.tsx` à côté de `ToastHost`, overlay racine safe-area) : la vérification
+native `ON_LOAD` trouve une maj → téléchargement **automatique** affiché avec
+barre de progression (`useUpdates().downloadProgress`, 0→1) → bouton
+« Redémarrer » qui applique la maj sur le champ (`Updates.reloadAsync()`),
+sans fermer l'app ; « Plus tard » diffère jusqu'au prochain lancement. Une
+`checkForUpdateAsync()` est relancée au retour au premier plan (l'`ON_LOAD` ne
+le fait qu'au lancement). États : téléchargement / prête / disponible /
+échec (« Réessayer »). **Release uniquement** — `Updates.isEnabled` est `false`
+en dev, les API updates y sont refusées, le bandeau n'est jamais rendu. Aucun
+rebuild requis : seul le bundle JS change, `expo-updates` est déjà natif dans
+l'APK.
+
 ---
 
 ## 18. Mobile — tableau de bord (Phase 6b)
