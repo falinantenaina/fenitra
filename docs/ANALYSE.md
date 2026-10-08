@@ -69,7 +69,7 @@ Argent (propre / trosa sinoa / caisse)
 | **A7** | **Financement mixte** (§35) : comment relier « injection d'argent propre » → « arrivage » sans compter deux fois l'argent ? | Traçabilité §33 | Les **flux de caisse** restent la référence ; `FundingAllocation` est une **étiquette de reporting** sur l'arrivage. Si l'argent arrive directement de ma poche, on crée une `PersonalCapitalMovement` liée à l'arrivage **et** le paiement sort de la caisse (entrée + sortie, solde net nul, traçabilité complète) |
 | **A8** | **Dépenses non payées** (achats à crédit) ? | Dettes | Non prévues par le §36 → **hors périmètre v1** ; une dépense est toujours réglée (sortie de caisse). À confirmer |
 | **A9** ✅ | **Précision monétaire** : l'ariary admet-il des décimales ? | `Decimal(18,2)` vs `Decimal(18,0)` | **VALIDÉ : `Decimal(18,0)` — entiers uniquement.** Tous les montants sont des entiers ; validation Zod `int()` ; affichage formaté `2 000 Ar` |
-| **A10** ✅ | **Reconnaissance du bénéfice sur les ventes à crédit (§41)** : quand la marge est-elle gagnée ? | Bénéfice net, bénéfice disponible, carte « Marge à recevoir » | **VALIDÉ : à l'encaissement INTEGRAL de chaque vente (tout-ou-rien).** Un règlement partiel fait monter la caisse, pas le bénéfice. `MARGE_À_RECEVOIR(to) = Σ marge des ventes non réglées à to` (paiements reconstitués historiquement). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)`. Nouvelle carte dérillable « Marge à recevoir » |
+| **A10** ✅ | **Reconnaissance du bénéfice sur les ventes à crédit (§41)** : quand la marge est-elle gagnée ? | Bénéfice net, bénéfice disponible, carte « Bénéfice à recevoir » | **VALIDÉ : à l'encaissement INTEGRAL de chaque vente (tout-ou-rien).** Un règlement partiel fait monter la caisse, pas le bénéfice. `MARGE_À_RECEVOIR(to) = Σ marge des ventes non réglées à to` (paiements reconstitués historiquement). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)`. Nouvelle carte dérillable « Bénéfice à recevoir » |
 | **A11** ✅ | **Portée « commercial » (rôle `CASHIER`) : masquage des bénéfices, coûts et valorisations** | Dashboard, écran de vente, écran stock | **VALIDÉ :** pour `CASHIER`, le dashboard perd la section « Situation à la date », les cartes bénéfice brut/net/coût des marchandises et la valorisation du stock ; l'écran de vente n'affiche que les **prix de vente** (marge masquée, globale et par ligne) ; l'écran stock ne montre que la **liste et les quantités** (sans valorisation, sans prix d'achat, dont l'historique d'achat du lot et le prix des mouvements). Masquage **deny-by-default** côté écran (`canManage` = ADMIN‖MANAGER ; rôle manquant ⇒ masqué) — les endpoints REST restent inchangés (durcissement API éventuel en follow-up) |
 | **A10** | **Prix de vente vendeur en ligne** (80) ≠ prix public (30) : prix libre par ligne de vente, ou listes de prix par canal ? | UX saisie | v1 : `ProductVariant.sellingPrice` = prix par défaut + **prix libre modifiable sur chaque ligne de vente**. Listes de prix = évolution possible |
 | **A11** | **Retours, annulations, ajustements de stock** (casse/perte/vol) : non traités par le cahier des charges mais nécessaires pour ne jamais bloquer l'app. | Intégrité | Prévoir : `Sale.cancel()` (contre-passation), `StockMovement ADJUSTMENT/RETURN` — à valider |
@@ -806,7 +806,7 @@ allocateFIFO(tx, variantId, qtyRequested):
 | **Recettes (encaissements)** | `Σ cashDelta WHERE cashDelta > 0 AND kind ∈ {SALE, CUSTOMER_PAYMENT, ONLINE_SELLER_PAYMENT}` | `LedgerEntry` |
 | ↳ dont *ventes encaissées du moment* | `Σ cashDelta WHERE kind = 'SALE' AND cashDelta > 0` | sous-indicateur |
 | **Dépenses** | `Σ amount WHERE kind = 'EXPENSE'` | `LedgerEntry` |
-| **Versements (charges)** | `Σ amount WHERE kind = 'VERSEMENT' AND treatment = 'CHARGE'` | `LedgerEntry` |
+| **Remboursements fournisseurs** | `Σ amount WHERE kind = 'VERSEMENT' AND treatment = 'CHARGE'` | `LedgerEntry` |
 | **Bénéfice net (accrual)** | `Bénéfice brut − Dépenses − Versements(charges)` | calcul |
 | **Bénéfice net (affiché)** | `accrual − (MARGE_À_RECEVOIR(to) − MARGE_À_RECEVOIR(from))` — reconnu à l'encaissement (§41) | calcul |
 | **Sorties de caisse** | `Σ −cashDelta WHERE cashDelta < 0` | `LedgerEntry` |
@@ -851,7 +851,7 @@ d'où :
 | Indicateur | Formule |
 |---|---|
 | **Vola miodina** | `CAISSE + STOCK + CREANCES − PASSIFS` |
-| **Marge à recevoir** | `Σ marge des ventes non réglées à la date` (tout-ou-rien, §41) |
+| **Bénéfice à recevoir** | `Σ marge des ventes non réglées à la date` (tout-ou-rien, §41) |
 | **Bénéfice encaissé cumulé** | `VOLA_MIODINA − ARGENT_PROPRE_ENGAGE + RETRAITS − MARGE_À_RECEVOIR` |
 | **Bénéfice encaissé non sorti** | `VOLA_MIODINA − ARGENT_PROPRE_ENGAGE − MARGE_À_RECEVOIR` |
 | *(contrôle accrual)* | `= CA_cumulé − COGS_cumulé − Dépenses − Versements_charges − MARGE_À_RECEVOIR(t)` — car `VOLA − K − RETRAITS = accrual` |
@@ -885,7 +885,7 @@ BÉNÉFICE_DISPONIBLE = max(0, BÉNÉFICE_ENCAISSÉ_NON_SORTI)
 
 **Vérifications :**
 
-| Situation | CAISSE | K | Marge à recevoir | Encaissé non sorti | Disponible |
+| Situation | CAISSE | K | Bénéfice à recevoir | Encaissé non sorti | Disponible |
 |---|---|---|---|---|---|
 | Vente intégralement payée (ex. §8.4) | 120 | 100 | 0 | 20 | 20 ✓ |
 | Stock à moitié vendu, tout encaissé | 75 | 100 | 0 | 25 | 25 ✓ (le stock ne bloque pas) |
@@ -1114,7 +1114,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 | **A4** | **Vola miodina = `caisse + stock + créances − passifs`** (= `argent propre engagé + bénéfice encaissé non sorti + marge à recevoir`) |
 | **A5** | **Deux opérations distinctes** : `PERSONAL_CAPITAL_OUT` (récupération de capital, `K` diminue) et `PROFIT_DRAWING` (retrait de bénéfice, `K` inchangé) |
 | **A9** | **`Decimal(18, 0)` — montants entiers uniquement** (ariary sans décimale) |
-| **A10** | **Reconnaissance à l'encaissement intégral (§41)** : la marge d'une vente n'est reconnue que quand la vente est **entièrement réglée** (tout-ou-rien par vente). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)` ; carte dérillable « Marge à recevoir ». Les paiements sont reconstitués historiquement (`Payment.saleId` + versements via `Debt.saleId`) |
+| **A10** | **Reconnaissance à l'encaissement intégral (§41)** : la marge d'une vente n'est reconnue que quand la vente est **entièrement réglée** (tout-ou-rien par vente). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)` ; carte dérillable « Bénéfice à recevoir ». Les paiements sont reconstitués historiquement (`Payment.saleId` + versements via `Debt.saleId`) |
 | **A11** | **Portée commerciale (`CASHIER`)** : aucun bénéfice ni coût à l'écran. Dashboard sans « Situation à la date » ni cartes de bénéfice ni valorisation ; vente sans marge (prix de vente seulement) ; stock sans valorisation ni prix d'achat (liste + quantités, prix de vente conservés). Masquage deny-by-default (`canManage`), endpoints REST inchangés |
 
 ### 14.2 Défauts retenus sur les ambiguïtés non bloquantes
@@ -1277,19 +1277,29 @@ puis trois groupes de cartes :
 
 | Section | Cartes | Dérillable |
 |---|---|---|
-| Activité de la période | CA, bénéfice brut, bénéfice net (reconnu à l'encaissement), coût des marchandises, recettes, dépenses, versements | ✔ (indicateurs de période) |
-| Situation à la date | caisse, variation de caisse, vola miodina, créances (à recevoir), dettes à payer, bénéfice total, marge à recevoir, bénéfice disponible, argent propre, bénéfice sorti | ✔ tous (états cumulés) |
-| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes clients, fournisseurs | ✔ tous, sauf « vendus » (compteur d'unités) |
+| Activité de la période | CA, bénéfice brut (dont achat des marchandises), bénéfice net (gagné seulement quand payé), argent reçu, dépenses, remboursements fournisseurs | ✔ (indicateurs de période) |
+| Situation à la date | caisse, vola miodina, bénéfice total (dont déjà retiré), bénéfice à recevoir, bénéfice disponible, argent propre + bouton « Retirer du bénéfice » | ✔ tous (états cumulés) |
+| Stock et dettes | stock (valeur + pièces), disponibles, vendus, dettes à recevoir, dettes à payer | ✔ tous, sauf « vendus » (compteur d'unités) |
+
+**Nettoyage (termes courants, doublons retirés)** : libellés plain —
+« créances » → **dettes à recevoir**, « marge à recevoir » → **bénéfice à
+recevoir**, « recettes encaissées » → **argent reçu**, « versements » →
+**remboursements fournisseurs**. Doublons supprimés : variation de caisse
+(déjà le hint de Caisse), créances/dettes à payer de la Situation (doublons
+exacts des cartes de la section Stock et dettes), bénéfice sorti (devenu le
+hint de bénéfice total), coût des marchandises (devenu le hint de bénéfice
+brut). Les drills supprimés restent accessibles via la liste d'indicateurs
+des rapports.
 
 **Portée `CASHIER` (A11)** : la section « Situation à la date » entière, les
-cartes bénéfice brut / bénéfice net / coût des marchandises et la carte «
+cartes bénéfice brut / bénéfice net et la carte «
 Stock (valeur) » sont masquées (deny-by-default sur `canManage`) ; la carte «
 Disponibles » perd son dérillage (qui afficherait les valeurs par lot).
 
 Les cartes de dettes affichent leur sens : « à recevoir » (clients, vendeurs
 en ligne regroupés avec les clients) ou « à payer » (fournisseurs, avec la
 trosa sinoa regroupée dedans). Le total mélangé « Dettes totales » a disparu :
-les totaux sont « Créances (à recevoir) » et « Dettes à payer ». Le
+les totaux sont « Dettes à recevoir » et « Dettes à payer ». Le
 regroupement est **à l'affichage uniquement** — le type (`CUSTOMER`,
 `ONLINE_SELLER`, `SUPPLIER`, `TROSA_SINOA`) reste stocké en base.
 

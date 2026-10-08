@@ -187,6 +187,7 @@ export default function HomeScreen() {
                 gestionnaires : le caissier ne voit que les prix et flux. */}
             {canManage ? (
               <KpiCard
+                hint={`dont achat des marchandises : ${formatMoney(d.activity.cogs)}`}
                 onPress={() => open('grossProfit')}
                 title={LABEL_GROSS}
                 tone={toneOf(d.activity.grossProfit)}
@@ -195,24 +196,16 @@ export default function HomeScreen() {
             ) : null}
             {canManage ? (
               <KpiCard
-                hint="reconnu à l'encaissement"
+                hint="gagné seulement quand la vente est payée"
                 onPress={() => open('netProfit')}
                 title={LABEL_NET}
                 tone={toneOf(d.activity.netProfit)}
                 value={formatMoney(d.activity.netProfit)}
               />
             ) : null}
-            {canManage ? (
-              <KpiCard
-                hint="marchandises vendues"
-                onPress={() => open('cogs')}
-                title="Coût des marchandises"
-                value={formatMoney(d.activity.cogs)}
-              />
-            ) : null}
             <KpiCard
               onPress={() => open('receipts')}
-              title="Recettes encaissées"
+              title="Argent reçu"
               value={formatMoney(d.activity.receipts)}
             />
             <KpiCard
@@ -223,7 +216,7 @@ export default function HomeScreen() {
             />
             <KpiCard
               onPress={() => open('versements')}
-              title="Versements"
+              title="Remboursements fournisseurs"
               tone={toneOf(d.activity.versementCharges)}
               value={formatMoney(d.activity.versementCharges)}
             />
@@ -242,45 +235,27 @@ export default function HomeScreen() {
                 value={formatMoney(d.money.cash)}
               />
               <KpiCard
-                onPress={() => open('cash')}
-                title="Variation de caisse"
-                tone={toneOf(d.money.cashDelta)}
-                value={formatMoney(d.money.cashDelta)}
-              />
-              <KpiCard
-                hint="caisse + stock + créances − passifs"
+                hint="ce que l'affaire possède moins ce qu'elle doit"
                 onPress={() => open('vola')}
                 title="Vola miodina"
                 tone="brand"
                 value={formatMoney(d.money.volaMiodina)}
               />
               <KpiCard
-                hint="à recevoir — tous mes clients"
-                onPress={() => open('receivables')}
-                title="Créances"
-                value={formatMoney(d.money.receivables)}
-              />
-              <KpiCard
-                hint="à payer — mes fournisseurs"
-                onPress={() => open('payables')}
-                title="Dettes à payer"
-                value={formatMoney(d.money.payable)}
-              />
-              <KpiCard
-                hint="encaissé depuis le début — sorti + non sorti"
+                hint={`gagné depuis le début — dont déjà retiré ${formatMoney(d.money.profitDrawings)}`}
                 onPress={() => open('netProfitAccumulated')}
                 title="Bénéfice total"
                 tone={toneOf(d.money.netProfitAccumulated)}
                 value={formatMoney(d.money.netProfitAccumulated)}
               />
               <KpiCard
-                hint="ventes non réglées — reconnue au règlement"
+                hint="ventes à crédit pas encore payées"
                 onPress={() => open('unrealizedMargin')}
-                title="Marge à recevoir"
+                title="Bénéfice à recevoir"
                 value={formatMoney(d.money.unrealizedMargin)}
               />
               <KpiCard
-                hint="encaissé non sorti"
+                hint="retirable maintenant"
                 onPress={() => open('disposableProfit')}
                 title="Bénéfice disponible"
                 tone={toneOf(d.money.disposableProfit)}
@@ -298,16 +273,10 @@ export default function HomeScreen() {
                 <Ionicons color="#059669" name="arrow-forward" size={16} />
               </Pressable>
               <KpiCard
-                hint="injecté − récupéré"
+                hint="l'argent du propriétaire mis dans l'affaire"
                 onPress={() => open('capital')}
                 title="Argent propre"
                 value={formatMoney(d.money.personalCapitalEngaged)}
-              />
-              <KpiCard
-                hint="cumulé depuis le début"
-                onPress={() => open('profitDrawings')}
-                title="Bénéfice sorti"
-                value={formatMoney(d.money.profitDrawings)}
               />
             </Section>
           ) : null}
@@ -334,15 +303,15 @@ export default function HomeScreen() {
               value={`${formatQuantity(d.stock.soldItems)} p.`}
             />
             <KpiCard
-              hint="à recevoir"
+              hint="ce qu'on me doit — clients et vendeurs en ligne"
               onPress={() => open('receivables')}
-              title="Dettes clients"
+              title="Dettes à recevoir"
               value={formatMoney(Number(d.debts.customer) + Number(d.debts.onlineSeller))}
             />
             <KpiCard
-              hint="à payer"
+              hint="ce que je dois — fournisseurs"
               onPress={() => open('payables')}
-              title="Fournisseurs"
+              title="Dettes à payer"
               value={formatMoney(Number(d.debts.supplier) + Number(d.debts.trosaSinoa))}
             />
           </Section>

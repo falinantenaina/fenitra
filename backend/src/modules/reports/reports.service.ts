@@ -522,7 +522,7 @@ export async function monthlyReport(query: MonthlyReportQuery): Promise<MonthlyR
 
 const SERIES_LABELS: Record<SeriesMetric, string> = {
   ca: "Chiffre d'affaires",
-  receipts: 'Recettes encaissées',
+  receipts: 'Argent reçu',
   outflow: "Sorties d'argent",
 };
 
@@ -686,11 +686,11 @@ export async function exportReportPdf(query: { type: 'daily' | 'monthly'; date?:
     `${report.label} — ${report.type === 'daily' ? 'Rapport journalier' : 'Rapport mensuel'}`,
     '',
     `Chiffre d'affaires : ${a.ca} Ar   (${a.salesCount} vente(s))`,
-    `Recettes encaissees : ${a.receipts} Ar`,
-    `COGS : ${a.cogs} Ar`,
+    `Argent recu : ${a.receipts} Ar`,
+    `Achat des marchandises : ${a.cogs} Ar`,
     `Benefice brut : ${a.grossProfit} Ar`,
     `Depenses : ${a.expenses} Ar`,
-    `Versements (charges) : ${a.versementCharges} Ar`,
+    `Remboursements fournisseurs : ${a.versementCharges} Ar`,
     `Benefice net : ${a.netProfit} Ar`,
     `Caisse : ${report.money.cash} Ar`,
     '',

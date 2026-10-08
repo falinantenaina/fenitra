@@ -480,13 +480,13 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
       sumAmount(es, 'MARGIN_DELAY'),
   },
   receipts: {
-    label: 'Recettes encaissées',
+    label: 'Argent reçu',
     kinds: ['SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT'],
     positiveCashOnly: true,
     total: sumCashDelta,
   },
   expenses: { label: 'Dépenses', kinds: ['EXPENSE'] },
-  versements: { label: 'Versements (charges)', kinds: ['VERSEMENT'] },
+  versements: { label: 'Remboursements fournisseurs', kinds: ['VERSEMENT'] },
   cash: { label: 'Variation de caisse', kinds: ALL_CASH_KINDS, total: sumCashDelta },
   /**
    * Solde de caisse (état) : `Σ cashDelta` depuis l'origine + solde initial,
@@ -508,10 +508,10 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
     // est la variation nette (injections − récupérations).
     total: (es) => sumAmount(es, 'PERSONAL_CAPITAL_IN') - sumAmount(es, 'PERSONAL_CAPITAL_OUT'),
   },
-  profitDrawings: { label: 'Bénéfice sorti', source: 'ledgerTo', kinds: ['PROFIT_DRAWING'] },
+  profitDrawings: { label: 'Bénéfice déjà retiré', source: 'ledgerTo', kinds: ['PROFIT_DRAWING'] },
 
   receivables: {
-    label: 'Créances (à recevoir)',
+    label: 'Dettes à recevoir',
     source: 'debts',
     debtTypes: RECEIVABLE_DEBT_TYPES,
   },
@@ -546,7 +546,7 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
     total: sumBalance,
   },
   // Total par défaut : Σ amount — les lignes sont déjà positives (§41).
-  unrealizedMargin: { label: 'Marge à recevoir', source: 'unrealizedMargin' },
+  unrealizedMargin: { label: 'Bénéfice à recevoir', source: 'unrealizedMargin' },
 };
 
 export const INDICATOR_KEYS = Object.keys(INDICATORS) as IndicatorKey[];
@@ -604,7 +604,7 @@ async function assembleRows(
       'MARGIN_DELAY',
       'MARGIN_DELAY',
       uFrom - uTo,
-      'Marge à recevoir — écart sur la période (−variation)',
+      'Bénéfice à recevoir — écart sur la période (−variation)',
     );
     return { rows: [...ledgerRows, delay], scope: 'period' };
   }
