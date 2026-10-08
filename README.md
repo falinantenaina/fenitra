@@ -214,10 +214,11 @@ Vérifier `npx expo-doctor` avant toute build.
 
 **Portée visuelle du CASHIER (ANALYSE A11)** : sur les écrans, il ne voit
 **aucun bénéfice ni coût** — le dashboard masque la section « Situation à la
-date », les cartes bénéfice brut/net/coût des marchandises et la valorisation
-du stock ; l'écran de vente n'affiche que les prix de vente (marge masquée) ;
-l'écran stock ne montre que la liste et les quantités (sans valorisation ni
-prix d'achat). Les endpoints REST restent inchangés (masquage côté écran).
+date », les cartes bénéfice brut/net, la valorisation du stock, les
+remboursements fournisseurs et les dettes à payer ; l'écran de vente
+n'affiche que les prix de vente (marge masquée) ; l'écran stock ne montre que
+la liste et les quantités (sans valorisation ni prix d'achat). Les endpoints
+REST restent inchangés (masquage côté écran).
 
 ---
 

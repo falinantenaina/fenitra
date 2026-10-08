@@ -214,12 +214,15 @@ export default function HomeScreen() {
               tone="negative"
               value={formatMoney(d.activity.expenses)}
             />
-            <KpiCard
-              onPress={() => open('versements')}
-              title="Remboursements fournisseurs"
-              tone={toneOf(d.activity.versementCharges)}
-              value={formatMoney(d.activity.versementCharges)}
-            />
+            {/* §A11 — remboursements au fournisseur : réservés aux gestionnaires. */}
+            {canManage ? (
+              <KpiCard
+                onPress={() => open('versements')}
+                title="Remboursements fournisseurs"
+                tone={toneOf(d.activity.versementCharges)}
+                value={formatMoney(d.activity.versementCharges)}
+              />
+            ) : null}
           </Section>
 
           <SeriesChart period={period} range={range} />
@@ -308,12 +311,15 @@ export default function HomeScreen() {
               title="Dettes à recevoir"
               value={formatMoney(Number(d.debts.customer) + Number(d.debts.onlineSeller))}
             />
-            <KpiCard
-              hint="ce que je dois — fournisseurs"
-              onPress={() => open('payables')}
-              title="Dettes à payer"
-              value={formatMoney(Number(d.debts.supplier) + Number(d.debts.trosaSinoa))}
-            />
+            {/* §A11 — dettes fournisseurs : réservées aux gestionnaires. */}
+            {canManage ? (
+              <KpiCard
+                hint="ce que je dois — fournisseurs"
+                onPress={() => open('payables')}
+                title="Dettes à payer"
+                value={formatMoney(Number(d.debts.supplier) + Number(d.debts.trosaSinoa))}
+              />
+            ) : null}
           </Section>
 
           <Pressable
