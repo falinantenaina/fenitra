@@ -104,7 +104,7 @@ function SizeRow({
         {sizeLabel(size)}
       </Text>
       <TextInput
-        className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-1.5 text-center text-sm text-slate-900"
+        className="min-h-9 w-20 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-center text-sm text-slate-900"
         keyboardType="numeric"
         maxFontSizeMultiplier={1.4}
         onChangeText={(raw) => {
