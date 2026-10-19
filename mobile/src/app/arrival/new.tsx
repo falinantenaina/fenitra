@@ -104,8 +104,9 @@ function SizeRow({
         {sizeLabel(size)}
       </Text>
       <TextInput
-        className="h-9 w-16 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm text-slate-900"
+        className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-1.5 text-center text-sm text-slate-900"
         keyboardType="numeric"
+        maxFontSizeMultiplier={1.4}
         onChangeText={(raw) => {
           const digits = raw.replace(/[^0-9]/g, "");
           setText(digits);
@@ -533,8 +534,9 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
     handleSubmit,
     reset,
     setValue,
+    trigger,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, submitCount },
   } = useForm<ArrivalFormValues>({
     resolver: zodResolver(arrivalFormSchema),
     defaultValues: emptyForm(),
@@ -618,20 +620,22 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
   );
   const supplierNames = new Map((suppliers.data ?? []).map((s) => [s.id, s.name]));
 
+  const revalidate = { shouldDirty: true, shouldValidate: submitCount > 0 };
+
   const patchCarton = (index: number, patch: Partial<CartonDraft>) => {
     (Object.keys(patch) as (keyof CartonDraft)[]).forEach((key) => {
       setValue(
         `cartons.${index}.${key}` as unknown as FieldPath<ArrivalFormValues>,
         patch[key] as never,
-        { shouldDirty: true },
+        revalidate,
       );
     });
   };
 
   const togglePayment = () => {
     const next = !values.payment.enabled;
-    setValue("payment.enabled", next);
-    if (next) setValue("payment.amount", totals.cost);
+    setValue("payment.enabled", next, revalidate);
+    if (next) setValue("payment.amount", totals.cost, revalidate);
   };
 
   const supplierList = suppliers.data ?? [];
@@ -770,7 +774,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
               onCreate={createSupplier}
               onRename={renameSupplier}
               onSelect={(id) => {
-                setValue("supplierId", id);
+                setValue("supplierId", id, revalidate);
                 setSupplierNotice(null);
               }}
             />
@@ -785,7 +789,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                 autoCapitalize="none"
                 className="h-11 rounded-xl border border-slate-300 px-3 text-base text-slate-900"
                 keyboardType="numbers-and-punctuation"
-                onChangeText={(date) => setValue("date", date.trim())}
+                onChangeText={(date) => setValue("date", date.trim(), revalidate)}
                 placeholder="2026-10-02"
                 placeholderTextColor="#94A3B8"
                 selectionColor="#208AEF"
@@ -794,7 +798,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
             </View>
             <Pressable
               className="h-11 items-center justify-center rounded-xl bg-slate-100 px-4"
-              onPress={() => setValue("date", todayISO())}
+              onPress={() => setValue("date", todayISO(), revalidate)}
             >
               <Text className="text-sm font-medium text-slate-700">
                 Aujourd&apos;hui
@@ -812,7 +816,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
             <TextInput
               className="min-h-16 rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900"
               multiline
-              onChangeText={(notes) => setValue("notes", notes)}
+              onChangeText={(notes) => setValue("notes", notes, revalidate)}
               placeholder="Conteneur, référence fournisseur…"
               placeholderTextColor="#94A3B8"
               selectionColor="#208AEF"
@@ -835,7 +839,10 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                 index={index}
                 key={field.id}
                 onPatch={(patch) => patchCarton(index, patch)}
-                onRemove={() => remove(index)}
+                onRemove={() => {
+                  remove(index);
+                  if (submitCount > 0) void trigger();
+                }}
                 products={products.data}
                 productsPending={products.isPending}
                 removable={fields.length > 1}
@@ -845,7 +852,10 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
 
           <Pressable
             className="h-11 flex-row items-center justify-center gap-2 rounded-xl border border-dashed border-brand bg-brand/5"
-            onPress={() => append(emptyCarton(products.data?.[0]?.id ?? ""))}
+            onPress={() => {
+              append(emptyCarton(products.data?.[0]?.id ?? ""));
+              if (submitCount > 0) void trigger();
+            }}
           >
             <Ionicons color="#208AEF" name="add" size={18} />
             <Text className="font-semibold text-brand">Ajouter un carton</Text>
@@ -887,6 +897,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                     setValue(
                       "payment.amount",
                       Number(raw.replace(/[^0-9]/g, "")) || 0,
+                      revalidate,
                     )
                   }
                   placeholder="0"
@@ -908,7 +919,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                 </Text>
                 <Pressable
                   className="self-start rounded-lg bg-brand/10 px-3 py-1.5"
-                  onPress={() => setValue("payment.amount", totals.cost)}
+                  onPress={() => setValue("payment.amount", totals.cost, revalidate)}
                 >
                   <Text className="text-sm font-medium text-brand">
                     Payer tout ({formatMoney(totals.cost)})
@@ -938,6 +949,7 @@ export function ArrivalFormScreen({ editId = null }: { editId?: string | null })
                             values.payment.method === method.name
                               ? undefined
                               : method.name,
+                            revalidate,
                           )
                         }
                       />
