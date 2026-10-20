@@ -252,6 +252,36 @@ describe('Ventes', () => {
     expect(entries.filter((e) => e.kind === 'SALE').reduce((s, e) => s + e.cashDelta, 0)).toBe(0);
   });
 
+  it('annulation : la contre-passation apparaît dans le dérillage « argent reçu »', async () => {
+    const created = await admin.post('/sales').send({
+      items: [{ variantId: variantA, quantity: 1, unitPrice: 45000 }],
+      payment: { amount: 45000 },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const saleId = created.body.id;
+
+    const cancelled = await admin.post(`/sales/${saleId}/cancel`).send({ reason: 'Erreur de prix' });
+    expect(cancelled.status).toBe(200);
+
+    const drill = await admin.get('/dashboard/receipts/transactions?period=today');
+    expect(drill.status).toBe(200);
+
+    // Nominatif : la ligne de remboursement de CETTE vente est présente et négative.
+    const reversal = drill.body.entries.find(
+      (e: { refId: string | null; cashDelta: string }) =>
+        e.refId === saleId && Number(e.cashDelta) < 0,
+    );
+    expect(reversal, 'contre-passation absente du dérillage argent reçu').toBeTruthy();
+    expect(Number(reversal.cashDelta)).toBe(-45000);
+
+    // §62 : total du dérillage = somme signée de ses propres lignes.
+    const sum = drill.body.entries.reduce(
+      (s: number, e: { cashDelta: string }) => s + Number(e.cashDelta),
+      0,
+    );
+    expect(Number(drill.body.total)).toBeCloseTo(sum, 2);
+  });
+
   it('refuse une double annulation', async () => {
     const res = await admin.post(`/sales/${saleFifoId}/cancel`).send({ reason: 'Encore' });
     expect(res.status).toBe(422);

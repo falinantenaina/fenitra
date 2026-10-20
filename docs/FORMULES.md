@@ -21,6 +21,12 @@ Aucune valeur n'est saisie ni calculée « à la main ».
 d'origine avec `amount` et `cashDelta` négatifs + `reference = 'ANNULATION …'`.
 Ainsi `Σ amount WHERE kind='SALE'` reste exact sans condition supplémentaire.
 
+Les **recettes** (« argent reçu ») suivent la même règle : somme **signée** de
+`cashDelta` sur les kinds d'encaissement (`SALE`, `CUSTOMER_PAYMENT`,
+`ONLINE_SELLER_PAYMENT`) — une annulation ou un remboursement (A18) y est donc
+**déduit**, comme au caisse. Même prédicat pour le dashboard, les séries et le
+dérillage (§62).
+
 ### Kind → indicateur
 
 | `kind` | signification | cashDelta | indicateur |

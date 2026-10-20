@@ -16,7 +16,7 @@ export interface RawActivity {
   ca: number;
   /** COGS = Σ amount(kind = COGS) */
   cogs: number;
-  /** Recettes = Σ cashDelta>0 des écritures de vente (du moment + règlements) */
+  /** Recettes = Σ cashDelta signé des écritures de vente (du moment + règlements ; annulations et remboursements déduits) */
   receipts: number;
   /** dont encaissé au moment de la vente (sous-indicateur) */
   collectedAtSale: number;

@@ -65,12 +65,9 @@ export async function loadActivity(from: Date, to: Date, db: Db = prisma): Promi
         COALESCE(SUM("amount") FILTER (WHERE kind = 'SALE'), 0)                     AS ca,
         COALESCE(SUM("amount") FILTER (WHERE kind = 'COGS'), 0)                     AS cogs,
         COALESCE(SUM("cashDelta") FILTER (
-          WHERE "cashDelta" > 0
-            AND kind IN ('SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT')
+          WHERE kind IN ('SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT')
         ), 0)                                                                       AS receipts,
-        COALESCE(SUM("cashDelta") FILTER (
-          WHERE "cashDelta" > 0 AND kind = 'SALE'
-        ), 0)                                                                       AS collected_at_sale,
+        COALESCE(SUM("cashDelta") FILTER (WHERE kind = 'SALE'), 0)                  AS collected_at_sale,
         COALESCE(SUM("amount") FILTER (WHERE kind = 'EXPENSE'), 0)                  AS expenses,
         COALESCE(SUM("amount") FILTER (WHERE kind = 'VERSEMENT'), 0)                AS versement_charges,
         COALESCE(SUM("amount") FILTER (WHERE kind = 'PROFIT_DRAWING'), 0)           AS profit_drawings,
@@ -107,7 +104,8 @@ export type SeriesMetric = 'ca' | 'receipts' | 'outflow';
  * Valeurs journalières d'un indicateur de flux, une ligne par jour **non vide**.
  *
  * Mêmes prédicats que `loadActivity` : CA = `Σ amount(kind = 'SALE')` signé,
- * recettes = cash entrant des ventes et règlements, sorties = -cash sortant —
+ * recettes = cash **signé** des ventes et règlements (contre-passations et
+ * remboursements inclus), sorties = -cash sortant —
  * le total d'une série est donc exactement la valeur affichée au dashboard.
  *
  * Le découpage en jour se fait dans la timezone du business (A13) : `date`
@@ -127,8 +125,7 @@ export async function loadSeries(
       ? Prisma.sql`COALESCE(SUM("amount") FILTER (WHERE kind = 'SALE'), 0)`
       : metric === 'receipts'
         ? Prisma.sql`COALESCE(SUM("cashDelta") FILTER (
-            WHERE "cashDelta" > 0
-              AND kind IN ('SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT')
+            WHERE kind IN ('SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT')
           ), 0)`
         : Prisma.sql`COALESCE(-SUM("cashDelta") FILTER (WHERE "cashDelta" < 0), 0)`;
 

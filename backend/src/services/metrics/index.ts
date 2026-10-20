@@ -289,8 +289,6 @@ interface IndicatorDef {
   kinds?: string[];
   /** Source `debts` : types de dettes retenus. */
   debtTypes?: string[];
-  /** Ne retourne que les écritures à cashDelta > 0 */
-  positiveCashOnly?: boolean;
   /**
    * Total de l'indicateur. Par défaut : `Σ amount`.
    * Les indicateurs dérivés (bénéfice) et l'argent propre ont besoin de signes
@@ -482,7 +480,6 @@ export const INDICATORS: Record<IndicatorKey, IndicatorDef> = {
   receipts: {
     label: 'Argent reçu',
     kinds: ['SALE', 'CUSTOMER_PAYMENT', 'ONLINE_SELLER_PAYMENT'],
-    positiveCashOnly: true,
     total: sumCashDelta,
   },
   expenses: { label: 'Dépenses', kinds: ['EXPENSE'] },
@@ -649,8 +646,7 @@ export async function getIndicatorDrilldown(
   const range = resolvePeriod(key, now, custom);
   const { rows: all, scope } = await assembleRows(def, range, financeConfig());
 
-  const entries = def.positiveCashOnly ? all.filter((e) => e.cashDelta > 0) : all;
-  const total = def.total ? def.total(entries) : entries.reduce((acc, e) => acc + e.amount, 0);
+  const total = def.total ? def.total(all) : all.reduce((acc, e) => acc + e.amount, 0);
 
   return {
     indicator,
@@ -662,9 +658,9 @@ export async function getIndicatorDrilldown(
       to: range.to.toISOString(),
       label: range.label,
     },
-    count: entries.length,
+    count: all.length,
     total,
-    entries,
+    entries: all,
   };
 }
 
