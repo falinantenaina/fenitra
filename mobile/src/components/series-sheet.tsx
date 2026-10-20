@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -18,6 +19,13 @@ import { ErrorPanel } from '@/components/error-panel';
 import { formatMoney } from '@/lib/format';
 import { useProductVariants } from '@/lib/queries';
 import type { VariantSearchItem } from '@/lib/types';
+
+/**
+ * Plafond en pixels : un `max-h-[70%]` se résout contre un parent sans
+ * hauteur définie (le clavier fait varier la hauteur) et écrase le volet —
+ * le ScrollView passait à 0 et les pointures devenaient invisibles.
+ */
+const SHEET_MAX_HEIGHT = Math.round(Dimensions.get('window').height * 0.7);
 
 /** Ligne de panier produite par le volet « choisir série ». */
 export type SeriesLine = {
@@ -123,8 +131,8 @@ export function SeriesSheet({ onClose, onConfirm, productId, productName }: Prop
         />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <Animated.View
-            className="max-h-[70%] rounded-t-3xl bg-white"
-            style={{ transform: [{ translateY }] }}>
+            className="overflow-hidden rounded-t-3xl bg-white"
+            style={{ maxHeight: SHEET_MAX_HEIGHT, transform: [{ translateY }] }}>
             <View {...pan.panHandlers} className="px-4 pb-2 pt-3">
               <View className="items-center pb-2">
                 <View className="h-1 w-10 rounded-full bg-slate-300" />
@@ -156,7 +164,7 @@ export function SeriesSheet({ onClose, onConfirm, productId, productName }: Prop
               </Text>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}>
               {variants.isPending ? (
                 <ActivityIndicator className="py-6" color="#208AEF" />
               ) : variants.isError ? (
