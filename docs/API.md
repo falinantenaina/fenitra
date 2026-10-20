@@ -203,6 +203,7 @@ Chaque famille expose `GET|POST /`, `GET|PUT|DELETE /:id` et `GET /:id/summary`
 | GET | `/api/sales/:id` | auth | Détail complet (§49) |
 | POST | `/api/sales/:id/payments` | auth | Paiement partiel/total → `UNPAID`/`PARTIAL`/`PAID` |
 | POST | `/api/sales/:id/cancel` | manager | `{ reason }` → restaure les lots, contre-passe `SALE` et `DEBT` |
+| PUT | `/api/sales/:id` | manager | **Édition directe des prix unitaires (A18)** : `{ items: [{ id, unitPrice }], reason? }` → recalcule total, marge, statut et créance ; écriture `SALE` de correction (`amount = Δtotal`, `cashDelta = −trop-perçu`) et, si le nouveau total passe sous l'encaissé, `Payment OUT` de **remboursement en caisse**. Refus : vente annulée / ligne étrangère (404) / total nul / crédit sans tiers (422) |
 
 `POST /sales` refuse une vente à crédit sans tiers (422) — miroir de la règle métier A7.
 

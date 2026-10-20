@@ -6,7 +6,7 @@ import { ilike, offset, pageMeta } from '../../lib/pagination';
 import { allocateFIFO } from '../../services/fifo';
 import { reverseEntries } from '../../services/ledger';
 import { nextReference, peekReference } from '../../services/sequences';
-import type { CreateSaleInput, SaleListQuery } from './sales.schemas';
+import type { CreateSaleInput, SaleListQuery, UpdateSaleInput } from './sales.schemas';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -454,6 +454,161 @@ export async function cancelSale(saleId: string, reason: string, userId: string 
       where: { id: sale.id },
       data: { status: 'CANCELLED', cancelledAt: now, cancelReason: reason },
     });
+
+    return loadSale(tx, sale.id);
+  });
+}
+
+/**
+ * A18 — édition directe des **prix unitaires** d'une vente (quantités, lots
+ * et dates intacts : le FIFO ne bouge pas). Le journal reçoit une écriture
+ * `SALE` de correction — `amount = nouveau total − ancien total`,
+ * `cashDelta = −trop-perçu` — et si le nouveau total passe sous l'encaissé,
+ * un `Payment` sortant enregistre le **remboursement en caisse**. La dette
+ * (ou la nouvelle créance) suit : identité §8.3 exacte.
+ */
+export async function updateSalePrices(
+  saleId: string,
+  input: UpdateSaleInput,
+  userId: string | null,
+) {
+  return prisma.$transaction(async (tx) => {
+    const sale = await tx.sale.findUnique({
+      where: { id: saleId },
+      include: { items: true, debt: true },
+    });
+    if (!sale) throw notFound('Vente introuvable');
+    if (sale.status === 'CANCELLED') {
+      throw businessRule('Cette vente est annulée — modification impossible');
+    }
+
+    const stray = input.items.find(
+      (i) => !sale.items.some((item) => item.id === i.id),
+    );
+    if (stray) throw notFound(`Ligne de vente introuvable : ${stray.id}`);
+
+    const patch = new Map(input.items.map((i) => [i.id, i.unitPrice]));
+    let newTotal = 0;
+    for (const item of sale.items) {
+      newTotal += item.quantity * (patch.get(item.id) ?? item.unitPrice);
+    }
+    if (newTotal < 1) {
+      throw businessRule('Le total de la vente doit être strictement positif');
+    }
+
+    const paid = sale.paidAmount;
+    if (sale.debt && sale.debt.paidAmount !== paid) {
+      throw businessRule(
+        'Règlements incohérents entre la vente et sa créance — encaissez d\'abord la vente',
+      );
+    }
+
+    const remainingRaw = newTotal - paid;
+    if (remainingRaw > 0 && !sale.customerId && !sale.onlineSellerId) {
+      throw businessRule(
+        'Une vente à crédit doit être rattachée à un client ou à un vendeur en ligne',
+      );
+    }
+
+    const refund = remainingRaw < 0 ? -remainingRaw : 0;
+    const paidAfter = paid - refund;
+    const remaining = newTotal - paidAfter;
+    const status =
+      remaining === 0 ? ('PAID' as const) : paidAfter > 0 ? ('PARTIAL' as const) : ('UNPAID' as const);
+    const delta = newTotal - sale.totalAmount;
+
+    for (const item of sale.items) {
+      const unitPrice = patch.get(item.id);
+      if (unitPrice === undefined || unitPrice === item.unitPrice) continue;
+      await tx.saleItem.update({
+        where: { id: item.id },
+        data: { unitPrice, lineTotal: item.quantity * unitPrice },
+      });
+    }
+
+    await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        totalAmount: newTotal,
+        paidAmount: paidAfter,
+        remainingAmount: remaining,
+        status,
+        margin: newTotal - sale.cogs,
+      },
+    });
+
+    let debtId: string | null = sale.debt?.id ?? null;
+    if (sale.debt) {
+      await tx.debt.update({
+        where: { id: sale.debt.id },
+        data: {
+          initialAmount: newTotal,
+          paidAmount: paidAfter,
+          remainingAmount: remaining,
+          status: remaining === 0 ? 'PAID' : paidAfter > 0 ? 'PARTIAL' : 'OPEN',
+        },
+      });
+    } else if (remaining > 0) {
+      const debt = await tx.debt.create({
+        data: {
+          type: sale.customerId ? 'CUSTOMER' : 'ONLINE_SELLER',
+          direction: 'RECEIVABLE',
+          origin: 'SALE',
+          saleId: sale.id,
+          customerId: sale.customerId,
+          onlineSellerId: sale.onlineSellerId,
+          reason: `Achat ${sale.reference} — prix corrigé`,
+          initialAmount: newTotal,
+          paidAmount: paidAfter,
+          remainingAmount: remaining,
+          date: sale.date,
+          status: paidAfter > 0 ? 'PARTIAL' : 'OPEN',
+        },
+      });
+      debtId = debt.id;
+    }
+
+    let paymentId: string | null = null;
+    if (refund > 0) {
+      const payment = await tx.payment.create({
+        data: {
+          reference: await nextReference(tx, 'payment'),
+          date: new Date(),
+          amount: refund,
+          direction: 'OUT',
+          partyType: sale.customerId
+            ? 'CUSTOMER'
+            : sale.onlineSellerId
+              ? 'ONLINE_SELLER'
+              : 'OTHER',
+          partyId: sale.customerId ?? sale.onlineSellerId,
+          saleId: sale.id,
+          method: sale.paymentMethod,
+          notes: `Remboursement ${sale.reference} — correction de prix`,
+          userId,
+        },
+      });
+      paymentId = payment.id;
+    }
+
+    if (delta !== 0) {
+      await tx.ledgerEntry.create({
+        data: {
+          date: new Date(),
+          kind: 'SALE',
+          amount: delta,
+          cashDelta: -refund,
+          description: `Correction prix ${sale.reference}${input.reason ? ` — ${input.reason}` : ''}`,
+          reference: `CORRECTION ${sale.reference}`,
+          refType: 'SALE',
+          refId: sale.id,
+          saleId: sale.id,
+          debtId,
+          paymentId,
+          userId,
+        },
+      });
+    }
 
     return loadSale(tx, sale.id);
   });

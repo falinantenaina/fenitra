@@ -293,6 +293,111 @@ describe('Ventes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('A18 — édite le prix d\'une vente à crédit et recalcule la créance', async () => {
+    const created = await admin.post('/sales').send({
+      customerId,
+      items: [{ variantId: variantA, quantity: 2, unitPrice: 45000 }],
+      payment: { amount: 10000 },
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+
+    const res = await admin.put(`/sales/${id}`).send({
+      items: [{ id: created.body.items[0].id, unitPrice: 50000 }],
+      reason: 'Prix négocié',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.totalAmount).toBe('100000.00');
+    expect(res.body.paidAmount).toBe('10000.00');
+    expect(res.body.remainingAmount).toBe('90000.00');
+    expect(res.body.status).toBe('PARTIAL');
+    expect(res.body.cogs).toBe('40000.00'); // 2 × 20000 (FIFO intact)
+    expect(res.body.margin).toBe('60000.00');
+    expect(res.body.debt).toMatchObject({
+      initialAmount: '100000.00',
+      paidAmount: '10000.00',
+      remainingAmount: '90000.00',
+      status: 'PARTIAL',
+    });
+    expect(res.body.items[0].unitPrice).toBe('50000.00');
+    expect(res.body.items[0].lineTotal).toBe('100000.00');
+
+    const entries = await prisma.ledgerEntry.findMany({ where: { refType: 'SALE', refId: id } });
+    const saleNet = entries.filter((e) => e.kind === 'SALE').reduce((s, e) => s + e.amount, 0);
+    expect(saleNet).toBe(100000);
+    const correction = entries.find((e) => e.reference?.startsWith('CORRECTION'));
+    expect(correction).toMatchObject({ amount: 10000, cashDelta: 0 });
+  });
+
+  it('A18 — rembourse le trop-perçu quand le prix passe sous l\'encaissé', async () => {
+    const created = await admin.post('/sales').send({
+      items: [{ variantId: variantA, quantity: 1, unitPrice: 45000 }],
+      payment: { amount: 45000 },
+      paymentMethod: 'Espèces',
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe('PAID');
+    const id = created.body.id;
+
+    const res = await admin.put(`/sales/${id}`).send({
+      items: [{ id: created.body.items[0].id, unitPrice: 30000 }],
+      reason: 'Mauvais prix saisi',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.totalAmount).toBe('30000.00');
+    expect(res.body.paidAmount).toBe('30000.00');
+    expect(res.body.remainingAmount).toBe('0.00');
+    expect(res.body.status).toBe('PAID');
+    expect(res.body.margin).toBe('10000.00'); // 30000 − 20000 (FIFO)
+    expect(res.body.debt).toBeNull();
+
+    const refund = await prisma.payment.findFirst({ where: { saleId: id, direction: 'OUT' } });
+    expect(refund).toMatchObject({ amount: 15000 });
+
+    const saleEntries = await prisma.ledgerEntry.findMany({
+      where: { refType: 'SALE', refId: id, kind: 'SALE' },
+    });
+    expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(30000);
+    expect(saleEntries.reduce((s, e) => s + e.cashDelta, 0)).toBe(30000);
+  });
+
+  it('A18 — refuse un crédit ouvert sans tiers et un total nul', async () => {
+    const created = await admin.post('/sales').send({
+      items: [{ variantId: variantA, quantity: 1, unitPrice: 45000 }],
+      payment: { amount: 45000 },
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+    const itemId = created.body.items[0].id;
+
+    const credit = await admin.put(`/sales/${id}`).send({ items: [{ id: itemId, unitPrice: 60000 }] });
+    expect(credit.status).toBe(422);
+    expect(credit.body.error.message).toContain('rattachée à un client');
+
+    const zero = await admin.put(`/sales/${id}`).send({ items: [{ id: itemId, unitPrice: 0 }] });
+    expect(zero.status).toBe(422);
+    expect(zero.body.error.message).toContain('strictement positif');
+  });
+
+  it('A18 — refuse vente annulée (422), ligne étrangère (404) et caissier (403)', async () => {
+    const cancelled = await admin.put(`/sales/${saleFifoId}`).send({
+      items: [{ id: 'nimporte-quoi', unitPrice: 1000 }],
+    });
+    expect(cancelled.status).toBe(422);
+    expect(cancelled.body.error.message).toContain('annulée');
+
+    const stray = await admin.put(`/sales/${saleCreditId}`).send({
+      items: [{ id: 'ligne-inconnue', unitPrice: 1000 }],
+    });
+    expect(stray.status).toBe(404);
+
+    const denied = await cashier.put(`/sales/${saleCreditId}`).send({
+      items: [{ id: 'ligne-inconnue', unitPrice: 1000 }],
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('FORBIDDEN');
+  });
+
   it('identité comptable : caisse + stock + créances − passifs = K + (CA − COGS − charges)', async () => {
     const snapshot = await accountingIdentity();
     const { lhs, rhs, delta } = identityBalance(snapshot);

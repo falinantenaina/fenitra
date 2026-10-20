@@ -249,6 +249,21 @@ export default function SaleDetailScreen() {
         </View>
       ) : null}
 
+      {/* Édition des prix (A18) */}
+      {canManage && data.status !== 'CANCELLED' ? (
+        <Pressable
+          className="mt-4 flex-row items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"
+          onPress={() => router.push({ pathname: '/sale/edit', params: { id: id ?? '' } })}>
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-slate-800">Modifier les prix</Text>
+            <Text className="text-xs text-slate-400">
+              Correction par ligne — total, créance et caisse suivent.
+            </Text>
+          </View>
+          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+        </Pressable>
+      ) : null}
+
       {/* Annulation */}
       {canManage && data.status !== 'CANCELLED' ? (
         <View className="mt-4">

@@ -60,6 +60,10 @@ export default function RootLayout() {
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Nouvelle vente' }}
           />
           <Stack.Screen
+            name="sale/edit"
+            options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Modifier les prix' }}
+          />
+          <Stack.Screen
             name="stock/lot"
             options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Détail du lot' }}
           />

@@ -471,6 +471,31 @@ export function usePaySale() {
   });
 }
 
+/** `PUT /sales/:id` — édition directe des prix unitaires (A18). */
+export function useUpdateSale() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      items,
+      reason,
+    }: {
+      id: string;
+      items: { id: string; unitPrice: number }[];
+      reason?: string | null;
+    }) => {
+      const { data } = await api.put<SaleDetail>(`/sales/${id}`, { items, reason });
+      return data;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sales'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['debts'] });
+      void client.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
 /* ════════════ Arrivages ════════════ */
 
 export interface ArrivalFilter {

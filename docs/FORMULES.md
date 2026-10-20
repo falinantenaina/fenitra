@@ -25,7 +25,7 @@ Ainsi `Σ amount WHERE kind='SALE'` reste exact sans condition supplémentaire.
 
 | `kind` | signification | cashDelta | indicateur |
 |---|---|---|---|
-| `SALE` | vente (total), la part payée sort en caisse — **A16** : aussi le bénéfice hors stock (`POST /profits`, montant = bénéfice, sans `Sale`) | +payé (= montant si A16) | CA, recettes, caisse |
+| `SALE` | vente (total), la part payée sort en caisse — **A16** : aussi le bénéfice hors stock (`POST /profits`, montant = bénéfice, sans `Sale`) — **A18** : aussi la correction de prix (`PUT /sales/:id` : écriture complémentaire `amount = Δtotal`, `cashDelta = −remboursement`) | +payé (= montant si A16 ; Δtotal − remboursement si A18) | CA, recettes, caisse |
 | `COGS` | coût des lots sortis | 0 | COGS |
 | `CUSTOMER_PAYMENT` | règlement d'une dette client | + | recettes, caisse |
 | `ONLINE_SELLER_PAYMENT` | règlement d'un vendeur en ligne | + | recettes, caisse |

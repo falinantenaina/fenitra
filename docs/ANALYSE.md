@@ -34,7 +34,7 @@ Argent (propre / trosa sinoa / caisse)
 | §2, §62 | Journal de mouvements comme source de vérité ; tout montant du dashboard est cliquable | Table `LedgerEntry` + agrégats + endpoint de drill-down |
 | §14, §66 | Un nouvel arrivage ne **jamais** écrase un ancien prix | `StockLot` unitaire par ligne de carton, `unitCost` immuable |
 | §16, §17 | FIFO + valorisation par lots | Allocation FIFO + `Σ remainingQty × unitCost` + cartons à ventiler |
-| §19 | Le prix de vente d'une vente est figé | `SaleItem.unitPrice` copié à la création |
+| §19 | Le prix de vente d'une vente est figé | `SaleItem.unitPrice` copié à la création — **correction explicite (A18)** : `PUT /api/sales/:id` écrit une `SALE` de correction au journal, sans toucher au FIFO |
 | §41→§46 | CA ≠ recettes ≠ bénéfice ≠ caisse ≠ stock ≠ dettes ≠ capital | Formules distinctes (§8 de ce document) |
 | §28, §67 | Les vendeurs en ligne n'ont **aucun** module de dépenses/revenus/bénéfices | Entité limitée à achats + paiements + dettes |
 | §30, §31, §68 | Toute dette a un **motif obligatoire**, généré puis modifiable | `Debt.reason` `NOT NULL` + service de génération |
@@ -78,6 +78,8 @@ Argent (propre / trosa sinoa / caisse)
 | **A14** ✅ | **Rôles / RBAC** exacts | Sécurité | `ADMIN`, `MANAGER`, `CASHIER` — **VALIDÉ** : le caissier vend (avec création / modification du client), saisit les dépenses (création / correction / suppression) et visualise le stock ; `403` sur dettes, versements, argent propre, trosa, arrivages, journal et rapports (portée détaillée dans `docs/API.md` §3) |
 | **A15** | **Trosa sinoa** : doit-il apparaître dans « Dettes » du dashboard **et** dans une section séparée (§32) ? | Dashboard | Une seule table, deux vues (filtre par type) |
 | **A16** ✅ | **Bénéfice hors stock** : vendre des paires absentes du stock en n'enregistrant que le bénéfice ? Que saisir ? | Saisie, journal, dashboard, RBAC | **VALIDÉ :** saisie minimale **montant + description facultative** (`POST /api/profits`, ouvert à **tous les rôles — caissier inclus**) — une écriture `SALE` au journal **sans `Sale` ni article** ; `cashDelta = montant` (l'achat puis la vente font un mouvement net de caisse égal au bénéfice → identité §8.3 préservée). Comptabilisé en CA, argent reçu, brut et net au montant saisi ; ignoré de la marge à recevoir (aucune `Sale`) ; stock intact |
+| **A17** | **Arrivages à couvrir** : dettes fournisseur lump-sum + sorties caisse manuelles, ou routage automatique des restes d'arrivage vers les dettes ? | Arrivages, dettes, caisse | **AJOURNÉ :** plan détaillé présenté puis reporté par l'utilisateur — aucune implémentation |
+| **A18** ✅ | **Édition directe d'une vente déjà enregistrée** : que corriger, et que faire du trop-perçu encaissé ? | Ventes, journal, caisse | **VALIDÉ : prix unitaire par ligne seulement** (quantités/date : annuler + recréer). `PUT /api/sales/:id` (manager/admin) recalcule total, marge, statut et créance ; le journal reçoit une écriture `SALE` de correction (`amount = Δtotal`, `cashDelta = −trop-perçu`). Si le nouveau total passe sous l'encaissé : **remboursement en caisse** (`Payment OUT` + `paidAmount` recalé sur le nouveau total). Crédit ouvert sur une vente sans tiers refusé (422), total nul refusé, vente annulée intouchable — identité §8.3 exacte |
 
 ---
 
@@ -1118,6 +1120,7 @@ de démonstration de `prisma/demo.ts` si l'on veut une base remplie.
 | **A10** | **Reconnaissance à l'encaissement intégral (§41)** : la marge d'une vente n'est reconnue que quand la vente est **entièrement réglée** (tout-ou-rien par vente). `bénéfice encaissé = vola − K + retraits − marge à recevoir` ; bénéfice de période = `accrual − Δ(marge à recevoir)` ; carte dérillable « Bénéfice à recevoir ». Les paiements sont reconstitués historiquement (`Payment.saleId` + versements via `Debt.saleId`) |
 | **A11** | **Portée commerciale (`CASHIER`)** : aucun bénéfice ni coût à l'écran. Dashboard sans « Situation à la date », sans cartes de bénéfice, sans valorisation du stock, sans « Remboursements fournisseurs » ni « Dettes à payer » ; vente sans marge (prix de vente seulement) ; stock sans valorisation ni prix d'achat (liste + quantités, prix de vente conservés). Masquage deny-by-default (`canManage`), endpoints REST inchangés |
 | **A16** | **Bénéfice hors stock** : saisie minimale **montant + description facultative** (`POST /api/profits`, tous rôles — caissier inclus). Écriture `SALE` au journal **sans `Sale` ni article** (`refType`/`saleId` nuls), `cashDelta = montant` → CA, argent reçu, brut, net et caisse au montant saisi, **identité §8.3 exacte**, marge à recevoir et stock inchangés |
+| **A18** | **Édition directe des prix d'une vente** : prix unitaire par ligne, `PUT /api/sales/:id` (manager/admin). Écriture `SALE` de correction `amount = Δtotal`, `cashDelta = −trop-perçu` ; **remboursement en caisse** (`Payment OUT`, `paidAmount` recalé) si sous l'encaissé ; dette créée/mise à jour si le crédit s'ouvre (tiers requis, sinon 422) ; FIFO et COGS intacts |
 
 ### 14.2 Défauts retenus sur les ambiguïtés non bloquantes
 

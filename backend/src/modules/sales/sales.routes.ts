@@ -11,6 +11,7 @@ import {
   idParamSchema,
   saleListQuery,
   salePaymentSchema,
+  updateSaleSchema,
 } from './sales.schemas';
 import {
   addSalePayment,
@@ -19,6 +20,7 @@ import {
   listSales,
   loadSale,
   previewSaleReference,
+  updateSalePrices,
 } from './sales.service';
 
 export const salesRouter = Router();
@@ -119,5 +121,16 @@ salesRouter.post(
     const { id } = parseParams(req, idParamSchema);
     const body = parseBody(req, cancelSaleSchema);
     res.json(await cancelSale(id, body.reason, req.user!.id));
+  }),
+);
+
+/** PUT /api/sales/:id — édition directe des prix unitaires (A18) */
+salesRouter.put(
+  '/:id',
+  managerOrAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParamSchema);
+    const body = parseBody(req, updateSaleSchema);
+    res.json(await updateSalePrices(id, body, req.user!.id));
   }),
 );

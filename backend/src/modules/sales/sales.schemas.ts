@@ -68,3 +68,30 @@ export const salePaymentSchema = z.object({
 export const cancelSaleSchema = z.object({
   reason: z.string().trim().min(3, 'Motif d\'annulation requis').max(500),
 });
+
+/** A18 — édition directe des prix unitaires d'une vente déjà enregistrée. */
+export const updateSaleSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          id: z.string().min(1, 'Ligne requise'),
+          unitPrice: z.number().int().min(0, 'Prix de vente invalide'),
+        }),
+      )
+      .min(1, 'Au moins une ligne')
+      .max(100),
+    reason: z.string().trim().max(500).nullish(),
+  })
+  .superRefine((v, ctx) => {
+    const ids = new Set(v.items.map((i) => i.id));
+    if (ids.size !== v.items.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items'],
+        message: 'Ligne de vente en double',
+      });
+    }
+  });
+
+export type UpdateSaleInput = z.infer<typeof updateSaleSchema>;
